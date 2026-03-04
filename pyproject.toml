@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcpdb"
+version = "3.0.4"
+description = "MCP server for natural language database exploration and analysis"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "mcp>=1.0",
+    "langgraph>=0.2",
+    "pandas>=2.0",
+    "anthropic>=0.40",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "matplotlib>=3.5",
+    "seaborn>=0.12",
+]
+sandbox = [
+    "matplotlib>=3.5",
+    "seaborn>=0.12",
+]
+excel = [
+    "openpyxl>=3.1",
+]
+csv = [
+    "duckdb>=1.0",
+    "chardet>=5.0",
+]
+ui = [
+    "nicegui>=3.0",
+]
+export = [
+    "weasyprint>=62",
+    "nbformat>=5.0",
+]
+
+[project.scripts]
+mcpdb = "mcpdb.__main__:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
