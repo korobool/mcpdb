@@ -29,18 +29,37 @@ pip install mcpdb
 
 Install only what you need:
 
+**Database drivers** (install for your database type):
 ```bash
-pip install mcpdb[csv]       # CSV support (DuckDB, chardet)
-pip install mcpdb[excel]     # Excel support (openpyxl)
-pip install mcpdb[ui]        # Web UI (NiceGUI)
-pip install mcpdb[export]    # PDF/notebook export (weasyprint, nbformat)
-pip install mcpdb[sandbox]   # Chart generation (matplotlib, seaborn)
-pip install mcpdb[openai]    # OpenAI provider
-pip install mcpdb[gemini]    # Google Gemini provider
-pip install mcpdb[ollama]    # Ollama local models (httpx)
-pip install mcpdb[oracle]    # Oracle database (cx_Oracle)
-pip install mcpdb[all]       # Everything except Oracle
+pip install mcpdb[postgresql]  # PostgreSQL (psycopg2-binary)
+pip install mcpdb[mysql]       # MySQL / MariaDB (PyMySQL)
+pip install mcpdb[mssql]       # SQL Server (pyodbc)
+pip install mcpdb[oracle]      # Oracle (cx_Oracle)
+# SQLite — built-in, no extra install needed
 ```
+
+**Data sources & features**:
+```bash
+pip install mcpdb[csv]         # CSV support (DuckDB, chardet)
+pip install mcpdb[excel]       # Excel support (openpyxl)
+pip install mcpdb[ui]          # Web UI (NiceGUI)
+pip install mcpdb[export]      # PDF/notebook export (weasyprint, nbformat)
+pip install mcpdb[sandbox]     # Chart generation (matplotlib, seaborn)
+```
+
+**LLM providers** (Anthropic is included by default):
+```bash
+pip install mcpdb[openai]      # OpenAI GPT models
+pip install mcpdb[gemini]      # Google Gemini models
+pip install mcpdb[ollama]      # Ollama local models (httpx)
+```
+
+**Install everything** (except Oracle):
+```bash
+pip install mcpdb[all]
+```
+
+You can combine extras: `pip install mcpdb[postgresql,mysql,csv,excel]`
 
 ### Development Install
 
@@ -179,6 +198,80 @@ ui:
 ```
 
 Environment variables are resolved with `${VAR_NAME}` syntax — use this for API keys.
+
+### Using Google Gemini
+
+1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+2. Install the Gemini extra:
+   ```bash
+   pip install mcpdb[gemini]
+   ```
+
+3. Set your API key as an environment variable:
+   ```bash
+   export GEMINI_API_KEY="your-key-here"
+   ```
+
+4. Configure `mcpdb.yaml` to use Gemini:
+   ```yaml
+   llm:
+     reasoning:
+       provider: gemini
+       model: gemini-2.0-flash       # or gemini-2.5-pro, gemini-2.5-flash
+       api_key: ${GEMINI_API_KEY}
+     fast:
+       provider: gemini
+       model: gemini-2.0-flash
+       api_key: ${GEMINI_API_KEY}
+   ```
+
+   Or for Claude Desktop, pass the key via environment in your MCP config:
+   ```json
+   {
+     "mcpServers": {
+       "mcpdb": {
+         "command": "mcpdb",
+         "args": ["serve"],
+         "env": {
+           "GEMINI_API_KEY": "your-key-here",
+           "MCPDB_CONFIG": "/path/to/mcpdb.yaml"
+         }
+       }
+     }
+   }
+   ```
+
+### Using OpenAI
+
+```bash
+export OPENAI_API_KEY="sk-..."
+pip install mcpdb[openai]
+```
+
+```yaml
+llm:
+  reasoning:
+    provider: openai
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+```
+
+### Using Ollama (local models)
+
+```bash
+pip install mcpdb[ollama]
+ollama pull llama3.1        # Download a model first
+```
+
+```yaml
+llm:
+  reasoning:
+    provider: ollama
+    model: llama3.1          # Any model available in your Ollama instance
+```
+
+No API key needed — Ollama runs locally on `http://localhost:11434`.
 
 ## Debug / Development Mode
 
@@ -395,13 +488,15 @@ MCPDB automatically classifies your question and routes to the appropriate mode:
 
 ### Databases
 
-```
-postgresql://user:pass@host:5432/dbname
-mysql://user:pass@host:3306/dbname
-sqlite:///path/to/database.db
-mssql+pyodbc://user:pass@host/dbname?driver=ODBC+Driver+17+for+SQL+Server
-oracle://user:pass@host:1521/service
-```
+Each database type requires its driver extra to be installed:
+
+| Database   | Connection String | Install |
+|------------|-------------------|---------|
+| PostgreSQL | `postgresql://user:pass@host:5432/dbname` | `pip install mcpdb[postgresql]` |
+| MySQL      | `mysql://user:pass@host:3306/dbname` | `pip install mcpdb[mysql]` |
+| SQLite     | `sqlite:///path/to/database.db` | Built-in |
+| SQL Server | `mssql+pyodbc://user:pass@host/dbname?driver=ODBC+Driver+17+for+SQL+Server` | `pip install mcpdb[mssql]` |
+| Oracle     | `oracle://user:pass@host:1521/service` | `pip install mcpdb[oracle]` |
 
 ### CSV Files
 

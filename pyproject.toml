@@ -28,6 +28,18 @@ sandbox = [
     "matplotlib>=3.5",
     "seaborn>=0.12",
 ]
+postgresql = [
+    "psycopg2-binary>=2.9",
+]
+mysql = [
+    "pymysql>=1.1",
+]
+mssql = [
+    "pyodbc>=5.0",
+]
+oracle = [
+    "cx_Oracle>=8.0",
+]
 excel = [
     "openpyxl>=3.1",
 ]
@@ -51,11 +63,8 @@ gemini = [
 ollama = [
     "httpx>=0.25",
 ]
-oracle = [
-    "cx_Oracle>=8.0",
-]
 all = [
-    "mcpdb[excel,csv,ui,export,sandbox,openai,gemini,ollama]",
+    "mcpdb[postgresql,mysql,excel,csv,ui,export,sandbox,openai,gemini,ollama]",
 ]
 
 [project.scripts]
