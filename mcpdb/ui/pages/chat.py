@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from nicegui import ui
 
@@ -126,7 +126,7 @@ async def _run_query(state: UIState, question: str) -> None:
         elif etype == "synthesize/start":
             state.set_phase("synthesizing")
 
-    callbacks.on_event(on_event)
+    callbacks.add_listener(on_event)
 
     # Get LLM (try to create one, fall back to a simple response)
     llm = _get_llm()
