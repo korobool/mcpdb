@@ -27,6 +27,8 @@ def register_all_tools(server: Server, registry: SourceRegistry, llm: Any = None
     from mcpdb.mcp.tools.profiling import get_profiling_tools, handle_profiling_tool
     from mcpdb.mcp.tools.relationships import get_relationship_tools, handle_relationship_tool
     from mcpdb.mcp.tools.excel import get_excel_tools, handle_excel_tool
+    from mcpdb.mcp.tools.export import get_export_tools, handle_export_tool
+    from mcpdb.mcp.tools.experience import get_experience_tools, handle_experience_tool
 
     all_tools: list[Tool] = []
     all_tools.extend(get_session_tools())
@@ -36,6 +38,8 @@ def register_all_tools(server: Server, registry: SourceRegistry, llm: Any = None
     all_tools.extend(get_relationship_tools())
     all_tools.extend(get_excel_tools())
     all_tools.extend(get_analysis_tools())
+    all_tools.extend(get_export_tools())
+    all_tools.extend(get_experience_tools())
     all_tools.extend(get_control_tools())
 
     handlers: dict[str, Callable] = {}
@@ -53,6 +57,10 @@ def register_all_tools(server: Server, registry: SourceRegistry, llm: Any = None
         handlers[tool.name] = lambda args, r=registry, l=llm: handle_excel_tool(args["_name"], args, r, l)
     for tool in get_analysis_tools():
         handlers[tool.name] = lambda args, r=registry, l=llm: handle_analysis_tool(args["_name"], args, r, l)
+    for tool in get_export_tools():
+        handlers[tool.name] = lambda args: handle_export_tool(args["_name"], args)
+    for tool in get_experience_tools():
+        handlers[tool.name] = lambda args, r=registry: handle_experience_tool(args["_name"], args, r)
     for tool in get_control_tools():
         handlers[tool.name] = lambda args: handle_control_tool(args["_name"], args)
 

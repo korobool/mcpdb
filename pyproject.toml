@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpdb"
-version = "3.0.4"
+version = "3.9.9"
 description = "MCP server for natural language database exploration and analysis"
 requires-python = ">=3.10"
 license = "MIT"
@@ -41,6 +41,21 @@ ui = [
 export = [
     "weasyprint>=62",
     "nbformat>=5.0",
+]
+openai = [
+    "openai>=1.0",
+]
+gemini = [
+    "google-generativeai>=0.5",
+]
+ollama = [
+    "httpx>=0.25",
+]
+oracle = [
+    "cx_Oracle>=8.0",
+]
+all = [
+    "mcpdb[excel,csv,ui,export,sandbox,openai,gemini,ollama]",
 ]
 
 [project.scripts]

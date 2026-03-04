@@ -743,12 +743,14 @@ class TestSuggestFollowups:
 class TestToolRegistration:
     def test_all_tools_registered(self):
         """All tools (6 session + 4 query + 3 discovery + 2 profile +
-        2 relationship + 5 excel + 2 analysis + 3 control) are registered."""
+        2 relationship + 5 excel + 2 analysis + 1 export + 5 experience + 3 control)."""
         from mcpdb.mcp.tools.session import get_session_tools
         from mcpdb.mcp.tools.querying import get_query_tools
         from mcpdb.mcp.tools.discovery import get_discovery_tools
         from mcpdb.mcp.tools.control import get_control_tools
         from mcpdb.mcp.tools.excel import get_excel_tools
+        from mcpdb.mcp.tools.export import get_export_tools
+        from mcpdb.mcp.tools.experience import get_experience_tools
 
         all_tools = (
             get_session_tools()
@@ -758,9 +760,11 @@ class TestToolRegistration:
             + get_relationship_tools()
             + get_excel_tools()
             + get_analysis_tools()
+            + get_export_tools()
+            + get_experience_tools()
             + get_control_tools()
         )
-        assert len(all_tools) == 27
+        assert len(all_tools) == 33
 
     def test_tool_names_unique(self):
         from mcpdb.mcp.tools.session import get_session_tools
@@ -768,6 +772,8 @@ class TestToolRegistration:
         from mcpdb.mcp.tools.discovery import get_discovery_tools
         from mcpdb.mcp.tools.control import get_control_tools
         from mcpdb.mcp.tools.excel import get_excel_tools
+        from mcpdb.mcp.tools.export import get_export_tools
+        from mcpdb.mcp.tools.experience import get_experience_tools
 
         all_tools = (
             get_session_tools()
@@ -777,6 +783,8 @@ class TestToolRegistration:
             + get_relationship_tools()
             + get_excel_tools()
             + get_analysis_tools()
+            + get_export_tools()
+            + get_experience_tools()
             + get_control_tools()
         )
         names = [t.name for t in all_tools]

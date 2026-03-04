@@ -243,8 +243,145 @@ class TestImports:
         from mcpdb.ui.components.execution_monitor import create_execution_monitor
         assert callable(create_execution_monitor)
 
+    def test_import_schema_viewer(self):
+        from mcpdb.ui.components.schema_viewer import create_schema_viewer
+        assert callable(create_schema_viewer)
+
+    def test_import_excel_viewer(self):
+        from mcpdb.ui.components.excel_viewer import create_excel_viewer
+        assert callable(create_excel_viewer)
+
+    def test_import_cost_gate_dialog(self):
+        from mcpdb.ui.components.cost_gate_dialog import CostGateDialog
+        assert callable(CostGateDialog)
+
+    def test_import_deep_analysis_viewer(self):
+        from mcpdb.ui.components.deep_analysis_viewer import (
+            create_deep_analysis_viewer,
+            DeepAnalysisState,
+            InvestigationProgress,
+        )
+        assert callable(create_deep_analysis_viewer)
+
     def test_get_state_singleton(self):
         from mcpdb.ui.app import get_state
         s1 = get_state()
         s2 = get_state()
         assert s1 is s2
+
+
+# ---------------------------------------------------------------------------
+# Deep Analysis state tests
+# ---------------------------------------------------------------------------
+
+class TestDeepAnalysisState:
+    def test_defaults(self):
+        from mcpdb.ui.components.deep_analysis_viewer import DeepAnalysisState
+        state = DeepAnalysisState()
+        assert state.active is False
+        assert state.goal == ""
+        assert state.investigations == []
+        assert state.reasoning_notes == []
+        assert state.report == ""
+
+    def test_investigation_progress(self):
+        from mcpdb.ui.components.deep_analysis_viewer import InvestigationProgress
+        inv = InvestigationProgress(id=1, question="What is churn?")
+        assert inv.id == 1
+        assert inv.status == "pending"
+        assert inv.result == ""
+
+    def test_investigation_status_transitions(self):
+        from mcpdb.ui.components.deep_analysis_viewer import InvestigationProgress
+        inv = InvestigationProgress(id=1, question="Q1")
+        inv.status = "running"
+        assert inv.status == "running"
+        inv.status = "complete"
+        assert inv.status == "complete"
+
+    def test_state_with_investigations(self):
+        from mcpdb.ui.components.deep_analysis_viewer import (
+            DeepAnalysisState,
+            InvestigationProgress,
+        )
+        state = DeepAnalysisState(
+            active=True,
+            goal="Investigate churn",
+            investigations=[
+                InvestigationProgress(id=1, question="Q1", status="complete"),
+                InvestigationProgress(id=2, question="Q2", status="running"),
+                InvestigationProgress(id=3, question="Q3"),
+            ],
+        )
+        assert state.active is True
+        assert len(state.investigations) == 3
+        assert state.investigations[0].status == "complete"
+        assert state.investigations[2].status == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Cost gate dialog tests
+# ---------------------------------------------------------------------------
+
+class TestCostGateDialog:
+    def test_init(self):
+        from mcpdb.ui.components.cost_gate_dialog import CostGateDialog
+        dialog = CostGateDialog()
+        assert dialog._dialog is None
+        assert dialog._callback is None
+
+    def test_select_invokes_callback(self):
+        from mcpdb.ui.components.cost_gate_dialog import CostGateDialog
+        dialog = CostGateDialog()
+        results = []
+        dialog._callback = lambda s: results.append(s)
+        # _select without a dialog (no UI context)
+        dialog._select("SAMPLE")
+        assert results == ["SAMPLE"]
+
+    def test_select_strategies(self):
+        from mcpdb.ui.components.cost_gate_dialog import CostGateDialog
+        dialog = CostGateDialog()
+        for strategy in ("SAMPLE", "FULL", "CANCEL"):
+            results = []
+            dialog._callback = lambda s: results.append(s)
+            dialog._select(strategy)
+            assert results == [strategy]
+
+    def test_close_no_dialog(self):
+        from mcpdb.ui.components.cost_gate_dialog import CostGateDialog
+        dialog = CostGateDialog()
+        # Should not raise when no dialog is open
+        dialog.close()
+
+
+# ---------------------------------------------------------------------------
+# Schema viewer logic tests
+# ---------------------------------------------------------------------------
+
+class TestSchemaViewerLogic:
+    def test_schema_viewer_function_signature(self):
+        import inspect
+        from mcpdb.ui.components.schema_viewer import create_schema_viewer
+        sig = inspect.signature(create_schema_viewer)
+        assert "state" in sig.parameters
+
+    def test_sample_loader_function_exists(self):
+        from mcpdb.ui.components.schema_viewer import _load_sample
+        assert callable(_load_sample)
+
+
+# ---------------------------------------------------------------------------
+# Excel viewer logic tests
+# ---------------------------------------------------------------------------
+
+class TestExcelViewerLogic:
+    def test_excel_viewer_function_signature(self):
+        import inspect
+        from mcpdb.ui.components.excel_viewer import create_excel_viewer
+        sig = inspect.signature(create_excel_viewer)
+        assert "state" in sig.parameters
+
+    def test_sheet_view_function_exists(self):
+        from mcpdb.ui.components.excel_viewer import _create_sheet_view
+        assert callable(_create_sheet_view)

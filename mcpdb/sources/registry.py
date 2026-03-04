@@ -53,6 +53,14 @@ class SourceRegistry:
             raise SourceNotFoundError(f"Source '{source_id}' not found")
         return source
 
+    def get_metadata(self, source_id: str) -> SourceMetadata | None:
+        """Get metadata for a source, or None if not found."""
+        with self._lock:
+            source = self._sources.get(source_id)
+        if source is None:
+            return None
+        return source.get_metadata()
+
     def list_sources(self) -> list[SourceMetadata]:
         """Return metadata for all active sources."""
         with self._lock:

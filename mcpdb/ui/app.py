@@ -50,24 +50,39 @@ def create_app(theme_name: str = "dark") -> None:
 
         # Main layout: sidebar + content
         with ui.row().classes("w-full h-[calc(100vh-64px)]"):
-            # Left sidebar — source panel
+            # Left sidebar — source panel + schema viewer
             with ui.column().classes(
                 "w-80 h-full border-r border-gray-700 p-3 overflow-y-auto"
             ):
                 from mcpdb.ui.components.source_panel import create_source_panel
                 create_source_panel(state)
 
+                ui.separator().classes("my-2")
+
+                from mcpdb.ui.components.schema_viewer import create_schema_viewer
+                create_schema_viewer(state)
+
+                ui.separator().classes("my-2")
+
+                from mcpdb.ui.components.excel_viewer import create_excel_viewer
+                create_excel_viewer(state)
+
             # Center — chat
             with ui.column().classes("flex-grow h-full"):
                 from mcpdb.ui.pages.chat import create_chat_page
                 create_chat_page(state)
 
-            # Right sidebar — execution monitor + artifacts
+            # Right sidebar — execution monitor + deep analysis + artifacts
             with ui.column().classes(
                 "w-80 h-full border-l border-gray-700 p-3 overflow-y-auto"
             ):
                 from mcpdb.ui.components.execution_monitor import create_execution_monitor
                 create_execution_monitor(state)
+
+                ui.separator().classes("my-2")
+
+                from mcpdb.ui.components.deep_analysis_viewer import create_deep_analysis_viewer
+                create_deep_analysis_viewer(state)
 
                 ui.separator().classes("my-2")
 
