@@ -27,7 +27,7 @@ class TestCreateProvider:
         from mcpdb.llm.openai_provider import OpenAIProvider
         p = create_provider("openai")
         assert isinstance(p, OpenAIProvider)
-        assert p.model == "gpt-4o"
+        assert p.model == "gpt-4.1"
 
     def test_openai_custom(self):
         from mcpdb.llm.openai_provider import OpenAIProvider
@@ -39,7 +39,7 @@ class TestCreateProvider:
         from mcpdb.llm.gemini_provider import GeminiProvider
         p = create_provider("gemini")
         assert isinstance(p, GeminiProvider)
-        assert p.model == "gemini-2.0-flash"
+        assert p.model == "gemini-2.5-pro"
 
     def test_ollama(self):
         from mcpdb.llm.ollama_provider import OllamaProvider

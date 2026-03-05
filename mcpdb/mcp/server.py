@@ -11,7 +11,8 @@ from mcp.server.stdio import stdio_server
 
 from mcpdb import __version__
 from mcpdb.config import McpdbConfig, load_config
-from mcpdb.llm.provider import AnthropicProvider, LLMProvider
+from mcpdb.llm.factory import create_provider
+from mcpdb.llm.provider import LLMProvider
 from mcpdb.sources.registry import SourceRegistry
 from mcpdb.mcp.tools import register_all_tools
 from mcpdb.mcp.resources import register_resources
@@ -23,14 +24,7 @@ logger = logging.getLogger("mcpdb.mcp")
 def create_llm_from_config(config: McpdbConfig) -> LLMProvider:
     """Create an LLM provider from configuration."""
     llm_cfg = config.llm.reasoning
-    if llm_cfg.provider == "anthropic":
-        return AnthropicProvider(
-            model=llm_cfg.model,
-            api_key=llm_cfg.api_key,
-        )
-    # Future: support openai, ollama, etc.
-    logger.warning("Unknown LLM provider '%s', falling back to Anthropic", llm_cfg.provider)
-    return AnthropicProvider(model=llm_cfg.model, api_key=llm_cfg.api_key)
+    return create_provider(llm_cfg.provider, llm_cfg.model, llm_cfg.api_key)
 
 
 def create_server(config: McpdbConfig | None = None) -> tuple[Server, SourceRegistry]:

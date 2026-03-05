@@ -16,7 +16,7 @@ class OpenAIProvider(LLMProvider):
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "gpt-4.1",
         api_key: str = "",
         base_url: str | None = None,
     ) -> None:
@@ -27,6 +27,12 @@ class OpenAIProvider(LLMProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
+            if not self._api_key:
+                raise ValueError(
+                    "OpenAI API key not set. "
+                    "Set OPENAI_API_KEY environment variable or configure "
+                    "llm.reasoning.api_key in mcpdb.yaml."
+                )
             try:
                 from openai import AsyncOpenAI
             except ImportError:
@@ -34,9 +40,7 @@ class OpenAIProvider(LLMProvider):
                     "OpenAI provider requires the openai package. "
                     "Install with: pip install openai"
                 )
-            kwargs: dict[str, Any] = {}
-            if self._api_key:
-                kwargs["api_key"] = self._api_key
+            kwargs: dict[str, Any] = {"api_key": self._api_key}
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             self._client = AsyncOpenAI(**kwargs)
@@ -47,7 +51,7 @@ class OpenAIProvider(LLMProvider):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:

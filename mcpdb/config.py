@@ -12,15 +12,15 @@ import yaml
 
 @dataclass
 class LLMModelConfig:
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    provider: str = "gemini"
+    model: str = "gemini-2.5-pro"
     api_key: str = ""
 
 
 @dataclass
 class LLMConfig:
     reasoning: LLMModelConfig = field(default_factory=LLMModelConfig)
-    fast: LLMModelConfig = field(default_factory=lambda: LLMModelConfig(model="claude-haiku-4-5-20251001"))
+    fast: LLMModelConfig = field(default_factory=lambda: LLMModelConfig(model="gemini-2.5-flash"))
     temperature: float = 0.0
     timeout: int = 120
     budget_per_question_usd: float = 2.00
@@ -77,6 +77,24 @@ class UIConfig:
 
 
 @dataclass
+class SandboxConfig:
+    """Python sandbox security configuration.
+
+    allowed_modules: Extra modules to allow (added to built-in defaults).
+    blocked_modules: Extra modules to block (added to built-in defaults).
+    allow_all: If True, all imports are allowed except explicitly blocked ones.
+                Set both allow_all=True and blocked_modules=[] to disable security entirely.
+    memory_mb: Memory limit for sandbox subprocess.
+    cpu_seconds: CPU time limit for sandbox subprocess.
+    """
+    allowed_modules: list[str] = field(default_factory=list)
+    blocked_modules: list[str] = field(default_factory=list)
+    allow_all: bool = False
+    memory_mb: int = 2048
+    cpu_seconds: int = 60
+
+
+@dataclass
 class McpdbConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -85,6 +103,7 @@ class McpdbConfig:
     duckdb: DuckDBConfig = field(default_factory=DuckDBConfig)
     experience: ExperienceConfig = field(default_factory=ExperienceConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
 
 
 def _resolve_env_vars(value: str) -> str:
@@ -127,7 +146,7 @@ def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
         if isinstance(ftype, str):
             ftype = eval(ftype, {**globals(), **{cls.__name__: cls for cls in [
                 LLMModelConfig, LLMConfig, ServerConfig, ExecutionConfig,
-                CostGateConfig, DuckDBConfig, ExperienceConfig, UIConfig, McpdbConfig,
+                CostGateConfig, DuckDBConfig, ExperienceConfig, UIConfig, SandboxConfig, McpdbConfig,
             ]}})
         if dataclasses.is_dataclass(ftype) and isinstance(val, dict):
             kwargs[fname] = _build_dataclass(ftype, val)

@@ -14,6 +14,8 @@ from mcpdb.llm.provider import (
     LLMProvider,
     Message,
     StreamChunk,
+    _extract_json,
+    _repair_json,
 )
 
 
@@ -61,7 +63,7 @@ class TestModelConfig:
         assert cfg.reasoning_model == "claude-sonnet-4-6"
         assert cfg.fast_model == "claude-haiku-4-5-20251001"
         assert cfg.temperature == 0.0
-        assert cfg.max_tokens == 4096
+        assert cfg.max_tokens == 16384
 
     def test_custom(self):
         cfg = ModelConfig(reasoning_provider="openai", reasoning_model="gpt-4o")
@@ -152,6 +154,96 @@ class TestMockProvider:
             system="You are helpful.",
         )
         assert provider.last_system == "You are helpful."
+
+
+class TestExtractJson:
+    """Tests for the robust JSON extraction helper."""
+
+    def test_plain_json(self):
+        assert _extract_json('{"key": "value"}') == {"key": "value"}
+
+    def test_markdown_code_block(self):
+        assert _extract_json('```json\n{"key": "value"}\n```') == {"key": "value"}
+
+    def test_code_block_no_lang(self):
+        assert _extract_json('```\n{"key": 1}\n```') == {"key": 1}
+
+    def test_json_with_surrounding_text(self):
+        text = 'Here is the plan:\n{"mode": "simple", "steps": []}\nDone.'
+        assert _extract_json(text) == {"mode": "simple", "steps": []}
+
+    def test_json_with_leading_text(self):
+        text = 'Sure, here is the JSON response:\n{"analysis": "test"}'
+        assert _extract_json(text) == {"analysis": "test"}
+
+    def test_nested_json(self):
+        text = '{"outer": {"inner": "value"}, "list": [1, 2]}'
+        result = _extract_json(text)
+        assert result["outer"]["inner"] == "value"
+        assert result["list"] == [1, 2]
+
+    def test_json_with_strings_containing_braces(self):
+        text = '{"code": "SELECT * FROM t WHERE x IN {1,2}"}'
+        result = _extract_json(text)
+        assert "SELECT" in result["code"]
+
+    def test_invalid_json_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _extract_json("this has no json at all")
+
+    def test_whitespace_padding(self):
+        assert _extract_json('  \n  {"a": 1}  \n  ') == {"a": 1}
+
+    def test_truncated_json_repair(self):
+        """Gemini thinking tokens can cause truncated JSON responses."""
+        text = '{"action": "continue", "reason": "The analysis has completed 3 of 5'
+        result = _extract_json(text)
+        assert result["action"] == "continue"
+
+    def test_truncated_json_in_code_block(self):
+        text = '```json\n{"action": "continue", "reason": "partial\n```'
+        result = _extract_json(text)
+        assert result["action"] == "continue"
+
+    def test_trailing_comma_repair(self):
+        text = '{"steps": [1, 2, 3,], "mode": "simple",}'
+        result = _extract_json(text)
+        assert result["steps"] == [1, 2, 3]
+
+    def test_truncated_nested_json(self):
+        text = '{"analysis": "test", "steps": [{"step": 1, "code": "SELECT'
+        result = _extract_json(text)
+        assert result["analysis"] == "test"
+
+
+class TestRepairJson:
+    def test_valid_json_unchanged(self):
+        text = '{"key": "value"}'
+        assert json.loads(_repair_json(text)) == {"key": "value"}
+
+    def test_unclosed_string(self):
+        text = '{"key": "val'
+        repaired = _repair_json(text)
+        result = json.loads(repaired)
+        assert result["key"] == "val"
+
+    def test_unclosed_brace(self):
+        text = '{"key": "value"'
+        repaired = _repair_json(text)
+        result = json.loads(repaired)
+        assert result["key"] == "value"
+
+    def test_unclosed_array(self):
+        text = '{"items": [1, 2, 3'
+        repaired = _repair_json(text)
+        result = json.loads(repaired)
+        assert result["items"] == [1, 2, 3]
+
+    def test_trailing_comma(self):
+        text = '{"a": 1, "b": 2,}'
+        repaired = _repair_json(text)
+        result = json.loads(repaired)
+        assert result == {"a": 1, "b": 2}
 
 
 class TestAnthropicProvider:

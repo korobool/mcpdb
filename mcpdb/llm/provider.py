@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
@@ -29,6 +30,144 @@ class Message:
     content: str
 
 
+def _repair_json(text: str) -> str:
+    """Try to repair truncated or malformed JSON from LLM output.
+
+    Handles common LLM issues:
+    - Truncated JSON (unclosed strings, missing braces)
+    - Trailing commas before } or ]
+    """
+    text = text.strip()
+
+    # Remove trailing commas before } or ]
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+
+    # If the JSON looks complete, return as-is
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        pass
+
+    # Try to close truncated JSON
+    # 1. Close any unclosed string
+    in_string = False
+    escape = False
+    for c in text:
+        if escape:
+            escape = False
+            continue
+        if c == "\\":
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+
+    if in_string:
+        text += '"'
+
+    # 2. Close unclosed braces/brackets using a stack to preserve correct order
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for c in text:
+        if esc:
+            esc = False
+            continue
+        if c == "\\":
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == "{":
+            stack.append("}")
+        elif c == "[":
+            stack.append("]")
+        elif c in ("}", "]") and stack and stack[-1] == c:
+            stack.pop()
+
+    # Close in reverse order (inner-to-outer)
+    text += "".join(reversed(stack))
+
+    # Remove trailing commas again after repair
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+
+    return text
+
+
+def _extract_json(text: str) -> dict:
+    """Robustly extract a JSON object from LLM output.
+
+    Handles: raw JSON, markdown code blocks, JSON embedded in text,
+    and truncated/malformed JSON from LLM responses.
+    """
+    text = text.strip()
+
+    # 1. Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Try stripping markdown code block wrappers (```json ... ```)
+    code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if code_block:
+        inner = code_block.group(1).strip()
+        try:
+            return json.loads(inner)
+        except json.JSONDecodeError:
+            # Try repairing the code block content
+            try:
+                return json.loads(_repair_json(inner))
+            except json.JSONDecodeError:
+                pass
+
+    # 3. Try extracting the first {...} block via brace matching
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break
+
+        # 4. Try repairing truncated JSON (e.g., from Gemini thinking token budget)
+        try:
+            repaired = _repair_json(text[start:])
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
+    raise json.JSONDecodeError(
+        f"Could not extract JSON from LLM response: {text[:200]}",
+        text,
+        0,
+    )
+
+
 class LLMProvider(ABC):
     """Abstract LLM provider interface.
 
@@ -41,7 +180,7 @@ class LLMProvider(ABC):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
@@ -53,7 +192,7 @@ class LLMProvider(ABC):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> tuple[str, TokenUsage]:
@@ -77,7 +216,7 @@ class LLMProvider(ABC):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> tuple[dict, TokenUsage]:
@@ -89,13 +228,7 @@ class LLMProvider(ABC):
             temperature=temperature,
             **kwargs,
         )
-        # Extract JSON from response (handle markdown code blocks)
-        text = text.strip()
-        if text.startswith("```"):
-            # Remove ```json ... ``` wrapper
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        return json.loads(text), usage
+        return _extract_json(text), usage
 
 
 class AnthropicProvider(LLMProvider):
@@ -108,11 +241,14 @@ class AnthropicProvider(LLMProvider):
 
     def _get_client(self) -> Any:
         if self._client is None:
+            if not self._api_key:
+                raise ValueError(
+                    "Anthropic API key not set. "
+                    "Set ANTHROPIC_API_KEY environment variable or configure "
+                    "llm.reasoning.api_key in mcpdb.yaml."
+                )
             import anthropic
-            kwargs: dict[str, Any] = {}
-            if self._api_key:
-                kwargs["api_key"] = self._api_key
-            self._client = anthropic.AsyncAnthropic(**kwargs)
+            self._client = anthropic.AsyncAnthropic(api_key=self._api_key)
         return self._client
 
     async def stream(
@@ -120,7 +256,7 @@ class AnthropicProvider(LLMProvider):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:

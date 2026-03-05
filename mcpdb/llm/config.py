@@ -14,7 +14,7 @@ class ModelConfig:
     fast_provider: str = "anthropic"
     fast_model: str = "claude-haiku-4-5-20251001"
     temperature: float = 0.0
-    max_tokens: int = 4096
+    max_tokens: int = 16384
     timeout: int = 120
 
 

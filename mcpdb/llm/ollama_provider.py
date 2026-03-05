@@ -27,7 +27,7 @@ class OllamaProvider(LLMProvider):
         messages: list[Message],
         *,
         system: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         temperature: float = 0.0,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
