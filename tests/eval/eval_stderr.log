@@ -1,0 +1,37 @@
+WARNING:eval:SQL error for Q85: (pymysql.err.ProgrammingError) (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '(SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2' at line 1")
+[SQL: SELECT total_cost FROM ins_damages WHERE total_cost > 0 ORDER BY total_cost LIMIT 1 OFFSET (SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+/home/olek/workspace/mcpdb/.venv/lib/python3.10/site-packages/google/api_core/_python_version_support.py:275: FutureWarning: You are using a Python version (3.10.12) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2026-10-04). Please upgrade to the latest Python version, or at least Python 3.11, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+/home/olek/workspace/mcpdb/.venv/lib/python3.10/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+/home/olek/workspace/mcpdb/mcpdb/llm/gemini_provider.py:29: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+WARNING:mcpdb.agent.validators:Replan failed: Could not extract JSON from LLM response: ```json
+{
+  "analysis": "The previous query correctly identified the most frequent entries in the `damage_place` column. However, it failed to recognize that the top results ('София', 'гр. София', 'Бъ: line 1 column 1 (char 0)
+WARNING:mcpdb.agent.validators:Replan failed: Could not extract JSON from LLM response: ```json
+{
+  "analysis": "The previous query failed to provide a correct count of repairs per car make because the `car_make_name` column in the `ins_invrepair` table contains inconsistent data, includ: line 1 column 1 (char 0)
+WARNING:mcpdb.agent.validators:Replan failed: Could not extract JSON from LLM response: ```json
+{
+  "analysis": "The user wants to understand the relationship between a car's age and the cost of damages. The previous attempt failed because it only provided a table with many unexplained z: line 1 column 1 (char 0)
+WARNING:mcpdb.agent.validators:Replan failed: Could not extract JSON from LLM response: ```json
+{
+  "analysis": "The user wants to calculate the fraction of assessments that use digital processing. The relevant information is in the `ins_opis` table, specifically the `opis_digital` colum: line 1 column 1 (char 0)
+WARNING:mcpdb.agent.nodes:Debug LLM failed: Could not extract JSON from LLM response: ```json
+{
+  "error_analysis": "The SQL query failed because the `PERCENTILE_CONT` function with the `WITHIN GROUP` clause is not supported in the version of MySQL being used. This syntax is common in : line 1 column 1 (char 0)
+WARNING:mcpdb.agent.nodes:Debug LLM failed: Could not extract JSON from LLM response: ```json
+{
+  "error_analysis": "The error is a MySQL syntax error (1064). The function `PERCENTILE_CONT` with the `WITHIN GROUP (ORDER BY ...)` clause is not a supported function in MySQL, although it : line 1 column 1 (char 0)
+WARNING:mcpdb.agent.validators:Replan failed: Could not extract JSON from LLM response: ```json
+{
+  "analysis": "The previous execution failed due to poor data quality in the `supplier_name` column of the `ins_mc_invexpenses` table. The results included entries with no name, very short c: line 1 column 1 (char 0)

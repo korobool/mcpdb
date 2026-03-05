@@ -1,0 +1,1108 @@
+{
+  "database": "localhost:3306/bgins",
+  "questions": [
+    {
+      "id": 1,
+      "q": "How many tables are in the database?",
+      "sql": "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='bgins'",
+      "type": "count",
+      "expected_value": 21
+    },
+    {
+      "id": 2,
+      "q": "How many cars are in the ins_cars table?",
+      "sql": "SELECT COUNT(*) FROM ins_cars",
+      "type": "count"
+    },
+    {
+      "id": 3,
+      "q": "How many damage claims exist?",
+      "sql": "SELECT COUNT(*) FROM ins_damages",
+      "type": "count"
+    },
+    {
+      "id": 4,
+      "q": "How many repair records are there?",
+      "sql": "SELECT COUNT(*) FROM ins_invrepair",
+      "type": "count"
+    },
+    {
+      "id": 5,
+      "q": "How many parts are in the parts index?",
+      "sql": "SELECT COUNT(*) FROM ins_partsindex",
+      "type": "count"
+    },
+    {
+      "id": 6,
+      "q": "How many car makes are in the catalog?",
+      "sql": "SELECT COUNT(*) FROM srv_mc_catalog_make",
+      "type": "count"
+    },
+    {
+      "id": 7,
+      "q": "How many car models exist in the catalog?",
+      "sql": "SELECT COUNT(*) FROM srv_mc_catalog_model",
+      "type": "count"
+    },
+    {
+      "id": 8,
+      "q": "How many expense types are defined?",
+      "sql": "SELECT COUNT(*) FROM inv_exptypes",
+      "type": "count"
+    },
+    {
+      "id": 9,
+      "q": "How many unique damage places are there?",
+      "sql": "SELECT COUNT(DISTINCT damage_place) FROM ins_damages WHERE damage_place IS NOT NULL AND damage_place != ''",
+      "type": "count"
+    },
+    {
+      "id": 10,
+      "q": "How many assessments (opis) exist?",
+      "sql": "SELECT COUNT(*) FROM ins_opis",
+      "type": "count"
+    },
+    {
+      "id": 11,
+      "q": "What is the total cost of all damage claims?",
+      "sql": "SELECT SUM(total_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 12,
+      "q": "What is the average total cost per damage claim?",
+      "sql": "SELECT AVG(total_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 13,
+      "q": "What is the maximum total cost of a single damage claim?",
+      "sql": "SELECT MAX(total_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 14,
+      "q": "What is the minimum non-zero total cost of a damage claim?",
+      "sql": "SELECT MIN(total_cost) FROM ins_damages WHERE total_cost > 0",
+      "type": "numeric"
+    },
+    {
+      "id": 15,
+      "q": "What is the total compensation paid across all damages?",
+      "sql": "SELECT SUM(compensation) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 16,
+      "q": "What is the average premium (premium_main) across all damages?",
+      "sql": "SELECT AVG(premium_main) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 17,
+      "q": "What is the total newparts_cost across all damages?",
+      "sql": "SELECT SUM(newparts_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 18,
+      "q": "What is the total painting cost (paints_cost) across all damages?",
+      "sql": "SELECT SUM(paints_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 19,
+      "q": "What is the average repair cost per damage?",
+      "sql": "SELECT AVG(repairs_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 20,
+      "q": "How many damage claims have a total cost above 5000?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE total_cost > 5000",
+      "type": "count"
+    },
+    {
+      "id": 21,
+      "q": "What is the sum of transport costs across all damages?",
+      "sql": "SELECT SUM(transport_cost) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 22,
+      "q": "What is the average number of items per assessment (opis)?",
+      "sql": "SELECT AVG(items_count_current) FROM ins_opis",
+      "type": "numeric"
+    },
+    {
+      "id": 23,
+      "q": "What is the maximum expected_value in the damages table?",
+      "sql": "SELECT MAX(expected_value) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 24,
+      "q": "How many damage claims have compensation greater than zero?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE compensation > 0",
+      "type": "count"
+    },
+    {
+      "id": 25,
+      "q": "What is the total invoice calculation cost (from ins_mc_invcalc where is_active=1)?",
+      "sql": "SELECT SUM(total_cost) FROM ins_mc_invcalc WHERE is_active = 1",
+      "type": "numeric"
+    },
+    {
+      "id": 26,
+      "q": "How many cars were manufactured in 2020?",
+      "sql": "SELECT COUNT(*) FROM ins_cars WHERE car_year = 2020",
+      "type": "count"
+    },
+    {
+      "id": 27,
+      "q": "How many cars use diesel fuel (car_fuel=1)?",
+      "sql": "SELECT COUNT(*) FROM ins_cars WHERE car_fuel = 1",
+      "type": "count"
+    },
+    {
+      "id": 28,
+      "q": "How many damage claims are marked as regress (damage_isregress=1)?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE damage_isregress = 1",
+      "type": "count"
+    },
+    {
+      "id": 29,
+      "q": "How many repairs have status 1000 (completed)?",
+      "sql": "SELECT COUNT(*) FROM ins_invrepair WHERE repair_status = 1000",
+      "type": "count"
+    },
+    {
+      "id": 30,
+      "q": "How many assessments have status 1000?",
+      "sql": "SELECT COUNT(*) FROM ins_opis WHERE opis_status = 1000",
+      "type": "count"
+    },
+    {
+      "id": 31,
+      "q": "How many cars have car_class = 3?",
+      "sql": "SELECT COUNT(*) FROM ins_cars WHERE car_class = 3",
+      "type": "count"
+    },
+    {
+      "id": 32,
+      "q": "How many damage claims happened in Sofia (damage_place contains '\u0421\u043e\u0444\u0438\u044f')?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE damage_place LIKE '%\u0421\u043e\u0444\u0438\u044f%'",
+      "type": "count"
+    },
+    {
+      "id": 33,
+      "q": "How many supported car makes are in the catalog (mc_supported=1)?",
+      "sql": "SELECT COUNT(*) FROM srv_mc_catalog_make WHERE mc_supported = 1",
+      "type": "count"
+    },
+    {
+      "id": 34,
+      "q": "How many cars have a non-empty chassis number?",
+      "sql": "SELECT COUNT(*) FROM ins_cars WHERE car_chassis IS NOT NULL AND car_chassis != ''",
+      "type": "count"
+    },
+    {
+      "id": 35,
+      "q": "How many damage claims occurred in 2023?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE YEAR(damage_date) = 2023",
+      "type": "count"
+    },
+    {
+      "id": 36,
+      "q": "How many generated documents have file_deleted = 0?",
+      "sql": "SELECT COUNT(*) FROM ins_gendocs WHERE file_deleted = 0",
+      "type": "count"
+    },
+    {
+      "id": 37,
+      "q": "How many invoice calculations are of type 'mc'?",
+      "sql": "SELECT COUNT(*) FROM ins_mc_invcalc WHERE type = 'mc'",
+      "type": "count"
+    },
+    {
+      "id": 38,
+      "q": "How many opis rows have part_new = 1 (new parts)?",
+      "sql": "SELECT COUNT(*) FROM ins_opis_rows WHERE part_new = 1",
+      "type": "count"
+    },
+    {
+      "id": 39,
+      "q": "How many damages have total_cost equal to zero?",
+      "sql": "SELECT COUNT(*) FROM ins_damages WHERE total_cost = 0",
+      "type": "count"
+    },
+    {
+      "id": 40,
+      "q": "How many cars are of type 1?",
+      "sql": "SELECT COUNT(*) FROM ins_cars WHERE car_type = 1",
+      "type": "count"
+    },
+    {
+      "id": 41,
+      "q": "What are the top 5 most expensive damage claims by total_cost?",
+      "sql": "SELECT damage_id, damage_number, total_cost FROM ins_damages ORDER BY total_cost DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 42,
+      "q": "What are the 3 most common damage places?",
+      "sql": "SELECT damage_place, COUNT(*) as cnt FROM ins_damages WHERE damage_place IS NOT NULL AND damage_place != '' GROUP BY damage_place ORDER BY cnt DESC LIMIT 3",
+      "type": "top_n"
+    },
+    {
+      "id": 43,
+      "q": "Which car year has the most vehicles?",
+      "sql": "SELECT car_year, COUNT(*) as cnt FROM ins_cars GROUP BY car_year ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 44,
+      "q": "Which 5 car makes appear most often in repairs?",
+      "sql": "SELECT car_make_name, COUNT(*) as cnt FROM ins_invrepair GROUP BY car_make_name ORDER BY cnt DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 45,
+      "q": "What are the top 5 most frequently damaged parts (by part_id in opis_rows)?",
+      "sql": "SELECT p.part_name, COUNT(*) as cnt FROM ins_opis_rows r JOIN ins_partsindex p ON r.part_id = p.part_id GROUP BY p.part_name ORDER BY cnt DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 46,
+      "q": "Which damage had the highest premium_main?",
+      "sql": "SELECT damage_id, damage_number, premium_main FROM ins_damages ORDER BY premium_main DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 47,
+      "q": "What are the 5 most expensive invoice calculations (active only)?",
+      "sql": "SELECT invcalc_id, opis_id, total_cost FROM ins_mc_invcalc WHERE is_active = 1 ORDER BY total_cost DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 48,
+      "q": "Which service_id has the most repairs?",
+      "sql": "SELECT service_id, COUNT(*) as cnt FROM ins_invrepair GROUP BY service_id ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 49,
+      "q": "Which year had the most damage claims?",
+      "sql": "SELECT YEAR(damage_date) as yr, COUNT(*) as cnt FROM ins_damages WHERE damage_date IS NOT NULL GROUP BY yr ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 50,
+      "q": "What is the most common car_class in the cars table?",
+      "sql": "SELECT car_class, COUNT(*) as cnt FROM ins_cars GROUP BY car_class ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 51,
+      "q": "Top 3 car makes by number of insured vehicles?",
+      "sql": "SELECT m.mc_make_name, COUNT(*) as cnt FROM ins_cars c JOIN srv_mc_catalog_make m ON c.car_make = m.mc_make WHERE c.car_make > 0 GROUP BY m.mc_make_name ORDER BY cnt DESC LIMIT 3",
+      "type": "top_n"
+    },
+    {
+      "id": 52,
+      "q": "Which 5 expense names are the most frequent in inv_expenses?",
+      "sql": "SELECT expense_name, COUNT(*) as cnt FROM ins_mc_invexpenses GROUP BY expense_name ORDER BY cnt DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 53,
+      "q": "Which damage place has the highest average total cost?",
+      "sql": "SELECT damage_place, AVG(total_cost) as avg_cost FROM ins_damages WHERE damage_place IS NOT NULL AND damage_place != '' GROUP BY damage_place HAVING COUNT(*) >= 5 ORDER BY avg_cost DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 54,
+      "q": "Which opis has the most rows (damaged parts)?",
+      "sql": "SELECT opis_id, COUNT(*) as cnt FROM ins_opis_rows GROUP BY opis_id ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 55,
+      "q": "What is the longest repair duration (end_repair - start_repair) in days?",
+      "sql": "SELECT repair_id, DATEDIFF(end_repair, start_repair) as days FROM ins_invrepair WHERE start_repair IS NOT NULL AND end_repair IS NOT NULL ORDER BY days DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 56,
+      "q": "What is the earliest damage date in the database?",
+      "sql": "SELECT MIN(damage_date) FROM ins_damages WHERE damage_date IS NOT NULL",
+      "type": "value"
+    },
+    {
+      "id": 57,
+      "q": "What is the latest damage date in the database?",
+      "sql": "SELECT MAX(damage_date) FROM ins_damages WHERE damage_date IS NOT NULL",
+      "type": "value"
+    },
+    {
+      "id": 58,
+      "q": "How many damages occurred per year? List all years.",
+      "sql": "SELECT YEAR(damage_date) as yr, COUNT(*) as cnt FROM ins_damages WHERE damage_date IS NOT NULL GROUP BY yr ORDER BY yr",
+      "type": "distribution"
+    },
+    {
+      "id": 59,
+      "q": "What is the average time between damage_date and damage_notice in days?",
+      "sql": "SELECT AVG(DATEDIFF(damage_notice, damage_date)) FROM ins_damages WHERE damage_date IS NOT NULL AND damage_notice IS NOT NULL",
+      "type": "numeric"
+    },
+    {
+      "id": 60,
+      "q": "How many damage claims were filed in each month of 2022?",
+      "sql": "SELECT MONTH(damage_date) as m, COUNT(*) as cnt FROM ins_damages WHERE YEAR(damage_date) = 2022 GROUP BY m ORDER BY m",
+      "type": "distribution"
+    },
+    {
+      "id": 61,
+      "q": "What is the earliest car registration year?",
+      "sql": "SELECT MIN(car_year) FROM ins_cars WHERE car_year > 0",
+      "type": "value"
+    },
+    {
+      "id": 62,
+      "q": "What is the average age of cars at the time of damage?",
+      "sql": "SELECT AVG(YEAR(d.damage_date) - c.car_year) FROM ins_opis o JOIN ins_damages d ON o.damage_id = d.damage_id JOIN ins_cars c ON o.car_id = c.car_id WHERE d.damage_date IS NOT NULL AND c.car_year > 0",
+      "type": "numeric"
+    },
+    {
+      "id": 63,
+      "q": "Which month has the most damage claims overall?",
+      "sql": "SELECT MONTH(damage_date) as m, COUNT(*) as cnt FROM ins_damages WHERE damage_date IS NOT NULL GROUP BY m ORDER BY cnt DESC LIMIT 1",
+      "type": "top_n"
+    },
+    {
+      "id": 64,
+      "q": "How many repairs were completed (end_repair IS NOT NULL) per year?",
+      "sql": "SELECT YEAR(end_repair) as yr, COUNT(*) as cnt FROM ins_invrepair WHERE end_repair IS NOT NULL GROUP BY yr ORDER BY yr",
+      "type": "distribution"
+    },
+    {
+      "id": 65,
+      "q": "What is the average repair duration in days?",
+      "sql": "SELECT AVG(DATEDIFF(end_repair, start_repair)) FROM ins_invrepair WHERE start_repair IS NOT NULL AND end_repair IS NOT NULL",
+      "type": "numeric"
+    },
+    {
+      "id": 66,
+      "q": "How many assessments are linked to each damage? Show the distribution.",
+      "sql": "SELECT cnt, COUNT(*) as freq FROM (SELECT damage_id, COUNT(*) as cnt FROM ins_opis GROUP BY damage_id) t GROUP BY cnt ORDER BY cnt",
+      "type": "distribution"
+    },
+    {
+      "id": 67,
+      "q": "How many damages have no associated assessment (opis)?",
+      "sql": "SELECT COUNT(*) FROM ins_damages d LEFT JOIN ins_opis o ON d.damage_id = o.damage_id WHERE o.opis_id IS NULL",
+      "type": "count"
+    },
+    {
+      "id": 68,
+      "q": "What is the average total_cost per car_class (join cars and damages via opis)?",
+      "sql": "SELECT c.car_class, AVG(d.total_cost) as avg_cost FROM ins_opis o JOIN ins_damages d ON o.damage_id = d.damage_id JOIN ins_cars c ON o.car_id = c.car_id GROUP BY c.car_class ORDER BY c.car_class",
+      "type": "distribution"
+    },
+    {
+      "id": 69,
+      "q": "How many unique cars have had damage claims?",
+      "sql": "SELECT COUNT(DISTINCT car_id) FROM ins_opis",
+      "type": "count"
+    },
+    {
+      "id": 70,
+      "q": "Which cars have had the most damage claims?",
+      "sql": "SELECT car_id, COUNT(*) as cnt FROM ins_opis GROUP BY car_id ORDER BY cnt DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 71,
+      "q": "What is the total invoice expense value per expense type?",
+      "sql": "SELECT et.et_name, SUM(e.value_vat) as total FROM ins_mc_invexpenses e JOIN inv_exptypes et ON e.expense_type = et.exptype_id GROUP BY et.et_name ORDER BY total DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 72,
+      "q": "How many parts were replaced (part_new=1) vs repaired (part_repair>0) in assessments?",
+      "sql": "SELECT SUM(CASE WHEN part_new = 1 THEN 1 ELSE 0 END) as replaced, SUM(CASE WHEN part_repair > 0 THEN 1 ELSE 0 END) as repaired FROM ins_opis_rows",
+      "type": "comparison"
+    },
+    {
+      "id": 73,
+      "q": "What is the average total cost per car year group?",
+      "sql": "SELECT car_yeargroup, AVG(total_cost) as avg_cost FROM ins_damages GROUP BY car_yeargroup ORDER BY car_yeargroup",
+      "type": "distribution"
+    },
+    {
+      "id": 74,
+      "q": "How many repairs per car make (car_make_name)?",
+      "sql": "SELECT car_make_name, COUNT(*) as cnt FROM ins_invrepair GROUP BY car_make_name ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 75,
+      "q": "What is the total repair cost vs paint cost in damages?",
+      "sql": "SELECT SUM(repairs_cost) as total_repair, SUM(paints_cost) as total_paint FROM ins_damages",
+      "type": "comparison"
+    },
+    {
+      "id": 76,
+      "q": "How many opis rows reference each part? Show top 10 parts.",
+      "sql": "SELECT p.part_name, COUNT(*) as cnt FROM ins_opis_rows r JOIN ins_partsindex p ON r.part_id = p.part_id GROUP BY p.part_name ORDER BY cnt DESC LIMIT 10",
+      "type": "top_n"
+    },
+    {
+      "id": 77,
+      "q": "What is the average number of damaged parts per claim?",
+      "sql": "SELECT AVG(cnt) FROM (SELECT opis_id, COUNT(*) as cnt FROM ins_opis_rows GROUP BY opis_id) t",
+      "type": "numeric"
+    },
+    {
+      "id": 78,
+      "q": "How many invoice calculations exist per opis?",
+      "sql": "SELECT cnt, COUNT(*) as freq FROM (SELECT opis_id, COUNT(*) as cnt FROM ins_mc_invcalc GROUP BY opis_id) t GROUP BY cnt ORDER BY cnt",
+      "type": "distribution"
+    },
+    {
+      "id": 79,
+      "q": "What percentage of damages are regress cases?",
+      "sql": "SELECT ROUND(100.0 * SUM(damage_isregress) / COUNT(*), 2) FROM ins_damages",
+      "type": "numeric"
+    },
+    {
+      "id": 80,
+      "q": "How many horizon models exist per brand (top 10)?",
+      "sql": "SELECT b.brand_name, COUNT(*) as cnt FROM srv_mc_horizon_model m JOIN srv_mc_horizon_brand b ON m.brand_id = b.brand_id AND m.category_id = b.category_id GROUP BY b.brand_name ORDER BY cnt DESC LIMIT 10",
+      "type": "top_n"
+    },
+    {
+      "id": 81,
+      "q": "What is the cost breakdown (parts, repairs, mounts, paints, transport, other) as a percentage of total cost across all damages?",
+      "sql": "SELECT ROUND(100*SUM(newparts_cost)/SUM(total_cost),1) as pct_parts, ROUND(100*SUM(repairs_cost)/SUM(total_cost),1) as pct_repairs, ROUND(100*SUM(mounts_cost)/SUM(total_cost),1) as pct_mounts, ROUND(100*SUM(paints_cost)/SUM(total_cost),1) as pct_paints, ROUND(100*SUM(transport_cost)/SUM(total_cost),1) as pct_transport, ROUND(100*SUM(other_cost)/SUM(total_cost),1) as pct_other FROM ins_damages WHERE total_cost > 0",
+      "type": "distribution"
+    },
+    {
+      "id": 82,
+      "q": "What is the average total cost of damages per quarter (by damage_date)?",
+      "sql": "SELECT YEAR(damage_date) as yr, QUARTER(damage_date) as q, AVG(total_cost) as avg_cost FROM ins_damages WHERE damage_date IS NOT NULL GROUP BY yr, q ORDER BY yr, q",
+      "type": "distribution"
+    },
+    {
+      "id": 83,
+      "q": "How does the damage cost change with car age (years since first registration)?",
+      "sql": "SELECT (YEAR(d.damage_date) - c.car_year) as age, AVG(d.total_cost) as avg_cost, COUNT(*) as cnt FROM ins_opis o JOIN ins_damages d ON o.damage_id = d.damage_id JOIN ins_cars c ON o.car_id = c.car_id WHERE d.damage_date IS NOT NULL AND c.car_year > 0 GROUP BY age HAVING cnt >= 5 ORDER BY age",
+      "type": "distribution"
+    },
+    {
+      "id": 84,
+      "q": "What fraction of assessments use digital processing (opis_digital=1)?",
+      "sql": "SELECT ROUND(100.0 * SUM(CASE WHEN opis_digital = 1 THEN 1 ELSE 0 END) / COUNT(*), 2) FROM ins_opis",
+      "type": "numeric"
+    },
+    {
+      "id": 85,
+      "q": "What is the median total cost of damage claims?",
+      "sql": "SELECT total_cost FROM ins_damages WHERE total_cost > 0 ORDER BY total_cost LIMIT 1 OFFSET (SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2",
+      "type": "numeric"
+    },
+    {
+      "id": 86,
+      "q": "Which car makes have the highest average damage cost? Show top 5.",
+      "sql": "SELECT m.mc_make_name, AVG(d.total_cost) as avg_cost, COUNT(*) as cnt FROM ins_opis o JOIN ins_damages d ON o.damage_id = d.damage_id JOIN ins_cars c ON o.car_id = c.car_id JOIN srv_mc_catalog_make m ON c.car_make = m.mc_make WHERE c.car_make > 0 GROUP BY m.mc_make_name HAVING cnt >= 3 ORDER BY avg_cost DESC LIMIT 5",
+      "type": "top_n"
+    },
+    {
+      "id": 87,
+      "q": "What is the ratio of paint cost to total cost for damages where total_cost > 1000?",
+      "sql": "SELECT ROUND(AVG(paints_cost / total_cost) * 100, 2) FROM ins_damages WHERE total_cost > 1000",
+      "type": "numeric"
+    },
+    {
+      "id": 88,
+      "q": "How many claims have had at least one repair attempt that was sent to a service?",
+      "sql": "SELECT COUNT(DISTINCT opis_id) FROM ins_invrepair",
+      "type": "count"
+    },
+    {
+      "id": 89,
+      "q": "What is the total value of all invoice expenses by supplier (top 10 suppliers)?",
+      "sql": "SELECT supplier_name, SUM(value_vat) as total FROM ins_mc_invexpenses WHERE supplier_name != '' GROUP BY supplier_name ORDER BY total DESC LIMIT 10",
+      "type": "top_n"
+    },
+    {
+      "id": 90,
+      "q": "How many claims had items initially but items were later removed (items_count_initial > items_count_current)?",
+      "sql": "SELECT COUNT(*) FROM ins_opis WHERE items_count_initial > items_count_current",
+      "type": "count"
+    },
+    {
+      "id": 91,
+      "q": "List all distinct car fuel types and how many cars use each.",
+      "sql": "SELECT car_fuel, COUNT(*) as cnt FROM ins_cars GROUP BY car_fuel ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 92,
+      "q": "What are all the distinct opis_status values and their counts?",
+      "sql": "SELECT opis_status, COUNT(*) as cnt FROM ins_opis GROUP BY opis_status ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 93,
+      "q": "Show the distribution of car_class values in the cars table.",
+      "sql": "SELECT car_class, COUNT(*) as cnt FROM ins_cars GROUP BY car_class ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 94,
+      "q": "List all horizon categories with their names.",
+      "sql": "SELECT category_id, category_name FROM srv_mc_horizon_category WHERE category_name != '' ORDER BY category_name",
+      "type": "list"
+    },
+    {
+      "id": 95,
+      "q": "How many cars have each number of doors?",
+      "sql": "SELECT car_doors, COUNT(*) as cnt FROM ins_cars GROUP BY car_doors ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 96,
+      "q": "What is the distribution of claim_type in assessments?",
+      "sql": "SELECT claim_type, COUNT(*) as cnt FROM ins_opis GROUP BY claim_type ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 97,
+      "q": "How many distinct currencies are used in damages?",
+      "sql": "SELECT calc_currency_code, COUNT(*) as cnt FROM ins_damages WHERE calc_currency_code IS NOT NULL GROUP BY calc_currency_code",
+      "type": "distribution"
+    },
+    {
+      "id": 98,
+      "q": "What is the average, min, and max total_cost grouped by damage year?",
+      "sql": "SELECT YEAR(damage_date) as yr, AVG(total_cost) as avg_cost, MIN(total_cost) as min_cost, MAX(total_cost) as max_cost FROM ins_damages WHERE damage_date IS NOT NULL GROUP BY yr ORDER BY yr",
+      "type": "distribution"
+    },
+    {
+      "id": 99,
+      "q": "How many generated documents exist per document type?",
+      "sql": "SELECT doc_type, COUNT(*) as cnt FROM ins_gendocs GROUP BY doc_type ORDER BY cnt DESC",
+      "type": "distribution"
+    },
+    {
+      "id": 100,
+      "q": "What is the total cost and count of damages per damage_place (top 10 places)?",
+      "sql": "SELECT damage_place, COUNT(*) as cnt, SUM(total_cost) as total FROM ins_damages WHERE damage_place IS NOT NULL AND damage_place != '' GROUP BY damage_place ORDER BY cnt DESC LIMIT 10",
+      "type": "top_n"
+    }
+  ],
+  "ground_truth": {
+    "1": {
+      "value": "21",
+      "error": null,
+      "row_count": 1
+    },
+    "2": {
+      "value": "1105",
+      "error": null,
+      "row_count": 1
+    },
+    "3": {
+      "value": "2141",
+      "error": null,
+      "row_count": 1
+    },
+    "4": {
+      "value": "1118",
+      "error": null,
+      "row_count": 1
+    },
+    "5": {
+      "value": "786",
+      "error": null,
+      "row_count": 1
+    },
+    "6": {
+      "value": "156",
+      "error": null,
+      "row_count": 1
+    },
+    "7": {
+      "value": "2261",
+      "error": null,
+      "row_count": 1
+    },
+    "8": {
+      "value": "14",
+      "error": null,
+      "row_count": 1
+    },
+    "9": {
+      "value": "1573",
+      "error": null,
+      "row_count": 1
+    },
+    "10": {
+      "value": "2141",
+      "error": null,
+      "row_count": 1
+    },
+    "11": {
+      "value": "217607.77999999997",
+      "error": null,
+      "row_count": 1
+    },
+    "12": {
+      "value": "101.63838393274169",
+      "error": null,
+      "row_count": 1
+    },
+    "13": {
+      "value": "32013.29",
+      "error": null,
+      "row_count": 1
+    },
+    "14": {
+      "value": "8.4",
+      "error": null,
+      "row_count": 1
+    },
+    "15": {
+      "value": "0.0",
+      "error": null,
+      "row_count": 1
+    },
+    "16": {
+      "value": "1592.1154740775316",
+      "error": null,
+      "row_count": 1
+    },
+    "17": {
+      "value": "98662.63000000003",
+      "error": null,
+      "row_count": 1
+    },
+    "18": {
+      "value": "73393.3",
+      "error": null,
+      "row_count": 1
+    },
+    "19": {
+      "value": "5.282690331620737",
+      "error": null,
+      "row_count": 1
+    },
+    "20": {
+      "value": "7",
+      "error": null,
+      "row_count": 1
+    },
+    "21": {
+      "value": "61.36",
+      "error": null,
+      "row_count": 1
+    },
+    "22": {
+      "value": "3.1228",
+      "error": null,
+      "row_count": 1
+    },
+    "23": {
+      "value": "30000.0",
+      "error": null,
+      "row_count": 1
+    },
+    "24": {
+      "value": "0",
+      "error": null,
+      "row_count": 1
+    },
+    "25": {
+      "value": "1098729.994407999",
+      "error": null,
+      "row_count": 1
+    },
+    "26": {
+      "value": "43",
+      "error": null,
+      "row_count": 1
+    },
+    "27": {
+      "value": "367",
+      "error": null,
+      "row_count": 1
+    },
+    "28": {
+      "value": "187",
+      "error": null,
+      "row_count": 1
+    },
+    "29": {
+      "value": "682",
+      "error": null,
+      "row_count": 1
+    },
+    "30": {
+      "value": "456",
+      "error": null,
+      "row_count": 1
+    },
+    "31": {
+      "value": "327",
+      "error": null,
+      "row_count": 1
+    },
+    "32": {
+      "value": "1206",
+      "error": null,
+      "row_count": 1
+    },
+    "33": {
+      "value": "81",
+      "error": null,
+      "row_count": 1
+    },
+    "34": {
+      "value": "1105",
+      "error": null,
+      "row_count": 1
+    },
+    "35": {
+      "value": "321",
+      "error": null,
+      "row_count": 1
+    },
+    "36": {
+      "value": "10932",
+      "error": null,
+      "row_count": 1
+    },
+    "37": {
+      "value": "2163",
+      "error": null,
+      "row_count": 1
+    },
+    "38": {
+      "value": "2653",
+      "error": null,
+      "row_count": 1
+    },
+    "39": {
+      "value": "1863",
+      "error": null,
+      "row_count": 1
+    },
+    "40": {
+      "value": "1081",
+      "error": null,
+      "row_count": 1
+    },
+    "41": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "42": {
+      "value": null,
+      "error": null,
+      "row_count": 3
+    },
+    "43": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "44": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "45": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "46": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "47": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "48": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "49": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "50": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "51": {
+      "value": null,
+      "error": null,
+      "row_count": 3
+    },
+    "52": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "53": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "54": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "55": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "56": {
+      "value": "2021-02-17",
+      "error": null,
+      "row_count": 1
+    },
+    "57": {
+      "value": "2026-02-23",
+      "error": null,
+      "row_count": 1
+    },
+    "58": {
+      "value": null,
+      "error": null,
+      "row_count": 6
+    },
+    "59": {
+      "value": "2.7234",
+      "error": null,
+      "row_count": 1
+    },
+    "60": {
+      "value": null,
+      "error": null,
+      "row_count": 12
+    },
+    "61": {
+      "value": "1998",
+      "error": null,
+      "row_count": 1
+    },
+    "62": {
+      "value": "1.1592",
+      "error": null,
+      "row_count": 1
+    },
+    "63": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "64": {
+      "value": null,
+      "error": null,
+      "row_count": 6
+    },
+    "65": {
+      "value": "18.1979",
+      "error": null,
+      "row_count": 1
+    },
+    "66": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "67": {
+      "value": "0",
+      "error": null,
+      "row_count": 1
+    },
+    "68": {
+      "value": null,
+      "error": null,
+      "row_count": 7
+    },
+    "69": {
+      "value": "1103",
+      "error": null,
+      "row_count": 1
+    },
+    "70": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "71": {
+      "value": null,
+      "error": null,
+      "row_count": 9
+    },
+    "72": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "73": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "74": {
+      "value": null,
+      "error": null,
+      "row_count": 53
+    },
+    "75": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "76": {
+      "value": null,
+      "error": null,
+      "row_count": 10
+    },
+    "77": {
+      "value": "3.1388",
+      "error": null,
+      "row_count": 1
+    },
+    "78": {
+      "value": null,
+      "error": null,
+      "row_count": 10
+    },
+    "79": {
+      "value": "10.23",
+      "error": null,
+      "row_count": 1
+    },
+    "80": {
+      "value": null,
+      "error": null,
+      "row_count": 10
+    },
+    "81": {
+      "value": null,
+      "error": null,
+      "row_count": 1
+    },
+    "82": {
+      "value": null,
+      "error": null,
+      "row_count": 21
+    },
+    "83": {
+      "value": null,
+      "error": null,
+      "row_count": 23
+    },
+    "84": {
+      "value": "0.0",
+      "error": null,
+      "row_count": 1
+    },
+    "85": {
+      "value": null,
+      "error": "(pymysql.err.ProgrammingError) (1064, \"You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '(SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2' at line 1\")\n[SQL: SELECT total_cost FROM ins_damages WHERE total_cost > 0 ORDER BY total_cost LIMIT 1 OFFSET (SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2]\n(Background on this error at: https://sqlalche.me/e/20/f405)",
+      "row_count": 0
+    },
+    "86": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "87": {
+      "value": "30.85",
+      "error": null,
+      "row_count": 1
+    },
+    "88": {
+      "value": "1042",
+      "error": null,
+      "row_count": 1
+    },
+    "89": {
+      "value": null,
+      "error": null,
+      "row_count": 10
+    },
+    "90": {
+      "value": "31",
+      "error": null,
+      "row_count": 1
+    },
+    "91": {
+      "value": null,
+      "error": null,
+      "row_count": 6
+    },
+    "92": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "93": {
+      "value": null,
+      "error": null,
+      "row_count": 7
+    },
+    "94": {
+      "value": null,
+      "error": null,
+      "row_count": 6
+    },
+    "95": {
+      "value": null,
+      "error": null,
+      "row_count": 9
+    },
+    "96": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "97": {
+      "value": null,
+      "error": null,
+      "row_count": 2
+    },
+    "98": {
+      "value": null,
+      "error": null,
+      "row_count": 6
+    },
+    "99": {
+      "value": null,
+      "error": null,
+      "row_count": 5
+    },
+    "100": {
+      "value": null,
+      "error": null,
+      "row_count": 10
+    }
+  }
+}
