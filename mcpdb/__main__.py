@@ -28,6 +28,7 @@ Usage:
   mcpdb playground               Start Playground (auto-selects free port)
   mcpdb playground --port 9000   Playground on a specific port
   mcpdb query <conn> <question>  One-shot query mode
+  mcpdb experience eval          Evaluate pending staged results
 """
 
 
@@ -157,6 +158,12 @@ def main() -> None:
         connection_string = args[1]
         question = " ".join(args[2:])
         _oneshot_query(connection_string, question, config, logger)
+
+    elif command == "experience":
+        if len(args) < 2 or args[1] != "eval":
+            print("Usage: mcpdb experience eval")
+            sys.exit(1)
+        _experience_eval(config, logger)
 
     elif command in ("--help", "-h", "help"):
         print(USAGE)
@@ -301,6 +308,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
         from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.experience.cache import ExperienceCache
+        from mcpdb.experience.staging import StagingStore
         from mcpdb.experience.store import ExperienceStore
         from mcpdb.llm.factory import create_provider
 
@@ -310,6 +318,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
 
         experience_store = ExperienceStore()
         experience_cache = ExperienceCache(store=experience_store)
+        staging_store = StagingStore()
 
         registry = SourceRegistry()
         try:
@@ -327,6 +336,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
             state = await run_agent(
                 question, registry, llm, callbacks,
                 experience_cache=experience_cache,
+                staging_store=staging_store,
             )
             response = state.get("response") or "No response generated."
             progress.finish()
@@ -336,6 +346,78 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
             raise
         finally:
             registry.close_all()
+
+    asyncio.run(run())
+
+
+def _experience_eval(config, logger) -> None:
+    """Evaluate all pending staged records."""
+    import asyncio
+
+    async def run():
+        from mcpdb.experience.cache import ExperienceCache
+        from mcpdb.experience.evaluator import QualityEvaluator
+        from mcpdb.experience.staging import StagingStore
+        from mcpdb.experience.store import ExperienceStore
+        from mcpdb.llm.factory import create_provider
+
+        staging_store = StagingStore()
+        experience_store = ExperienceStore()
+        experience_cache = ExperienceCache(store=experience_store)
+        evaluator = QualityEvaluator()
+
+        pending = staging_store.get_all_pending()
+        if not pending:
+            print("No pending staged records to evaluate.")
+            return
+
+        print(f"Found {len(pending)} pending staged record(s).")
+
+        llm_cfg = config.llm.reasoning
+        llm = create_provider(
+            llm_cfg.provider,
+            llm_cfg.model,
+            llm_cfg.api_key,
+        )
+
+        promoted = 0
+        rejected = 0
+        errors = 0
+
+        for record in pending:
+            try:
+                result = await evaluator.evaluate(record, llm)
+            except Exception as e:
+                print(f"  Error evaluating {record.question[:50]}: {e}")
+                errors += 1
+                continue
+
+            fp = record.source_fingerprint
+            ih = record.intent_hash
+
+            if result.verdict == "promote":
+                success = record.to_success_record()
+                experience_store.store_success(success)
+                staging_store.remove(fp, ih)
+                promoted += 1
+                print(f"  Promoted (score={result.score}): {record.question[:60]}")
+            else:
+                from mcpdb.experience.records import FailureRecord
+                experience_store.store_failure(FailureRecord(
+                    question=record.question,
+                    source_fingerprint=fp,
+                    error_type="quality_rejected",
+                    error_message=(
+                        f"Score {result.score}/10. "
+                        f"Issues: {'; '.join(result.issues) if result.issues else 'none'}"
+                    ),
+                    failed_code=record.response[:500],
+                ))
+                staging_store.remove(fp, ih)
+                rejected += 1
+                print(f"  Rejected (score={result.score}): {record.question[:60]}")
+
+        print(f"\nDone: {promoted} promoted, {rejected} rejected, {errors} errors.")
 
     asyncio.run(run())
 

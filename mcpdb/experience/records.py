@@ -114,3 +114,122 @@ class FailureRecord:
             failed_code=d.get("failed_code", ""),
             timestamp=d.get("timestamp", 0.0),
         )
+
+
+@dataclass
+class StagedRecord:
+    """A result staged for async quality evaluation before cache promotion."""
+
+    intent_hash: str
+    question: str
+    source_fingerprint: str
+    schema_hash: str
+    query_mode: str
+    steps: list[CodeStep]
+    response: str
+    staged_at: float = field(default_factory=time.time)
+    evaluated: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+    semantic_hash: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {
+            "type": "staged",
+            "intent_hash": self.intent_hash,
+            "question": self.question,
+            "source_fingerprint": self.source_fingerprint,
+            "schema_hash": self.schema_hash,
+            "query_mode": self.query_mode,
+            "steps": [
+                {
+                    "action_type": s.action_type,
+                    "code": s.code,
+                    "result_preview": s.result_preview,
+                    "time_ms": s.time_ms,
+                }
+                for s in self.steps
+            ],
+            "response": self.response,
+            "staged_at": self.staged_at,
+            "evaluated": self.evaluated,
+            "metadata": self.metadata,
+        }
+        if self.semantic_hash:
+            d["semantic_hash"] = self.semantic_hash
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> StagedRecord:
+        steps = [
+            CodeStep(
+                action_type=s["action_type"],
+                code=s["code"],
+                result_preview=s.get("result_preview", ""),
+                time_ms=s.get("time_ms", 0.0),
+            )
+            for s in d.get("steps", [])
+        ]
+        return cls(
+            intent_hash=d["intent_hash"],
+            question=d["question"],
+            source_fingerprint=d["source_fingerprint"],
+            schema_hash=d["schema_hash"],
+            query_mode=d["query_mode"],
+            steps=steps,
+            response=d["response"],
+            staged_at=d.get("staged_at", 0.0),
+            evaluated=d.get("evaluated", False),
+            metadata=d.get("metadata", {}),
+            semantic_hash=d.get("semantic_hash", ""),
+        )
+
+    def to_success_record(self) -> SuccessRecord:
+        """Convert to a SuccessRecord for cache promotion."""
+        return SuccessRecord(
+            intent_hash=self.intent_hash,
+            question=self.question,
+            source_fingerprint=self.source_fingerprint,
+            schema_hash=self.schema_hash,
+            query_mode=self.query_mode,
+            steps=list(self.steps),
+            response=self.response,
+            timestamp=self.staged_at,
+            metadata=self.metadata,
+            semantic_hash=self.semantic_hash,
+        )
+
+
+@dataclass
+class QualityResult:
+    """Result of an async quality evaluation."""
+
+    score: int  # 1-10 overall
+    completeness: int  # 1-10
+    accuracy: int  # 1-10
+    relevance: int  # 1-10
+    clarity: int  # 1-10
+    issues: list[str] = field(default_factory=list)
+    verdict: str = "reject"  # "promote" or "reject"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "score": self.score,
+            "completeness": self.completeness,
+            "accuracy": self.accuracy,
+            "relevance": self.relevance,
+            "clarity": self.clarity,
+            "issues": self.issues,
+            "verdict": self.verdict,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> QualityResult:
+        return cls(
+            score=d.get("score", 0),
+            completeness=d.get("completeness", 0),
+            accuracy=d.get("accuracy", 0),
+            relevance=d.get("relevance", 0),
+            clarity=d.get("clarity", 0),
+            issues=d.get("issues", []),
+            verdict=d.get("verdict", "reject"),
+        )

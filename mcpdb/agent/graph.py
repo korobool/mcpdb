@@ -16,7 +16,11 @@ from mcpdb.agent.subgraphs.optimization import run_optimization
 from mcpdb.agent.subgraphs.extended import run_extended
 from mcpdb.agent.subgraphs.deep import run_deep
 from mcpdb.experience.cache import ExperienceCache
-from mcpdb.experience.records import CodeStep, SuccessRecord
+from mcpdb.experience.fingerprint import (
+    fingerprint_source, fingerprint_schema, intent_hash, semantic_hash,
+)
+from mcpdb.experience.records import CodeStep, StagedRecord, SuccessRecord
+from mcpdb.experience.staging import StagingStore
 from mcpdb.llm.provider import LLMProvider
 from mcpdb.sources.registry import SourceRegistry
 
@@ -31,6 +35,7 @@ async def run_agent(
     mode_override: str | None = None,
     experience_cache: ExperienceCache | None = None,
     force_rethink: bool = False,
+    staging_store: StagingStore | None = None,
 ) -> AgentState:
     """Run the full agent pipeline for a question.
 
@@ -119,9 +124,24 @@ async def run_agent(
     else:
         state["response"] = f"Unknown mode: {mode}"
 
-    # Store results in experience cache — only if quality is sufficient
-    if experience_cache is not None and _is_cacheable(state):
-        _store_experience(experience_cache, state, registry)
+    # Stage results for async quality evaluation (or auto-promote quick mode)
+    if _is_cacheable(state):
+        mode = state.get("query_mode", "unknown")
+        executable = [
+            e for e in state.get("execution_log", [])
+            if e.get("action", e.get("action_type", "")) in ("sql", "python", "schema", "sample")
+        ]
+        is_quick = mode == "quick" and not executable
+
+        if is_quick and experience_cache is not None:
+            # Quick mode with no executable steps: auto-promote (deterministic)
+            _store_experience(experience_cache, state, registry)
+        elif staging_store is not None:
+            # Stage for async quality evaluation
+            _stage_experience(staging_store, state, registry)
+        elif experience_cache is not None:
+            # Fallback: no staging store, write directly (legacy path)
+            _store_experience(experience_cache, state, registry)
 
     callbacks.emit("agent/complete", mode=mode, has_response=bool(state.get("response")))
     return state
@@ -265,15 +285,7 @@ def _store_experience(
     if not question or not response:
         return
 
-    # Build CodeStep list from execution log
-    steps = []
-    for entry in state.get("execution_log", []):
-        steps.append(CodeStep(
-            action_type=entry.get("action", entry.get("action_type", "unknown")),
-            code=entry.get("code", ""),
-            result_preview=str(entry.get("result_preview", "")),
-            time_ms=entry.get("time_ms", 0.0),
-        ))
+    steps = _build_code_steps(state)
 
     # Store for each active source
     for meta in registry.list_sources():
@@ -287,3 +299,55 @@ def _store_experience(
             )
         except Exception as e:
             logger.warning("Failed to store experience: %s", e)
+
+
+def _stage_experience(
+    staging: StagingStore,
+    state: AgentState,
+    registry: SourceRegistry,
+) -> None:
+    """Stage a successful agent run for async quality evaluation."""
+    question = state.get("question", "")
+    response = state.get("response", "")
+    mode = state.get("query_mode", "unknown")
+
+    if not question or not response:
+        return
+
+    # Build CodeStep list from execution log
+    steps = _build_code_steps(state)
+
+    # Stage for each active source
+    for meta in registry.list_sources():
+        try:
+            fp = fingerprint_source(meta)
+            sh_schema = fingerprint_schema(meta)
+            ih = intent_hash(question, fp)
+            sh = semantic_hash(question, fp)
+
+            record = StagedRecord(
+                intent_hash=ih,
+                question=question,
+                source_fingerprint=fp,
+                schema_hash=sh_schema,
+                query_mode=mode,
+                steps=steps,
+                response=response,
+                semantic_hash=sh,
+            )
+            staging.stage(record)
+        except Exception as e:
+            logger.warning("Failed to stage experience: %s", e)
+
+
+def _build_code_steps(state: AgentState) -> list[CodeStep]:
+    """Build CodeStep list from execution log."""
+    steps = []
+    for entry in state.get("execution_log", []):
+        steps.append(CodeStep(
+            action_type=entry.get("action", entry.get("action_type", "unknown")),
+            code=entry.get("code", ""),
+            result_preview=str(entry.get("result_preview", "")),
+            time_ms=entry.get("time_ms", 0.0),
+        ))
+    return steps

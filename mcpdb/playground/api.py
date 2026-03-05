@@ -50,7 +50,10 @@ class LLMConfigUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 from mcpdb.experience.cache import ExperienceCache
+from mcpdb.experience.evaluator import QualityEvaluator
+from mcpdb.experience.staging import StagingStore
 from mcpdb.experience.store import ExperienceStore
+from mcpdb.experience.worker import QualityWorker
 
 _registry: SourceRegistry | None = None
 _config: McpdbConfig | None = None
@@ -58,6 +61,9 @@ _llm: Any = None
 _active_task: asyncio.Task | None = None
 _experience_store = ExperienceStore()
 _experience_cache = ExperienceCache(store=_experience_store)
+_staging_store = StagingStore()
+_quality_worker: QualityWorker | None = None
+_worker_task: asyncio.Task | None = None
 
 
 def create_app(config: McpdbConfig | None = None) -> FastAPI:
@@ -91,7 +97,27 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        global _quality_worker, _worker_task
+        # Start background quality worker if LLM is available
+        if _llm is not None:
+            _quality_worker = QualityWorker(
+                staging_store=_staging_store,
+                experience_cache=_experience_cache,
+                experience_store=_experience_store,
+            )
+            _worker_task = asyncio.create_task(_quality_worker.run(_llm))
+            logger.info("Quality evaluation worker started")
+
         yield
+
+        # Graceful shutdown
+        if _quality_worker is not None:
+            _quality_worker.stop()
+        if _worker_task is not None:
+            try:
+                await asyncio.wait_for(_worker_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                _worker_task.cancel()
         if _registry:
             _registry.close_all()
 
@@ -359,6 +385,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     mode_override=mode_override,
                     experience_cache=_experience_cache,
                     force_rethink=force_rethink,
+                    staging_store=_staging_store,
                 )
                 # Signal completion via queue
                 event_queue.put_nowait({
