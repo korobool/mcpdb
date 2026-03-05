@@ -109,9 +109,22 @@ def handle_experience_tool(
     name: str,
     args: dict[str, Any],
     registry: SourceRegistry,
-    experience_cache: Any = None,
+    experience_service: Any = None,
 ) -> list[TextContent]:
     """Handle experience tool calls."""
+    # Extract cache from service, or fall back to direct cache if passed
+    experience_cache = None
+    if experience_service is not None:
+        if hasattr(experience_service, "cache"):
+            # ExperienceService — use its cache
+            experience_cache = experience_service.cache
+        elif hasattr(experience_service, "_store"):
+            # Raw ExperienceCache passed directly (backwards compat / tests)
+            experience_cache = experience_service
+        else:
+            # Unknown object — treat as opaque cache for backwards compat
+            experience_cache = experience_service
+
     if experience_cache is None:
         return [TextContent(type="text", text="Experience system is not enabled.")]
 

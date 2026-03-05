@@ -32,6 +32,11 @@ _TOOLS = [
                     "default": "auto",
                     "description": "Thinking mode override (auto = let classifier decide)",
                 },
+                "rethink": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Force fresh analysis: bypass cache, re-plan from scratch, replace cached solution",
+                },
             },
             "required": ["question"],
         },
@@ -61,9 +66,10 @@ def get_analysis_tools() -> list[Tool]:
 
 def handle_analysis_tool(
     name: str, args: dict[str, Any], registry: SourceRegistry, llm: Any,
+    experience_service: Any = None,
 ) -> list[TextContent]:
     if name == "ask_question":
-        return _ask_question(registry, args, llm)
+        return _ask_question(registry, args, llm, experience_service=experience_service)
     elif name == "suggest_followups":
         return _suggest_followups(registry, args, llm)
     return [TextContent(type="text", text=f"Unknown analysis tool: {name}")]
@@ -71,6 +77,7 @@ def handle_analysis_tool(
 
 def _ask_question(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
+    experience_service: Any = None,
 ) -> list[TextContent]:
     from mcpdb.agent.graph import run_agent
     from mcpdb.agent.callbacks import CallbackManager
@@ -78,8 +85,21 @@ def _ask_question(
     question = args["question"]
     mode = args.get("mode", "auto")
     mode_override = None if mode == "auto" else mode
+    force_rethink = args.get("rethink", False)
 
     callbacks = CallbackManager()
+
+    # Resolve experience components from service or create inline fallback
+    if experience_service is not None:
+        experience_cache = experience_service.cache
+        staging_store = experience_service.staging
+    else:
+        from mcpdb.experience.cache import ExperienceCache
+        from mcpdb.experience.staging import StagingStore
+        from mcpdb.experience.store import ExperienceStore
+        _store = ExperienceStore()
+        experience_cache = ExperienceCache(store=_store)
+        staging_store = StagingStore()
 
     # Run the agent synchronously (MCP tool handlers are sync in our dispatch)
     loop = asyncio.new_event_loop()
@@ -91,6 +111,9 @@ def _ask_question(
                 llm=llm,
                 callbacks=callbacks,
                 mode_override=mode_override,
+                experience_cache=experience_cache,
+                force_rethink=force_rethink,
+                staging_store=staging_store,
             )
         )
     finally:

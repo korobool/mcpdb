@@ -32,6 +32,26 @@ Respond with JSON only:
 """
 
 
+import re as _re
+
+# Questions that can be answered from schema context alone — skip LLM classification
+_QUICK_PATTERNS = [
+    _re.compile(r"\b(mermaid|er\s*diagram|erd|entity.?relation|schema\s*(diagram|graph|visual|plot|draw|chart|map))\b", _re.I),
+    _re.compile(r"\b(list|show|what|how many)\b.{0,30}\b(tables?|columns?|schema|fields?|structure)\b", _re.I),
+    _re.compile(r"\b(describe|explain)\b.{0,20}\b(schema|structure|tables?)\b", _re.I),
+    _re.compile(r"\b(plot|draw|render|generate|create|make)\b.{0,30}\b(schema|erd|diagram|er\b)", _re.I),
+    _re.compile(r"\b(foreign\s*keys?|relationships?|primary\s*keys?)\b", _re.I),
+]
+
+
+def _fast_classify(question: str) -> str | None:
+    """Return mode without LLM call for obvious patterns, or None to use LLM."""
+    for pat in _QUICK_PATTERNS:
+        if pat.search(question):
+            return "quick"
+    return None
+
+
 async def classify(
     state: AgentState,
     llm: LLMProvider,
@@ -42,6 +62,16 @@ async def classify(
 
     question = state["question"]
     source_context = state.get("source_context", "No sources connected.")
+
+    # Fast path: skip LLM for obvious schema/metadata questions
+    fast_mode = _fast_classify(question)
+    if fast_mode:
+        state["query_mode"] = fast_mode
+        state["target_sources"] = state.get("active_source_ids", [])
+        state["requires_cross_source"] = False
+        state["key_entities"] = []
+        callbacks.emit("classify/complete", mode=fast_mode, reasoning="fast-path pattern match")
+        return state
 
     prompt = CLASSIFY_PROMPT.format(
         source_context=source_context,
