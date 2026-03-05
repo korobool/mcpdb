@@ -25,6 +25,8 @@ Usage:
   mcpdb serve --port 8765        Start SSE server on custom port
   mcpdb ui                       Start the web UI
   mcpdb ui --port 8080           Start UI on custom port
+  mcpdb webchat                  Start Streamlit MCP webchat
+  mcpdb webchat --port 8501      Webchat on custom port
   mcpdb playground               Start Playground (auto-selects free port)
   mcpdb playground --port 9000   Playground on a specific port
   mcpdb query <conn> <question>  One-shot query mode
@@ -118,6 +120,25 @@ def main() -> None:
             run_ui(port=port, theme=theme, config=config)
         except ImportError:
             print("UI requires NiceGUI. Install with: pip install mcpdb[ui]")
+            sys.exit(1)
+
+    elif command == "webchat":
+        port = None  # None means auto-select
+
+        i = 1
+        while i < len(args):
+            if args[i] == "--port" and i + 1 < len(args):
+                port = int(args[i + 1])
+                i += 2
+            else:
+                i += 1
+
+        logger.info("mcpdb v%s webchat starting", __version__)
+        try:
+            from mcpdb.streamlit.app import run_webchat
+            run_webchat(port=port)
+        except ImportError:
+            print("Webchat requires Streamlit. Install with: pip install mcpdb[streamlit]")
             sys.exit(1)
 
     elif command == "playground":

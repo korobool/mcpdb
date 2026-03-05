@@ -1,0 +1,56 @@
+/* MCPDB Streamlit Webchat — Custom Styles */
+
+/* Tighter chat message spacing */
+.stChatMessage {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+/* Sidebar title */
+[data-testid="stSidebar"] h1 {
+    font-size: 1.4rem;
+    margin-bottom: 0;
+}
+
+/* Code blocks in chat */
+.stChatMessage pre {
+    font-size: 0.85rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Source info cards */
+.source-card {
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Status indicator animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-analyzing {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Follow-up buttons */
+[data-testid="stSidebar"] button[kind="secondary"] {
+    text-align: left;
+    font-size: 0.85rem;
+}
+
+/* Make the chat input area sticky */
+[data-testid="stChatInput"] {
+    position: sticky;
+    bottom: 0;
+}
+
+/* Metadata captions under messages */
+.stChatMessage .stCaption {
+    margin-top: 0.25rem;
+    opacity: 0.6;
+}

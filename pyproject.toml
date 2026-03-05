@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpdb"
-version = "4.0.0"
+version = "5.0.0"
 description = "MCP server for natural language database exploration and analysis"
 requires-python = ">=3.10"
 license = "MIT"
@@ -50,6 +50,10 @@ csv = [
 ui = [
     "nicegui>=3.0",
 ]
+streamlit = [
+    "streamlit>=1.36",
+    "streamlit-mermaid>=0.2",
+]
 playground = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
@@ -69,7 +73,7 @@ ollama = [
     "httpx>=0.25",
 ]
 all = [
-    "mcpdb[postgresql,mysql,excel,csv,ui,playground,export,sandbox,openai,gemini,ollama]",
+    "mcpdb[postgresql,mysql,excel,csv,ui,streamlit,playground,export,sandbox,openai,gemini,ollama]",
 ]
 
 [project.scripts]
