@@ -8,9 +8,15 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
+from mcpdb.experience.cache import ExperienceCache
+from mcpdb.experience.store import ExperienceStore
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.mcp.analysis")
+
+# Module-level singleton — shared across all MCP tool calls
+_experience_store = ExperienceStore()
+_experience_cache = ExperienceCache(store=_experience_store)
 
 _TOOLS = [
     Tool(
@@ -91,6 +97,7 @@ def _ask_question(
                 llm=llm,
                 callbacks=callbacks,
                 mode_override=mode_override,
+                experience_cache=_experience_cache,
             )
         )
     finally:

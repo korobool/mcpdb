@@ -49,10 +49,15 @@ class LLMConfigUpdate(BaseModel):
 # App state (module-level, set by create_app)
 # ---------------------------------------------------------------------------
 
+from mcpdb.experience.cache import ExperienceCache
+from mcpdb.experience.store import ExperienceStore
+
 _registry: SourceRegistry | None = None
 _config: McpdbConfig | None = None
 _llm: Any = None
 _active_task: asyncio.Task | None = None
+_experience_store = ExperienceStore()
+_experience_cache = ExperienceCache(store=_experience_store)
 
 
 def create_app(config: McpdbConfig | None = None) -> FastAPI:
@@ -351,6 +356,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                 state = await run_agent(
                     question, _registry, _llm, callbacks,
                     mode_override=mode_override,
+                    experience_cache=_experience_cache,
                 )
                 # Signal completion via queue
                 event_queue.put_nowait({
