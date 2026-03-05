@@ -300,11 +300,16 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
         from mcpdb.sources.registry import SourceRegistry
         from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
+        from mcpdb.experience.cache import ExperienceCache
+        from mcpdb.experience.store import ExperienceStore
         from mcpdb.llm.factory import create_provider
 
         progress = _ConsoleProgress()
         callbacks = CallbackManager()
         callbacks.add_listener(progress.on_event)
+
+        experience_store = ExperienceStore()
+        experience_cache = ExperienceCache(store=experience_store)
 
         registry = SourceRegistry()
         try:
@@ -319,7 +324,10 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
                 llm_cfg.api_key,
             )
 
-            state = await run_agent(question, registry, llm, callbacks)
+            state = await run_agent(
+                question, registry, llm, callbacks,
+                experience_cache=experience_cache,
+            )
             response = state.get("response") or "No response generated."
             progress.finish()
             print(response)

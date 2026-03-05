@@ -17,9 +17,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mcpdb.agent.graph import run_agent
 from mcpdb.agent.callbacks import CallbackManager
+from mcpdb.experience.cache import ExperienceCache
+from mcpdb.experience.store import ExperienceStore
 from mcpdb.llm.factory import create_provider
 from mcpdb.sources.database.source import DatabaseSource
 from mcpdb.sources.registry import SourceRegistry
+
+# Shared experience cache — persists to ~/.mcpdb/experience/
+# so eval runs warm up the cache for future production use.
+_experience_store = ExperienceStore()
+_experience_cache = ExperienceCache(store=_experience_store)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("eval")
@@ -682,6 +689,7 @@ async def run_agent_question(question: str, registry: SourceRegistry, llm) -> di
             registry=registry,
             llm=llm,
             callbacks=callbacks,
+            experience_cache=_experience_cache,
         )
         elapsed = time.time() - start
         return {
