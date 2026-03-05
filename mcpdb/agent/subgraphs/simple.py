@@ -27,7 +27,11 @@ async def run_simple(
     callbacks.emit("simple/start")
 
     # 1. Plan (includes retry + fallback logic)
-    state = await make_plan(state, llm, callbacks, registry, query_mode="simple")
+    state = await make_plan(
+        state, llm, callbacks, registry,
+        experience_context=state.get("experience_context"),
+        query_mode="simple",
+    )
 
     plan = state.get("plan")
     if not plan or not plan.get("steps"):

@@ -68,6 +68,10 @@ class ExperienceConfig:
     cross_dialect_promotion_threshold: int = 2
     similarity_threshold_high: float = 0.85
     similarity_threshold_medium: float = 0.65
+    quality_eval_enabled: bool = True
+    quality_eval_min_score: int = 7
+    quality_eval_poll_interval: float = 30.0
+    quality_eval_max_retries: int = 3
 
 
 @dataclass

@@ -50,6 +50,11 @@ csv = [
 ui = [
     "nicegui>=3.0",
 ]
+playground = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
 export = [
     "weasyprint>=62",
     "nbformat>=5.0",
@@ -64,7 +69,7 @@ ollama = [
     "httpx>=0.25",
 ]
 all = [
-    "mcpdb[postgresql,mysql,excel,csv,ui,export,sandbox,openai,gemini,ollama]",
+    "mcpdb[postgresql,mysql,excel,csv,ui,playground,export,sandbox,openai,gemini,ollama]",
 ]
 
 [project.scripts]

@@ -35,7 +35,7 @@ class MockLLM(LLMProvider):
         self._default_response = {"mode": "simple", "reasoning": "default"}
         self.calls: list[str] = []
 
-    def set_response(self, response: dict[str, Any]) -> None:
+    def set_response(self, response: dict[str, Any] | str) -> None:
         self._default_response = response
 
     async def stream(
@@ -48,7 +48,8 @@ class MockLLM(LLMProvider):
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         self.calls.append(messages[-1].content[:50])
-        text = json.dumps(self._default_response)
+        resp = self._default_response
+        text = resp if isinstance(resp, str) else json.dumps(resp)
         yield StreamChunk(text=text)
         yield StreamChunk(text="", usage=TokenUsage(input_tokens=100, output_tokens=50))
 
@@ -260,10 +261,7 @@ class TestQuickMode:
     @pytest.mark.asyncio
     async def test_quick_escalates(self):
         llm = MockLLM()
-        llm.set_response({
-            "action": "escalate",
-            "reason": "needs actual row data",
-        })
+        llm.set_response("ESCALATE")
         cb = CallbackManager()
         state: AgentState = {
             "question": "Show me the top customers",

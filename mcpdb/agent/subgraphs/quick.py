@@ -13,22 +13,17 @@ logger = logging.getLogger("mcpdb.agent.quick")
 
 CONTEXT_ANSWER_PROMPT = """\
 You are a data assistant. Answer the user's question using ONLY the schema context below.
-Do NOT make up data values. If you need actual data to answer, respond with:
-{{"action": "escalate", "reason": "needs data values"}}
-
-Otherwise respond with:
-{{"action": "answer", "text": "Your answer here"}}
+Do NOT make up data values. If you cannot answer without running queries, reply with exactly: ESCALATE
 
 IMPORTANT RULES:
 - When the user asks to LIST items (tables, columns, etc.), you MUST include EVERY single item. Never summarize, truncate, or say "and N more". List them ALL.
-- Use markdown formatting (bullet lists, tables) for readability.
+- Use markdown formatting (bullet lists, tables, code blocks) for readability.
+- For mermaid diagrams, output a fenced ```mermaid code block.
 
 SCHEMA CONTEXT:
 {source_context}
 
 USER QUESTION: {question}
-
-Respond with JSON only.
 """
 
 
@@ -39,7 +34,7 @@ async def run_quick(
 ) -> AgentState:
     """Execute the Quick mode subgraph.
 
-    1. context_answer: Answer from schema context
+    1. context_answer: Answer from schema context (direct text, no JSON)
     2. If escalation needed: set validation_result = "needs_data"
     """
     callbacks.emit("quick/start")
@@ -53,23 +48,17 @@ async def run_quick(
     )
 
     try:
-        result, usage = await llm.generate_json(
+        text, usage = await llm.generate(
             [Message(role="user", content=prompt)],
-            system="You are a data assistant. Respond with JSON only.",
+            system="You are a data assistant. Answer directly in markdown.",
         )
 
-        action = result.get("action", "answer")
-        text = result.get("text", "")
+        text = text.strip()
 
-        if action == "escalate" or not text:
-            # Escalate if LLM says so, or if response is empty
+        if not text or text == "ESCALATE":
             state["validation_result"] = "needs_data"
             state["query_mode"] = "simple"
-            reason = result.get("reason", "needs data") if action == "escalate" else "empty response"
-            callbacks.emit(
-                "quick/escalate",
-                reason=reason,
-            )
+            callbacks.emit("quick/escalate", reason="needs data")
         else:
             state["response"] = text
             state["validation_result"] = "complete"

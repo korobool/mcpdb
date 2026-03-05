@@ -2602,7 +2602,203 @@ experience:
   similarity_threshold_medium: 0.65     # Example injection threshold
 ```
 
-### 11.14 MCP Tools for Experience Management
+### 11.14 Async Quality Evaluation Pipeline
+
+Results are no longer written directly to the experience cache. Instead, they pass through a **staging → async evaluation → promotion** pipeline that uses LLM-based quality scoring to gate what enters the cache.
+
+#### 11.14.1 Architecture
+
+```
+User query → Agent pipeline → Response returned to user (instant)
+                                    ↓
+                          _is_cacheable() fast sync gate
+                          (reject empty, errors, >50% failed steps)
+                                    ↓
+                          Stage result to disk (JSONL append, ~1ms)
+                          ~/.mcpdb/experience/staging/{fingerprint}.jsonl
+                                    ↓
+                        Background Quality Worker
+                        (async, non-blocking, polls every 30s)
+                                    ↓
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+              Score ≥ 7/10                    Score < 7/10
+              Promote to                     Record as
+              ExperienceCache               anti-pattern (FailureRecord)
+```
+
+The user **never waits** for quality evaluation. The only synchronous cost is one JSONL append (~1ms).
+
+#### 11.14.2 Record Types
+
+```python
+# mcpdb/experience/records.py
+
+@dataclass
+class StagedRecord:
+    """A result staged for async quality evaluation before cache promotion."""
+    intent_hash: str
+    question: str
+    source_fingerprint: str
+    schema_hash: str
+    query_mode: str
+    steps: list[CodeStep]
+    response: str
+    staged_at: float          # When staged (default: time.time())
+    evaluated: bool           # Set True after evaluation
+    metadata: dict[str, Any]
+    semantic_hash: str
+
+    def to_success_record(self) -> SuccessRecord:
+        """Convert to SuccessRecord for cache promotion."""
+
+@dataclass
+class QualityResult:
+    """Result of LLM-based quality evaluation."""
+    score: int         # 1-10 overall
+    completeness: int  # 1-10
+    accuracy: int      # 1-10
+    relevance: int     # 1-10
+    clarity: int       # 1-10
+    issues: list[str]  # Red flags found
+    verdict: str       # "promote" or "reject"
+```
+
+#### 11.14.3 Staging Store
+
+```python
+# mcpdb/experience/staging.py
+
+class StagingStore:
+    """JSONL-based staging area for results awaiting quality evaluation.
+
+    Storage: ~/.mcpdb/experience/staging/{fingerprint}.jsonl
+    One file per source, same pattern as ExperienceStore.
+    Thread-safe via threading.Lock.
+    """
+
+    def stage(self, record: StagedRecord) -> None
+    def get_pending(self, fingerprint: str) -> list[StagedRecord]
+    def get_all(self, fingerprint: str) -> list[StagedRecord]
+    def get_all_pending(self) -> list[StagedRecord]  # across all sources
+    def mark_evaluated(self, fingerprint: str, intent_hash: str) -> None
+    def remove(self, fingerprint: str, intent_hash: str) -> None
+    def list_fingerprints(self) -> list[str]
+```
+
+#### 11.14.4 Quality Evaluator
+
+```python
+# mcpdb/experience/evaluator.py
+
+class QualityEvaluator:
+    """LLM-based scoring for staged results.
+
+    Sends question + execution steps + response to LLM.
+    LLM returns structured JSON with scores on 4 dimensions.
+    Verdict determined by min_score threshold (default: 7).
+    """
+
+    def __init__(self, min_score: int = 7)
+    async def evaluate(self, record: StagedRecord, llm: LLMProvider) -> QualityResult
+```
+
+**Fast-path:** Quick-mode responses with no executable steps are auto-promoted with score 10 (schema-derived, deterministic — no LLM call needed).
+
+**Evaluation prompt scores 4 dimensions:**
+- **Completeness** — does it fully answer the question?
+- **Accuracy** — are numbers/facts correct given execution results?
+- **Relevance** — does it address what was asked?
+- **Clarity** — is it well-structured and easy to understand?
+
+**Red flag detection:**
+- Hallucinated numbers not from execution results
+- Missing key findings from the data
+- Contradictions between response and execution results
+- Generic/vague answers that don't use actual data
+
+#### 11.14.5 Background Worker
+
+```python
+# mcpdb/experience/worker.py
+
+class QualityWorker:
+    """Background async worker for evaluating staged results.
+
+    Runs as a long-lived asyncio coroutine.
+    Polls staging store every 30s for unevaluated records.
+    Processes one record at a time (rate-limited for LLM quota).
+    """
+
+    def __init__(
+        self,
+        staging_store: StagingStore,
+        experience_cache: ExperienceCache,
+        experience_store: ExperienceStore,
+        evaluator: QualityEvaluator | None = None,
+        poll_interval: float = 30.0,
+        max_retries: int = 3,
+    )
+
+    async def run(self, llm: LLMProvider) -> None  # main loop
+    def stop(self) -> None                          # graceful shutdown signal
+```
+
+**On promote (score ≥ 7):** Calls `record.to_success_record()`, writes to `ExperienceStore`, promotes to in-memory `ExperienceCache`, removes from staging.
+
+**On reject (score < 7):** Stores a `FailureRecord` with `error_type="quality_rejected"` containing the quality feedback (scores + issues), removes from staging. This feeds into the anti-pattern tracker for future planning.
+
+**On LLM failure:** Retries up to 3 times with exponential backoff. After exhausting retries, records a `FailureRecord` with `error_type="quality_eval_failed"`.
+
+#### 11.14.6 Runtime Contexts
+
+| Context | Staging | Worker | Evaluation |
+|---------|---------|--------|------------|
+| **Playground** (FastAPI) | `_stage_experience()` on every result | `asyncio.create_task()` in lifespan | Automatic, polls every 30s |
+| **CLI** (`mcpdb query`) | `_stage_experience()` on every result | Not running | Deferred until `mcpdb experience eval` |
+| **MCP** (`ask_question`) | `_stage_experience()` on every result | Not running | Deferred until `mcpdb experience eval` |
+| **Batch** (`mcpdb experience eval`) | N/A | N/A | Synchronous, processes all pending |
+
+Staged records accumulate on disk in CLI/MCP contexts and are evaluated when:
+- The Playground is next started (worker picks them up), or
+- `mcpdb experience eval` is run manually
+
+#### 11.14.7 Agent Integration
+
+In `mcpdb/agent/graph.py`, `run_agent()` accepts an optional `staging_store: StagingStore` parameter:
+
+```python
+async def run_agent(
+    question, registry, llm, callbacks,
+    experience_cache=None,
+    force_rethink=False,
+    staging_store=None,     # NEW
+) -> AgentState
+```
+
+After the pipeline completes, the routing logic is:
+
+1. `_is_cacheable(state)` — fast sync gate (reject obviously bad results)
+2. If **quick mode** with no executable steps → `_store_experience()` (direct, auto-promote)
+3. If `staging_store` provided → `_stage_experience()` (writes `StagedRecord` to staging)
+4. Else if `experience_cache` provided → `_store_experience()` (legacy direct path)
+
+Quick-mode auto-promotion is safe because these responses are derived from the schema (which was already validated by the cache lookup) and contain no executable code.
+
+#### 11.14.8 CLI Batch Command
+
+```
+mcpdb experience eval
+```
+
+Processes all pending staged records synchronously:
+1. Creates LLM provider from config
+2. Loads all pending records via `staging_store.get_all_pending()`
+3. Evaluates each with `QualityEvaluator`
+4. Promotes or rejects
+5. Reports: `N promoted, N rejected, N errors`
+
+### 11.15 MCP Tools for Experience Management
 
 | Tool | Description | Parameters |
 |------|-------------|------------|

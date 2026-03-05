@@ -17,7 +17,12 @@ _tool_defs: list[Tool] = []
 _tool_handlers: dict[str, Callable] = {}
 
 
-def register_all_tools(server: Server, registry: SourceRegistry, llm: Any = None) -> None:
+def register_all_tools(
+    server: Server,
+    registry: SourceRegistry,
+    llm: Any = None,
+    experience_service: Any = None,
+) -> None:
     """Register all MCP tools on the server via a single list_tools/call_tool pair."""
     from mcpdb.mcp.tools.session import get_session_tools, handle_session_tool
     from mcpdb.mcp.tools.querying import get_query_tools, handle_query_tool
@@ -56,11 +61,11 @@ def register_all_tools(server: Server, registry: SourceRegistry, llm: Any = None
     for tool in get_excel_tools():
         handlers[tool.name] = lambda args, r=registry, l=llm: handle_excel_tool(args["_name"], args, r, l)
     for tool in get_analysis_tools():
-        handlers[tool.name] = lambda args, r=registry, l=llm: handle_analysis_tool(args["_name"], args, r, l)
+        handlers[tool.name] = lambda args, r=registry, l=llm, es=experience_service: handle_analysis_tool(args["_name"], args, r, l, experience_service=es)
     for tool in get_export_tools():
         handlers[tool.name] = lambda args: handle_export_tool(args["_name"], args)
     for tool in get_experience_tools():
-        handlers[tool.name] = lambda args, r=registry: handle_experience_tool(args["_name"], args, r)
+        handlers[tool.name] = lambda args, r=registry, es=experience_service: handle_experience_tool(args["_name"], args, r, experience_service=es)
     for tool in get_control_tools():
         handlers[tool.name] = lambda args: handle_control_tool(args["_name"], args)
 
