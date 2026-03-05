@@ -9,7 +9,7 @@ from mcpdb.config import McpdbConfig, load_config
 
 
 def test_version_exists():
-    assert __version__ == "3.9.9"
+    assert __version__ == "4.0.0"
 
 
 def test_python_m_mcpdb_prints_version():
@@ -25,9 +25,9 @@ def test_python_m_mcpdb_prints_version():
 
 def test_load_config_defaults():
     config = McpdbConfig()
-    assert config.llm.reasoning.provider == "anthropic"
-    assert config.llm.reasoning.model == "claude-sonnet-4-6"
-    assert config.llm.fast.model == "claude-haiku-4-5-20251001"
+    assert config.llm.reasoning.provider == "gemini"
+    assert config.llm.reasoning.model == "gemini-2.5-pro"
+    assert config.llm.fast.model == "gemini-2.5-flash"
     assert config.llm.temperature == 0.0
     assert config.server.transport == "stdio"
     assert config.server.port == 8765
@@ -59,7 +59,7 @@ execution:
     assert config.llm.reasoning.model == "gpt-4o"
     assert config.llm.temperature == 0.5
     # fast model keeps default since not specified
-    assert config.llm.fast.model == "claude-haiku-4-5-20251001"
+    assert config.llm.fast.model == "gemini-2.5-flash"
     assert config.server.transport == "sse"
     assert config.server.port == 9999
     assert config.execution.query_timeout == 60
@@ -81,11 +81,11 @@ llm:
 def test_load_config_missing_file():
     config = load_config("/nonexistent/path/mcpdb.yaml")
     # Falls back to defaults
-    assert config.llm.reasoning.provider == "anthropic"
+    assert config.llm.reasoning.provider == "gemini"
 
 
 def test_load_config_empty_file(tmp_path):
     yaml_file = tmp_path / "mcpdb.yaml"
     yaml_file.write_text("")
     config = load_config(yaml_file)
-    assert config.llm.reasoning.provider == "anthropic"
+    assert config.llm.reasoning.provider == "gemini"

@@ -44,13 +44,13 @@ pip install mcpdb[csv]         # CSV support (DuckDB, chardet)
 pip install mcpdb[excel]       # Excel support (openpyxl)
 pip install mcpdb[ui]          # Web UI (NiceGUI)
 pip install mcpdb[export]      # PDF/notebook export (weasyprint, nbformat)
-pip install mcpdb[sandbox]     # Chart generation (matplotlib, seaborn)
+pip install mcpdb[sandbox]     # Charts & ML (matplotlib, seaborn, scikit-learn, scipy)
 ```
 
-**LLM providers** (Anthropic is included by default):
+**LLM providers** (Gemini is the default; Anthropic is included):
 ```bash
+pip install mcpdb[gemini]      # Google Gemini models (google-genai SDK, default provider)
 pip install mcpdb[openai]      # OpenAI GPT models
-pip install mcpdb[gemini]      # Google Gemini models
 pip install mcpdb[ollama]      # Ollama local models (httpx)
 ```
 
@@ -158,11 +158,11 @@ MCPDB loads configuration from YAML. Search order:
 ```yaml
 llm:
   reasoning:
-    provider: anthropic           # anthropic, openai, gemini, ollama
-    model: claude-sonnet-4-6
-    api_key: ${ANTHROPIC_API_KEY} # Environment variable resolution
+    provider: gemini              # gemini, openai, anthropic, ollama
+    model: gemini-2.5-pro
+    api_key: ${GEMINI_API_KEY}    # Environment variable resolution
   fast:
-    model: claude-haiku-4-5-20251001
+    model: gemini-2.5-flash
   temperature: 0.0
   timeout: 120
   budget_per_question_usd: 2.00
@@ -195,6 +195,13 @@ experience:
 ui:
   theme: dark                     # dark or light
   port: 8080
+
+sandbox:
+  allowed_modules: []             # Extra modules to allow (added to defaults)
+  blocked_modules: []             # Extra modules to block (added to defaults)
+  allow_all: false                # true = allow all imports except blocklist
+  memory_mb: 2048                 # Subprocess memory limit
+  cpu_seconds: 60                 # Subprocess CPU time limit
 ```
 
 Environment variables are resolved with `${VAR_NAME}` syntax — use this for API keys.
@@ -205,7 +212,7 @@ Environment variables are resolved with `${VAR_NAME}` syntax — use this for AP
 
 2. Install the Gemini extra:
    ```bash
-   pip install mcpdb[gemini]
+   pip install mcpdb[gemini]   # installs google-genai SDK
    ```
 
 3. Set your API key as an environment variable:
@@ -213,16 +220,16 @@ Environment variables are resolved with `${VAR_NAME}` syntax — use this for AP
    export GEMINI_API_KEY="your-key-here"
    ```
 
-4. Configure `mcpdb.yaml` to use Gemini:
+4. Gemini is the default provider. If you want to customize:
    ```yaml
    llm:
      reasoning:
        provider: gemini
-       model: gemini-2.0-flash       # or gemini-2.5-pro, gemini-2.5-flash
+       model: gemini-2.5-pro         # or gemini-2.5-flash, gemini-2.0-flash
        api_key: ${GEMINI_API_KEY}
      fast:
        provider: gemini
-       model: gemini-2.0-flash
+       model: gemini-2.5-flash
        api_key: ${GEMINI_API_KEY}
    ```
 
@@ -253,7 +260,7 @@ pip install mcpdb[openai]
 llm:
   reasoning:
     provider: openai
-    model: gpt-4o
+    model: gpt-4.1
     api_key: ${OPENAI_API_KEY}
 ```
 
@@ -305,7 +312,7 @@ python -m pytest -v
 python -m pytest -k "test_cost"
 ```
 
-The test suite has 890+ tests covering all modules. Tests use pytest with `pytest-asyncio` for async code.
+The test suite has 900+ tests covering all modules. Tests use pytest with `pytest-asyncio` for async code.
 
 ### Development Workflow
 
@@ -399,14 +406,15 @@ mcpdb/
 │       ├── experience.py # get_experience_stats, vote_response, ...
 │       └── control.py   # cancel_execution, add_context, submit_strategy
 ├── llm/                 # LLM provider abstraction
-│   ├── provider.py      # LLMProvider ABC + AnthropicProvider
-│   ├── openai_provider.py
-│   ├── gemini_provider.py
-│   ├── ollama_provider.py
-│   └── factory.py       # create_provider() + FallbackProvider
+│   ├── provider.py      # LLMProvider ABC, _extract_json()
+│   ├── gemini_provider.py  # Google Gemini (default)
+│   ├── openai_provider.py  # OpenAI GPT
+│   ├── anthropic_provider.py # Anthropic Claude
+│   ├── ollama_provider.py  # Ollama local models
+│   └── factory.py       # create_provider() factory
 ├── sandbox/             # Secure Python execution
 │   ├── executor.py      # Subprocess-based execution
-│   └── security.py      # Import validation, resource limits
+│   └── security.py      # Configurable import allowlist/blocklist, resource limits
 ├── security/            # Security hardening
 │   ├── sql_safety.py    # Read-only enforcement, injection detection
 │   ├── credentials.py   # Connection string redaction
@@ -428,13 +436,17 @@ mcpdb/
 │   └── notebook_export.py # Jupyter notebook generation
 └── ui/                  # Web interface (NiceGUI)
     ├── app.py           # Application layout + routing
+    ├── state.py         # UIState, ExecutionStatus
+    ├── theme.py         # Dark/light themes
+    ├── pages/
+    │   └── chat.py      # Chat page with agent integration
     └── components/      # UI components
-        ├── chat.py
+        ├── llm_selector.py      # LLM provider/model picker
         ├── source_panel.py
         ├── schema_viewer.py
         ├── excel_viewer.py
         ├── artifact_viewer.py
-        ├── execution_monitor.py
+        ├── execution_monitor.py # Step-by-step progress display
         ├── deep_analysis_viewer.py
         ├── cost_gate_dialog.py
         └── export_dialog.py
@@ -511,11 +523,63 @@ Loaded via the `load_excel` tool. Supports:
 - Cell grid rendering for non-tabular layouts
 - Multiple workbooks with cross-workbook references
 
+## Python Sandbox
+
+The agent can execute Python code for data transformations, visualizations, and ML tasks. Code runs in an isolated subprocess with configurable security.
+
+### Default Allowed Libraries
+
+Out of the box, the sandbox allows a broad data science stack:
+
+- **Data**: pandas, numpy, polars, pyarrow, duckdb, sqlalchemy
+- **ML/Science**: scikit-learn, torch, xgboost, lightgbm, catboost, scipy
+- **Visualization**: matplotlib, seaborn, plotly
+- **NLP**: nltk, spacy, transformers
+- **Geo/Image**: geopandas, shapely, PIL
+- **Standard library**: json, re, math, datetime, collections, itertools, statistics, csv, io, random, hashlib, and more
+
+### Blocked by Default
+
+`os`, `sys`, `subprocess`, `shutil`, `pathlib`, `socket`, `http`, `urllib`, `requests`, `pickle`, `ctypes`, `threading`, `multiprocessing`
+
+### Sandbox Configuration
+
+```yaml
+# mcpdb.yaml
+sandbox:
+  # Add extra modules to the allowlist
+  allowed_modules:
+    - tensorflow
+    - keras
+    - networkx
+
+  # Add extra modules to the blocklist
+  blocked_modules:
+    - some_dangerous_module
+
+  # Allow ALL imports (only blocklist is enforced)
+  allow_all: false
+
+  # Resource limits for sandbox subprocess
+  memory_mb: 2048
+  cpu_seconds: 60
+```
+
+**Disable security entirely** (allow everything, block nothing):
+
+```yaml
+sandbox:
+  allow_all: true
+  blocked_modules: []
+```
+
+The LLM planner automatically sees which libraries are available and adjusts its code generation accordingly.
+
 ## Security
 
 - **Read-only mode** (default): Blocks INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE
 - **SQL injection detection**: Flags suspicious patterns (stacked queries, INTO OUTFILE, etc.)
-- **Python sandbox**: Subprocess isolation with import allowlist, resource limits (memory, CPU, no file/network access)
+- **Python sandbox**: Subprocess isolation with configurable import allowlist/blocklist, resource limits (memory, CPU)
 - **Credential redaction**: Connection strings and API keys are stripped from logs
 - **Rate limiting**: Configurable per-session query rate and concurrency limits
 - **Circuit breaker**: Automatic backoff on repeated LLM or database failures

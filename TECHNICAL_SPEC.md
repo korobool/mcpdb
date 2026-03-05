@@ -1180,7 +1180,7 @@ plan ──→ cost_check ──(safe)──→ execute ⟷ debug ──→ vali
      | Action | Behavior |
      |--------|----------|
      | `sql` | Execute SQL via `DatabaseSource.execute_query()` or `CsvSource.execute_query()`. Result → DataFrame → artifact. Stores DataFrame in `last_dataframe` for Python follow-up. |
-     | `python` | Execute code in sandbox with pre-injected `df`, `pd`, `np`, `plt`, `sns`, `db_query()`. Captures figures, DataFrames, scalars. |
+     | `python` | Execute code in sandbox with pre-injected `df`, `pd`, `np`, `pl`, `plt`, `sns`. Full data science stack available (scipy, sklearn, torch, etc. — configurable allowlist). Captures figures, DataFrames, scalars. |
      | `excel_read` | Read cell range via `ExcelSource.read_range()` → CellGrid artifact. |
      | `excel_structure` | Analyze sheet layout via `ExcelSource.get_sheet_structure()`. |
      | `excel_formula` | Explain formula via `FormulaAnalyzer.explain_formula()`. |
@@ -1542,7 +1542,7 @@ The `execute_step` node dispatches to source-specific tools based on `action` ty
 |--------|--------|---------------|
 | `sql` | Database | `DatabaseSource.execute_query()` |
 | `sql` | CSV | `CsvSource.execute_query()` (DuckDB) |
-| `python` | Any | Sandboxed Python with `df`, `plt`, etc. |
+| `python` | Any | Sandboxed Python with `df`, `pd`, `np`, `pl`, `plt`, `sns` + configurable data science stack |
 | `excel_read` | Excel | `ExcelSource.read_range()` → CellGrid |
 | `excel_structure` | Excel | `ExcelSource.get_sheet_structure()` |
 | `excel_formula` | Excel | `FormulaAnalyzer.explain_formula()` |
@@ -2757,7 +2757,7 @@ These are the tools where the server's LLM generates code or text. In **Tool Mod
 
 | # | Tool | Description | Parameters |
 |---|------|-------------|------------|
-| 26 | `execute_python` ★ | Run Python code in sandbox (pandas, matplotlib, seaborn available) | `code: str` |
+| 26 | `execute_python` ★ | Run Python code in sandbox (full data science stack: pandas, numpy, polars, scipy, sklearn, torch, matplotlib, seaborn, plotly — configurable allowlist) | `code: str` |
 | 27 | `ask_question` | **Agent Mode entry point**: full LangGraph pipeline (classify → plan → execute → debug → synthesize) | `question: str`, `mode?: "auto"\|"quick"\|"simple"\|"extended"\|"deep"`, `deep_analysis?: bool` |
 | 28 | `generate_sql` ★ | LLM generates SQL for a question WITHOUT executing it. Returns SQL + explanation. | `question: str`, `source_id?: str` |
 | 29 | `summarize_results` ★ | LLM summarizes a result set (last query output or specified artifact) | `artifact_id?: str`, `instructions?: str` |
@@ -3131,62 +3131,104 @@ Key adaptations from dbtalk:
 
 ### 14.1 Overview
 
+The sandbox executes LLM-generated Python code in an isolated subprocess with
+configurable security controls.
+
 ```python
 # mcpdb/sandbox/executor.py
 
-class PythonSandbox:
-    """Sandboxed Python execution environment.
+def execute_python(
+    code: str,
+    context_df: pd.DataFrame | None = None,
+    timeout: int = 30,
+    memory_mb: int = 2048,
+    cpu_seconds: int = 30,
+) -> SandboxResult:
+    """Execute Python code in an isolated subprocess.
 
     Pre-injected variables:
-      - pd (pandas)
-      - np (numpy)
-      - plt (matplotlib.pyplot)
-      - sns (seaborn)
-      - df: DataFrame from last query/extraction
-      - db_query(sql, source_id?): Execute SQL on a source
-      - read_excel(source_id, sheet, range?): Read Excel cells
-      - result: Set this to return output
+      - pd (pandas), np (numpy), pl (polars)
+      - plt (matplotlib.pyplot), sns (seaborn)
+      - df: DataFrame from last SQL query result
 
-    Security (enforced via subprocess isolation, NOT exec() with restricted globals):
-      - Execution in a **separate subprocess** with:
-        a. RestrictedPython compilation (blocks ast nodes: Import, ImportFrom unless
-           in allowlist, Attribute access to dunder methods blocked)
-        b. Subprocess timeout via signal.alarm (hard kill after timeout+5s)
-        c. Resource limits via resource.setrlimit: RLIMIT_AS for memory,
-           RLIMIT_CPU for CPU time, RLIMIT_NOFILE=0 for filesystem
-        d. seccomp profile (Linux) or sandbox-exec (macOS) blocking
-           network syscalls (connect, bind, listen) and filesystem writes
-      - Import allowlist: pandas, numpy, matplotlib, seaborn, math, datetime,
-        collections, itertools, functools, statistics, decimal, json, re, textwrap
-      - db_query() helper enforces read-only: wraps source.execute_query()
-        which uses read-only connections (SET SESSION CHARACTERISTICS AS
-        TRANSACTION READ ONLY for PostgreSQL, etc.)
-      - Memory limit: 512MB per execution (configurable)
-      - Timeout: 60s default (configurable)
+    Security (enforced via subprocess isolation):
+      - AST-based import validation before execution
+      - Subprocess timeout via subprocess.run(timeout=...)
+      - Resource limits via resource.setrlimit (Linux): RLIMIT_AS, RLIMIT_CPU
+      - Environment isolation (single-threaded BLAS/MKL)
 
     Output capture:
       - stdout is captured
-      - matplotlib figures are captured as base64 PNG
-      - DataFrames are serialized as artifacts
-      - Scalars/strings are returned as text
+      - matplotlib/seaborn figures captured as base64 PNG via plt.show() monkey-patch
+      - DataFrames returned via `result_df` variable or modified `df`
+      - JSON metadata envelope for structured result passing
     """
-
-    def execute(self, code: str, context: dict[str, Any],
-                timeout: int = 60) -> SandboxResult: ...
 ```
 
-### 14.2 SandboxResult
+### 14.2 Configurable Security
+
+Import validation uses a two-phase check: allowlist (what's permitted) and
+blocklist (what's always denied). Both are configurable via `mcpdb.yaml`.
+
+```python
+# mcpdb/sandbox/security.py
+
+class SandboxSecurity:
+    """Configurable import validator.
+
+    Modes:
+    - Normal (default): imports checked against allowed + blocked lists.
+    - allow_all=True: all imports allowed, blocked list still enforced.
+    - allow_all=True + empty blocked: everything allowed (security off).
+    """
+
+    def __init__(self, allowed, blocked, allow_all=False): ...
+    def validate_imports(self, code: str) -> list[str]: ...
+    def get_allowed_for_prompt(self) -> str: ...
+```
+
+**Default allowed modules** (data science stack):
+
+| Category | Modules |
+|----------|---------|
+| Data processing | pandas, numpy, polars, pyarrow, duckdb, sqlalchemy, openpyxl |
+| ML / Science | scikit-learn, torch, xgboost, lightgbm, catboost, scipy |
+| Visualization | matplotlib, seaborn, plotly |
+| NLP | nltk, spacy, transformers |
+| Geo / Image | geopandas, shapely, PIL |
+| Standard library | json, re, math, datetime, collections, itertools, statistics, csv, io, random, hashlib, base64, copy, decimal, fractions, dataclasses, enum, typing, etc. |
+
+**Always blocked**: os, sys, subprocess, shutil, pathlib, socket, http, urllib,
+requests, httpx, importlib, ctypes, signal, threading, multiprocessing, pickle,
+shelve, marshal, code, webbrowser, builtins.
+
+**Configuration** (`mcpdb.yaml`):
+
+```yaml
+sandbox:
+  allowed_modules: [tensorflow, keras]  # Added to defaults
+  blocked_modules: []                   # Added to defaults
+  allow_all: false                      # true = allow everything except blocked
+  memory_mb: 2048                       # Subprocess memory limit (MB)
+  cpu_seconds: 60                       # Subprocess CPU time limit
+```
+
+The LLM plan and debug prompts dynamically include the available library list
+via `SandboxSecurity.get_allowed_for_prompt()`, so the planner generates code
+that only uses available libraries.
+
+### 14.3 SandboxResult
 
 ```python
 @dataclass
 class SandboxResult:
-    success: bool
-    output: str                    # Captured stdout
-    result_value: Any              # Value of 'result' variable
-    artifacts: list[dict]          # Generated tables/charts
-    error: str | None              # Error traceback if failed
-    execution_time_ms: int
-    memory_delta_mb: float
+    stdout: str = ""
+    stderr: str = ""
+    success: bool = True
+    error: str | None = None
+    dataframe: pd.DataFrame | None = None
+    charts: list[str] = field(default_factory=list)  # base64 PNG strings
+    return_value: str | None = None
 ```
 
 ---
@@ -3356,18 +3398,18 @@ async def on_artifact(artifact: dict): ...
 ### 16.1 Configuration File
 
 ```yaml
-# mcpdb.yaml (or .env)
+# mcpdb.yaml
 
 # LLM Configuration
 llm:
   reasoning:
-    provider: anthropic        # anthropic | google | openai
-    model: claude-sonnet-4-6
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: gemini             # gemini | openai | anthropic | ollama
+    model: gemini-2.5-pro
+    api_key: ${GEMINI_API_KEY}
   fast:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: gemini
+    model: gemini-2.5-flash
+    api_key: ${GEMINI_API_KEY}
   temperature: 0.0
   timeout: 120
   budget_per_question_usd: 2.00    # Max LLM spend per ask_question call (0 = unlimited)
@@ -3415,22 +3457,31 @@ experience:
 ui:
   theme: dark
   port: 8080
+
+# Python Sandbox
+sandbox:
+  allowed_modules: []           # Extra modules to add to default allowlist
+  blocked_modules: []           # Extra modules to add to default blocklist
+  allow_all: false              # true = allow all imports except blocklist
+  memory_mb: 2048               # Subprocess memory limit
+  cpu_seconds: 60               # Subprocess CPU time limit
 ```
 
 ### 16.2 Environment Variables
 
 ```bash
 # Required (at least one LLM provider)
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...             # Google Gemini (default provider)
 # or
-GOOGLE_API_KEY=...
+OPENAI_API_KEY=sk-...          # OpenAI
 # or
-OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...   # Anthropic Claude
 
 # Optional
 MCPDB_CONFIG=./mcpdb.yaml      # Config file path
 MCPDB_LOG_LEVEL=INFO
 MCPDB_EXPERIENCE_DIR=~/.mcpdb/experience
+MCPDB_DATABASE_URL=...         # Default database connection
 ```
 
 ---
@@ -3533,8 +3584,8 @@ mcpdb/
 │   │
 │   ├── sandbox/                      # Python Execution Sandbox
 │   │   ├── __init__.py
-│   │   ├── executor.py               # Sandboxed execution
-│   │   └── security.py               # Import restrictions, resource limits
+│   │   ├── executor.py               # Subprocess-based execution
+│   │   └── security.py               # SandboxSecurity: configurable allowlist/blocklist, resource limits
 │   │
 │   ├── experience/                   # Per-Source Experience & Learning (Section 11)
 │   │   ├── __init__.py
@@ -4121,10 +4172,14 @@ The spec covers ~4500 lines across 22 sections of interconnected functionality. 
 - **Test**: `execute_python("print(1+1)")` → "2"
 
 **v0.5.1 — Security hardening**
-- `sandbox/security.py`: RestrictedPython compilation
-- Import allowlist (pandas, numpy, matplotlib, seaborn, json, re, math, datetime)
-- Resource limits (RLIMIT_AS, RLIMIT_CPU, RLIMIT_NOFILE=0)
-- **Test**: `import os` → blocked, `import subprocess` → blocked
+- `sandbox/security.py`: AST-based import validation with `SandboxSecurity` class
+- Configurable import allowlist/blocklist via `SandboxConfig` in `mcpdb.yaml`
+- Default allowlist: full data science stack (pandas, numpy, polars, scipy, sklearn, torch, matplotlib, seaborn, plotly, etc.)
+- Default blocklist: os, sys, subprocess, socket, http, pickle, etc.
+- Three modes: normal (allowlist), `allow_all` (only blocklist enforced), security off (`allow_all` + empty blocklist)
+- Resource limits (RLIMIT_AS, RLIMIT_CPU) on Linux
+- LLM prompts dynamically include available library list from security config
+- **Test**: `import os` → blocked, `import subprocess` → blocked, `import sklearn` → allowed
 
 **v0.5.2 — DataFrame & chart capture**
 - Pre-inject `df` (last query result), `pd`, `np`, `plt`, `sns`
