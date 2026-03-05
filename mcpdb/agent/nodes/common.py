@@ -11,6 +11,7 @@ from mcpdb.agent.state import AgentState
 from mcpdb.agent.callbacks import CallbackManager
 from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sandbox.executor import execute_python
+from mcpdb.sandbox.security import get_security
 from mcpdb.sources.base import QueryableSource
 from mcpdb.sources.registry import SourceRegistry
 
@@ -26,21 +27,71 @@ DATA SOURCES:
 {source_context}
 
 USER QUESTION: {question}
-EXECUTION MODE: simple (focused plan, 1-5 steps)
+EXECUTION MODE: {mode_description}
 
 AVAILABLE ACTIONS:
 - "sql": Execute SQL on a database source (specify source_id)
-- "python": Execute Python code (pandas, numpy, matplotlib, seaborn available; `df` = last SQL result)
+- "python": Execute Python code (`df` = last SQL result as pandas DataFrame)
 - "schema": Get schema details
 - "sample": Get sample rows from a table
 
+AVAILABLE PYTHON LIBRARIES:
+{available_libraries}
+
 RULES:
-- For SQL: include the actual SQL code
-- For Python: `df` contains the last SQL result as a pandas DataFrame. Use `plt.show()` to capture charts. Set `result_df = ...` to return a new DataFrame.
-- Use exact column/table names from the schemas above
+- You MUST produce the number of steps specified by the execution mode above. If the user asks for N steps, produce exactly N steps.
+- For SQL: include the actual SQL code. Use the exact column and table names from the schema above.
+- For Python: IMPORTANT — `df` contains ONLY the result from the IMMEDIATELY PRECEDING SQL step. You cannot access results from earlier steps. Each Python step can only use the `df` from the SQL step right before it. If you need data from multiple queries, combine them into one SQL query first, or re-query in the Python step's preceding SQL step.
+- For Python: Use `plt.show()` to capture charts. Set `result_df = ...` to return a new DataFrame. Do NOT import os, sys, subprocess, or networking libraries.
+- Plan steps as SQL→Python pairs: each SQL step fetches data, then the next Python step visualizes/analyzes it. Do NOT use variable names like `df1`, `df2` — only `df` is available.
+- When counting rows, use SQL COUNT(*) — do not rely on schema metadata row counts which may be approximate.
+- When computing ratios or percentages, use SQL directly for precision.
+- For date calculations, use the actual date columns in the data (e.g., the year from the date column, NOT the current year).
+- For large datasets (100K+ rows), prefer SQL or polars for aggregation over pandas.
+- For EDA or exploratory analysis: include diverse steps (distributions, correlations, outliers, trends). Use Python with matplotlib/seaborn for charts — always include `plt.show()` to capture them.
 
 Respond with JSON only:
 {{"analysis": "What the user wants", "approach": "How we'll get it", "steps": [{{"step_number": 1, "action": "sql", "source_id": "...", "description": "...", "code": "..."}}]}}
+"""
+
+# Mode descriptions for the plan prompt
+MODE_DESCRIPTIONS = {
+    "quick": "quick (1-2 steps, schema lookup only)",
+    "simple": "simple (focused plan, 1-5 steps)",
+    "extended": "extended (comprehensive analysis, 5-15 steps — use more steps for thorough coverage)",
+    "optimization_required": "optimization (cost-aware, 2-8 steps with sampling)",
+    "deep": "deep investigation (3-7 steps per sub-investigation)",
+}
+
+
+def _get_mode_description(query_mode: str, question: str) -> str:
+    """Get the mode description, respecting explicit step counts in the question."""
+    import re
+    # Check if user explicitly requested N steps
+    match = re.search(r'(\d+)\s*(?:step|stage|phase)', question, re.IGNORECASE)
+    if match:
+        n = int(match.group(1))
+        return f"comprehensive ({n} steps as requested by the user — produce exactly {n} steps)"
+
+    return MODE_DESCRIPTIONS.get(query_mode, MODE_DESCRIPTIONS["simple"])
+
+
+FALLBACK_PLAN_PROMPT = """\
+You are a data analysis planner. The previous planning attempt failed.
+Create a SIMPLE plan (1-3 steps only) for this question.
+
+DATA SOURCES:
+{source_context}
+
+USER QUESTION: {question}
+
+Rules:
+- Use only "sql" actions
+- Each step must have: step_number, action, source_id, description, code
+- Keep SQL queries simple and standard
+
+Respond with JSON ONLY, no other text:
+{{"analysis": "...", "approach": "...", "steps": [{{"step_number": 1, "action": "sql", "source_id": "{default_source_id}", "description": "...", "code": "SELECT ..."}}]}}
 """
 
 
@@ -50,53 +101,155 @@ async def make_plan(
     callbacks: CallbackManager,
     registry: SourceRegistry,
     experience_context: str | None = None,
+    query_mode: str | None = None,
 ) -> AgentState:
     """Generate an execution plan via LLM.
 
     If experience_context is provided, it includes template/anti-pattern hints.
+    query_mode controls the step range in the prompt (simple=1-5, extended=5-15).
+    Retries once with a simpler prompt on failure. Falls back to a basic EDA
+    plan if all LLM attempts fail.
     """
     callbacks.emit("plan/start")
 
+    mode = query_mode or state.get("query_mode", "simple")
+    mode_desc = _get_mode_description(mode, state["question"])
+
+    security = get_security()
     prompt = PLAN_PROMPT.format(
         source_context=state.get("source_context", "No sources"),
         question=state["question"],
+        mode_description=mode_desc,
+        available_libraries=security.get_allowed_for_prompt(),
     )
 
     if experience_context:
         prompt = prompt + "\n\n" + experience_context
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a data analysis planner. Respond with JSON only.",
-            max_tokens=2048,
-        )
+    # Attempt 1: Normal plan prompt
+    plan_result = await _try_plan(llm, prompt, callbacks, attempt=1)
 
-        steps = result.get("steps", [])
+    # Attempt 2: Retry with simpler prompt if first attempt failed
+    if plan_result is None:
+        default_source_id = ""
+        sources = registry.list_sources()
+        if sources:
+            default_source_id = sources[0].source_id
+
+        fallback_prompt = FALLBACK_PLAN_PROMPT.format(
+            source_context=state.get("source_context", "No sources"),
+            question=state["question"],
+            default_source_id=default_source_id,
+        )
+        callbacks.emit("plan/retry", attempt=2)
+        plan_result = await _try_plan(llm, fallback_prompt, callbacks, attempt=2)
+
+    # If LLM planning worked, use it
+    if plan_result is not None:
+        steps = plan_result.get("steps", [])
         for step in steps:
             step.setdefault("status", "pending")
             step.setdefault("attempts", 0)
 
         state["plan"] = {
-            "analysis": result.get("analysis", ""),
-            "approach": result.get("approach", ""),
+            "analysis": plan_result.get("analysis", ""),
+            "approach": plan_result.get("approach", ""),
             "current_step_index": 0,
             "steps": steps,
         }
 
-        callbacks.emit("plan/ready", step_count=len(steps))
+        if steps:
+            callbacks.emit("plan/ready", step_count=len(steps))
+            return state
 
-    except Exception as e:
-        logger.warning("Planning failed: %s", e)
+    # Attempt 3: Generate a hardcoded fallback plan for common queries
+    fallback_steps = _generate_fallback_plan(state, registry)
+    if fallback_steps:
+        logger.info("Using fallback plan with %d steps", len(fallback_steps))
+        state["plan"] = {
+            "analysis": state["question"],
+            "approach": "fallback_eda",
+            "current_step_index": 0,
+            "steps": fallback_steps,
+        }
+        callbacks.emit("plan/ready", step_count=len(fallback_steps))
+    else:
         state["plan"] = {
             "analysis": state["question"],
             "approach": "fallback",
             "current_step_index": 0,
             "steps": [],
         }
-        callbacks.emit("plan/error", error=str(e))
+        callbacks.emit("plan/error", error="All planning attempts failed")
 
     return state
+
+
+async def _try_plan(
+    llm: LLMProvider,
+    prompt: str,
+    callbacks: CallbackManager,
+    attempt: int = 1,
+) -> dict | None:
+    """Try to generate a plan via LLM. Returns parsed dict or None on failure."""
+    try:
+        result, usage = await llm.generate_json(
+            [Message(role="user", content=prompt)],
+            system="You are a data analysis planner. Respond with JSON only.",
+        )
+        return result
+    except Exception as e:
+        logger.warning("Planning attempt %d failed: %s", attempt, e)
+        callbacks.emit("plan/error", error=str(e), attempt=attempt)
+        return None
+
+
+def _generate_fallback_plan(state: AgentState, registry: SourceRegistry) -> list[dict]:
+    """Generate a basic fallback plan (schema exploration) without LLM.
+
+    Works for EDA-type questions or when all LLM planning attempts fail.
+    """
+    sources = registry.list_sources()
+    if not sources:
+        return []
+
+    source_id = sources[0].source_id
+    source = registry.get_source(source_id)
+    tables = sources[0].tables
+
+    if not tables:
+        return []
+
+    steps: list[dict] = []
+    step_num = 1
+
+    # Step 1: List all tables with row counts
+    steps.append({
+        "step_number": step_num,
+        "action": "schema",
+        "source_id": source_id,
+        "description": "Get full schema overview",
+        "code": "",
+        "status": "pending",
+        "attempts": 0,
+    })
+    step_num += 1
+
+    # Step 2: Sample first few tables (up to 5)
+    for table in tables[:5]:
+        steps.append({
+            "step_number": step_num,
+            "action": "sample",
+            "source_id": source_id,
+            "description": f"Sample rows from {table.name}",
+            "table": table.name,
+            "code": table.name,
+            "status": "pending",
+            "attempts": 0,
+        })
+        step_num += 1
+
+    return steps
 
 
 # --- Execute Node ---
@@ -141,7 +294,7 @@ async def execute_step(
 
         # Record success
         step["status"] = "success"
-        step["result_preview"] = str(result.get("output", ""))[:200]
+        step["result_preview"] = str(result.get("output", ""))
         step["time_ms"] = elapsed_ms
         step["attempts"] = step.get("attempts", 0) + 1
 
@@ -149,7 +302,7 @@ async def execute_step(
         state["execution_log"] = state.get("execution_log", []) + [{
             "step_number": step.get("step_number", idx + 1),
             "action": action,
-            "code": code[:200],
+            "code": code,
             "status": "success",
             "result_preview": step["result_preview"],
             "time_ms": elapsed_ms,
@@ -163,7 +316,7 @@ async def execute_step(
                 "title": step.get("description", f"Step {idx + 1}"),
                 "data": {
                     "columns": list(df.columns),
-                    "rows": df.values.tolist()[:50],
+                    "rows": df.values.tolist(),
                     "total_rows": len(df),
                 },
             }]
@@ -200,7 +353,7 @@ async def execute_step(
         state["execution_log"] = state.get("execution_log", []) + [{
             "step_number": step.get("step_number", idx + 1),
             "action": action,
-            "code": code[:200],
+            "code": code,
             "status": "error",
             "error": str(e),
             "time_ms": elapsed_ms,
@@ -233,7 +386,7 @@ def _execute_sql_step(
 
     df = source.execute_query(code, max_rows=100)
     return {
-        "output": df.to_string(max_colwidth=50)[:500],
+        "output": df.to_string(max_colwidth=80),
         "dataframe": df,
         "row_count": len(df),
     }
@@ -302,6 +455,16 @@ ERROR:
 
 ATTEMPT: {attempt} of {max_retries}
 
+AVAILABLE PYTHON LIBRARIES:
+{available_libraries}
+
+RULES:
+- If this is a Python step, only use the libraries listed above. Do NOT import os, sys, subprocess, or networking libraries.
+- If the error is an import violation, rewrite the code using only allowed libraries.
+- IMPORTANT: Only `df` is available — it contains the result of the IMMEDIATELY PRECEDING SQL step. Variables like `df1`, `df2`, etc. DO NOT EXIST. If the code references undefined variables, rewrite it to use only `df`.
+- If `df` is None or the error is about NoneType, the preceding step may have failed. Make the code self-contained by querying the data within the Python step using pandas or re-using `df` safely.
+- If this is a SQL step, fix the SQL syntax or logic.
+
 Respond with JSON:
 {{"error_analysis": "What went wrong", "corrected_code": "Fixed code"}}
 """
@@ -333,6 +496,7 @@ async def debug_step(
 
     callbacks.emit("debug/start", step_index=idx, attempt=error["attempts"])
 
+    security = get_security()
     prompt = DEBUG_PROMPT.format(
         source_context=state.get("source_context", ""),
         action=error["action"],
@@ -340,13 +504,13 @@ async def debug_step(
         error=error["error"],
         attempt=error["attempts"],
         max_retries=max_retries,
+        available_libraries=security.get_allowed_for_prompt(),
     )
 
     try:
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a code debugger. Respond with JSON only.",
-            max_tokens=2048,
         )
 
         corrected = result.get("corrected_code", error["code"])
@@ -368,7 +532,7 @@ async def debug_step(
 # --- Synthesize Node ---
 
 SYNTHESIZE_PROMPT = """\
-Synthesize a clear, concise answer to the user's question based on the execution results below.
+Synthesize a clear, complete answer to the user's question based on the execution results below.
 
 USER QUESTION: {question}
 
@@ -377,6 +541,7 @@ EXECUTION RESULTS:
 
 Guidelines:
 - Directly answer the question
+- When the user asks to LIST items, include EVERY item from the results. Never truncate, summarize, or say "and N more".
 - Highlight key findings
 - Use markdown formatting
 - Interpret data, don't just repeat raw numbers
@@ -423,7 +588,6 @@ async def synthesize(
         text, usage = await llm.generate(
             [Message(role="user", content=prompt)],
             system="You are a data analyst. Provide clear, insightful answers.",
-            max_tokens=2048,
         )
         state["response"] = text
 

@@ -81,7 +81,7 @@ def run_explain(
             "scan_type": explain_result.scan_type,
             "uses_index": explain_result.uses_index,
             "warnings": explain_result.warnings,
-            "raw": raw_output[:500],
+            "raw": raw_output,
         }
     except Exception as e:
         logger.debug("EXPLAIN failed for query: %s", e)
@@ -186,7 +186,6 @@ async def llm_cost_check(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a database performance analyst. Respond with JSON only.",
-            max_tokens=256,
         )
 
         analysis = CostAnalysis(

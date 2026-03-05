@@ -19,16 +19,18 @@ Review the progress so far on this analysis.
 
 USER QUESTION: {question}
 
-COMPLETED STEPS:
+COMPLETED STEPS ({completed_count} of {total_count}):
 {completed}
 
 REMAINING STEPS:
 {remaining}
 
+IMPORTANT: The user's question determines the expected scope. If the user asked for a specific number of steps or a comprehensive/thorough analysis, you should continue executing all planned steps. Only choose "done" if the remaining steps are truly redundant.
+
 Should we:
 1. Continue with the remaining steps as planned
 2. Revise the remaining steps based on what we've learned
-3. Stop here — we have enough information
+3. Stop here — we have enough information (only if remaining steps add no value)
 
 Respond with JSON:
 {{"action": "continue|revise|done", "reason": "...", "revision_notes": "..." }}
@@ -69,13 +71,14 @@ async def checkpoint(
         question=state["question"],
         completed=completed or "None",
         remaining=remaining or "None",
+        completed_count=idx,
+        total_count=len(steps),
     )
 
     try:
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are an analysis progress reviewer. Respond with JSON only.",
-            max_tokens=512,
         )
 
         action = result.get("action", "continue")
@@ -158,7 +161,6 @@ async def revise_plan(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a data analysis planner. Respond with JSON only.",
-            max_tokens=2048,
         )
 
         new_steps = result.get("steps", [])
@@ -220,7 +222,6 @@ async def reflect(
         text, usage = await llm.generate(
             [Message(role="user", content=prompt)],
             system="You are a thoughtful data analyst. Provide insightful reflection.",
-            max_tokens=1024,
         )
         state["reflection"] = text
         callbacks.emit("reflect/ready")

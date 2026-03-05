@@ -351,13 +351,14 @@ class TestOrchestratorGraph:
 
     @pytest.mark.asyncio
     async def test_simple_mode_runs(self):
-        """Simple mode now runs the real pipeline (tested in detail in test_simple_mode.py)."""
+        """Simple mode runs the pipeline, synthesizes even with empty LLM plan."""
         llm = MockLLM()
-        # Plan call
+        # Plan call returns empty steps — but agent should still produce a response
+        # via fallback plan or context synthesis
         llm.set_response({
             "analysis": "test",
             "approach": "test",
-            "steps": [],  # Empty plan → early exit with message
+            "steps": [],
         })
         registry = SourceRegistry()
         registry.add_source(MockQueryableSource())
@@ -369,7 +370,7 @@ class TestOrchestratorGraph:
             mode_override="simple",
         )
 
-        # With empty plan, simple mode returns "could not create" message
+        # Agent should still produce a response (not dead-end)
         assert state["response"] is not None
-        assert "could not create" in state["response"].lower()
+        assert len(state["response"]) > 0
         registry.close_all()

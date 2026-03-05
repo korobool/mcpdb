@@ -26,12 +26,22 @@ async def run_simple(
     """
     callbacks.emit("simple/start")
 
-    # 1. Plan
-    state = await make_plan(state, llm, callbacks, registry)
+    # 1. Plan (includes retry + fallback logic)
+    state = await make_plan(state, llm, callbacks, registry, query_mode="simple")
 
     plan = state.get("plan")
     if not plan or not plan.get("steps"):
-        state["response"] = "Could not create an execution plan for this question."
+        # Last resort: synthesize an answer from source context alone
+        logger.warning("No plan steps available, synthesizing from context")
+        state["execution_log"] = [{
+            "step_number": 0,
+            "action": "context",
+            "code": "",
+            "status": "success",
+            "result_preview": state.get("source_context", "No data available"),
+            "time_ms": 0,
+        }]
+        state = await synthesize(state, llm, callbacks)
         callbacks.emit("simple/complete", steps_executed=0)
         return state
 

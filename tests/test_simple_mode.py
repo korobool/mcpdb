@@ -206,8 +206,9 @@ class TestPlanNode:
         }
 
         result = await make_plan(state, llm, cb, registry_with_source)
-        assert result["plan"]["approach"] == "fallback"
-        assert result["plan"]["steps"] == []
+        # With a registry that has sources, fallback generates EDA steps
+        assert result["plan"]["approach"] == "fallback_eda"
+        assert len(result["plan"]["steps"]) > 0
 
 
 # --- Execute Node Tests ---
@@ -736,7 +737,7 @@ class TestSimpleSubgraph:
 
     @pytest.mark.asyncio
     async def test_simple_empty_plan(self, registry_with_source):
-        """If plan has no steps, return error message."""
+        """If LLM plan fails, agent still produces a response via fallback."""
         llm = MockLLM()
         llm.queue("not valid json {{")  # Force plan failure
 
@@ -751,7 +752,9 @@ class TestSimpleSubgraph:
         }
 
         result = await run_simple(state, llm, cb, registry_with_source)
-        assert "could not create" in result["response"].lower()
+        # Agent should still produce a response (fallback plan or context synthesis)
+        assert result["response"] is not None
+        assert len(result["response"]) > 0
 
     @pytest.mark.asyncio
     async def test_multi_step_execution(self, registry_with_source):

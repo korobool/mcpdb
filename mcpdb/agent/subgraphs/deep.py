@@ -26,8 +26,10 @@ RESEARCH QUESTION: {question}
 
 Create a research blueprint with:
 1. A clear research goal
-2. 3-7 investigation questions that together will comprehensively answer the main question
+2. 2-5 investigation questions that together will comprehensively answer the main question
 3. For each investigation, specify what kind of analysis is needed
+
+IMPORTANT: Keep investigations focused and non-overlapping. Prefer fewer, targeted investigations over many broad ones.
 
 Each investigation should be independent enough to run as a separate analysis.
 
@@ -156,9 +158,17 @@ async def run_deep(
                         i for i in investigations if i.get("id") not in skip_ids
                     ]
 
-                # Add new investigations
+                # Add new investigations (normalize key names from LLM)
                 for new_inv in reasoning.get("new_investigations", []):
                     new_inv.setdefault("id", 100 + len(completed) + len(investigations))
+                    # LLM may use 'title' or 'topic' instead of 'question'
+                    if "question" not in new_inv:
+                        new_inv["question"] = (
+                            new_inv.pop("title", None)
+                            or new_inv.pop("topic", None)
+                            or new_inv.pop("description", None)
+                            or "Follow-up investigation"
+                        )
                     investigations.append(new_inv)
 
                 # Check if we have enough
@@ -195,7 +205,6 @@ async def _create_blueprint(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a senior data analyst. Respond with JSON only.",
-            max_tokens=2048,
         )
         return result
     except Exception as e:
@@ -245,12 +254,12 @@ async def _reason_about_results(
     """LLM reviews completed investigations and decides next steps."""
     completed_text = "\n\n".join(
         f"Investigation {c['id']}: {c['question']}\n"
-        f"Result: {c['result'][:500]}"
+        f"Result: {c['result']}"
         for c in completed
     )
 
     remaining_text = "\n".join(
-        f"- #{r.get('id', '?')}: {r['question']}"
+        f"- #{r.get('id', '?')}: {r.get('question', r.get('title', 'Unknown'))}"
         for r in remaining
     ) or "None"
 
@@ -264,7 +273,6 @@ async def _reason_about_results(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a research advisor. Respond with JSON only.",
-            max_tokens=1024,
         )
         return result
     except Exception as e:
@@ -298,7 +306,6 @@ async def _deep_synthesize(
         text, usage = await llm.generate(
             [Message(role="user", content=prompt)],
             system="You are a senior data analyst writing a research report.",
-            max_tokens=4096,
         )
         state["response"] = text
     except Exception as e:

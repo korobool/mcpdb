@@ -51,7 +51,6 @@ async def validate_result(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a result validator. Respond with JSON only.",
-            max_tokens=256,
         )
 
         validation = result.get("result", "adequate")
@@ -111,7 +110,6 @@ async def replan(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a data analysis planner. Respond with JSON only.",
-            max_tokens=2048,
         )
 
         steps = result.get("steps", [])

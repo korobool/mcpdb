@@ -154,7 +154,6 @@ def _suggest_followups(
         result, _usage = loop.run_until_complete(
             llm.generate_json(
                 [Message(role="user", content=prompt)],
-                max_tokens=1024,
                 temperature=0.7,
             )
         )

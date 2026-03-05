@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from mcpdb.agent.callbacks import CallbackManager
 from mcpdb.agent.cancellation import CancellationToken
-from mcpdb.llm.provider import LLMProvider, Message, StreamChunk
+from mcpdb.llm.provider import LLMProvider, Message, StreamChunk, _extract_json
 from mcpdb.llm.config import TokenUsage
 
 logger = logging.getLogger("mcpdb.agent.streaming")
@@ -20,7 +19,7 @@ async def stream_llm_call(
     callbacks: CallbackManager,
     *,
     system: str | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 16384,
     temperature: float = 0.0,
     label: str = "llm",
     cancellation: CancellationToken | None = None,
@@ -86,7 +85,7 @@ async def stream_llm_json(
     callbacks: CallbackManager,
     *,
     system: str | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 16384,
     temperature: float = 0.0,
     label: str = "llm",
     cancellation: CancellationToken | None = None,
@@ -102,10 +101,4 @@ async def stream_llm_json(
         label=label, cancellation=cancellation, **kwargs,
     )
 
-    # Extract JSON (handle markdown code blocks)
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    return json.loads(text), usage
+    return _extract_json(text), usage

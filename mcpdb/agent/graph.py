@@ -133,7 +133,7 @@ def _store_experience(
         steps.append(CodeStep(
             action_type=entry.get("action_type", "unknown"),
             code=entry.get("code", ""),
-            result_preview=str(entry.get("result_preview", ""))[:500],
+            result_preview=str(entry.get("result_preview", "")),
             time_ms=entry.get("time_ms", 0.0),
         ))
 

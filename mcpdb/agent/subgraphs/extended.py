@@ -34,12 +34,22 @@ async def run_extended(
     """
     callbacks.emit("extended/start")
 
-    # 1. Plan
-    state = await make_plan(state, llm, callbacks, registry)
+    # 1. Plan (extended mode gets more steps)
+    state = await make_plan(state, llm, callbacks, registry, query_mode="extended")
 
     plan = state.get("plan")
     if not plan or not plan.get("steps"):
-        state["response"] = "Could not create an execution plan."
+        # Last resort: synthesize from context
+        logger.warning("No plan steps available, synthesizing from context")
+        state["execution_log"] = [{
+            "step_number": 0,
+            "action": "context",
+            "code": "",
+            "status": "success",
+            "result_preview": state.get("source_context", "No data available"),
+            "time_ms": 0,
+        }]
+        state = await synthesize(state, llm, callbacks)
         callbacks.emit("extended/complete", steps_executed=0)
         return state
 
@@ -79,28 +89,40 @@ async def _execute_with_checkpoints(
     callbacks: CallbackManager,
     registry: SourceRegistry,
     checkpoint_interval: int = 3,
+    max_revisions: int = 2,
 ) -> AgentState:
     """Execute steps with periodic checkpoints."""
     plan = state.get("plan", {})
     steps = plan.get("steps", [])
     max_iterations = len(steps) * (state.get("max_retries", 3) + 1)
+    revision_count = 0
+    skip_next_checkpoint = False
 
     for _ in range(max_iterations):
         idx = plan.get("current_step_index", 0)
         if idx >= len(steps):
             break
 
-        # Checkpoint before execution
-        state = await checkpoint(state, llm, callbacks, step_interval=checkpoint_interval)
+        # Checkpoint before execution (skip after a revise to let revised steps run)
+        if skip_next_checkpoint:
+            skip_next_checkpoint = False
+            state["checkpoint_action"] = "continue"
+        else:
+            state = await checkpoint(state, llm, callbacks, step_interval=checkpoint_interval)
 
         action = state.get("checkpoint_action", "continue")
         if action == "done":
             logger.info("Checkpoint decided to stop at step %d", idx)
             break
         elif action == "revise":
-            state = await revise_plan(state, llm, callbacks)
-            steps = plan.get("steps", [])
-            continue
+            if revision_count >= max_revisions:
+                logger.info("Max revisions (%d) reached, continuing as-is", max_revisions)
+            else:
+                revision_count += 1
+                state = await revise_plan(state, llm, callbacks)
+                steps = plan.get("steps", [])
+                skip_next_checkpoint = True
+                continue
 
         # Execute the step
         state = await execute_step(state, callbacks, registry)

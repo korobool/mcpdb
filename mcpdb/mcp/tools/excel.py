@@ -286,7 +286,6 @@ def _explain_single_formula(formula: str, llm: Any) -> str:
                 text, _usage = loop.run_until_complete(
                     llm.generate(
                         [Message(role="user", content=prompt)],
-                        max_tokens=256,
                         temperature=0.0,
                     )
                 )

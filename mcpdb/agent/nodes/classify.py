@@ -52,7 +52,6 @@ async def classify(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a query classifier. Respond with JSON only.",
-            max_tokens=512,
         )
 
         mode = result.get("mode", "simple")

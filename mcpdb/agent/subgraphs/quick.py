@@ -19,6 +19,10 @@ Do NOT make up data values. If you need actual data to answer, respond with:
 Otherwise respond with:
 {{"action": "answer", "text": "Your answer here"}}
 
+IMPORTANT RULES:
+- When the user asks to LIST items (tables, columns, etc.), you MUST include EVERY single item. Never summarize, truncate, or say "and N more". List them ALL.
+- Use markdown formatting (bullet lists, tables) for readability.
+
 SCHEMA CONTEXT:
 {source_context}
 
@@ -52,20 +56,22 @@ async def run_quick(
         result, usage = await llm.generate_json(
             [Message(role="user", content=prompt)],
             system="You are a data assistant. Respond with JSON only.",
-            max_tokens=2048,
         )
 
         action = result.get("action", "answer")
+        text = result.get("text", "")
 
-        if action == "escalate":
+        if action == "escalate" or not text:
+            # Escalate if LLM says so, or if response is empty
             state["validation_result"] = "needs_data"
             state["query_mode"] = "simple"
+            reason = result.get("reason", "needs data") if action == "escalate" else "empty response"
             callbacks.emit(
                 "quick/escalate",
-                reason=result.get("reason", "needs data"),
+                reason=reason,
             )
         else:
-            state["response"] = result.get("text", str(result))
+            state["response"] = text
             state["validation_result"] = "complete"
             callbacks.emit("quick/complete")
 
