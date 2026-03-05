@@ -25,6 +25,8 @@ Usage:
   mcpdb serve --port 8765        Start SSE server on custom port
   mcpdb ui                       Start the web UI
   mcpdb ui --port 8080           Start UI on custom port
+  mcpdb playground               Start the Playground (FastAPI + React)
+  mcpdb playground --port 8080   Playground on custom port
   mcpdb query <conn> <question>  One-shot query mode
 """
 
@@ -110,6 +112,29 @@ def main() -> None:
             run_ui(port=port, theme=theme, config=config)
         except ImportError:
             print("UI requires NiceGUI. Install with: pip install mcpdb[ui]")
+            sys.exit(1)
+
+    elif command == "playground":
+        port = config.ui.port
+        no_browser = False
+
+        i = 1
+        while i < len(args):
+            if args[i] == "--port" and i + 1 < len(args):
+                port = int(args[i + 1])
+                i += 2
+            elif args[i] == "--no-browser":
+                no_browser = True
+                i += 1
+            else:
+                i += 1
+
+        logger.info("mcpdb v%s playground starting on port %d", __version__, port)
+        try:
+            from mcpdb.playground.api import run_playground
+            run_playground(config=config, port=port, open_browser=not no_browser)
+        except ImportError:
+            print("Playground requires FastAPI + Uvicorn. Install with: pip install mcpdb[playground]")
             sys.exit(1)
 
     elif command == "query":
