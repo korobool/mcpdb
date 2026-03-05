@@ -1,15 +1,18 @@
-import { useChatStore } from '@/stores/chatStore'
-import { FileText, Table2, BarChart3 } from 'lucide-react'
+import { useState } from 'react'
+import { useChatStore, type Artifact } from '@/stores/chatStore'
+import { MermaidBlock } from '@/components/chat/MermaidBlock'
+import { FileText, Table2, BarChart3, GitBranch, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export function ArtifactViewer() {
   const messages = useChatStore(s => s.messages)
 
   // Get the last assistant message with artifacts
   const lastAssistant = [...messages].reverse().find(
-    m => m.role === 'assistant' && m.executionLog && m.executionLog.length > 0
+    m => m.role === 'assistant' && m.artifacts && m.artifacts.length > 0
   )
 
-  if (!lastAssistant?.executionLog?.length) {
+  if (!lastAssistant?.artifacts?.length) {
     return (
       <div className="px-3 py-2">
         <div className="flex items-center gap-2 mb-2">
@@ -21,55 +24,72 @@ export function ArtifactViewer() {
     )
   }
 
-  const log = lastAssistant.executionLog
-
   return (
     <div className="px-3 py-2">
       <div className="flex items-center gap-2 mb-2">
         <FileText className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs font-medium uppercase text-muted-foreground">
-          Execution Log ({log.length} step{log.length !== 1 ? 's' : ''})
+          Artifacts ({lastAssistant.artifacts.length})
         </span>
       </div>
       <div className="space-y-2">
-        {log.map((entry, i) => (
-          <LogEntry key={i} entry={entry} index={i} />
+        {lastAssistant.artifacts.map((artifact, i) => (
+          <ArtifactCard key={i} artifact={artifact} defaultOpen={i === 0} />
         ))}
       </div>
     </div>
   )
 }
 
-function LogEntry({ entry, index }: { entry: Record<string, unknown>; index: number }) {
-  const action = String(entry.action_type || entry.action || 'unknown')
-  const code = String(entry.code || '')
-  const preview = String(entry.result_preview || '')
-  const timeMs = Number(entry.time_ms || 0)
-  const status = String(entry.status || 'success')
+function ArtifactCard({ artifact, defaultOpen }: { artifact: Artifact; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const [copied, setCopied] = useState(false)
 
-  const icon = action === 'sql' ? Table2 : action === 'python' ? BarChart3 : FileText
-  const Icon = icon
+  const iconMap = {
+    mermaid: GitBranch,
+    code: artifact.language === 'sql' ? Table2 : BarChart3,
+    table: Table2,
+    log: FileText,
+  }
+  const Icon = iconMap[artifact.type] || FileText
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(artifact.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   return (
     <div className="rounded border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-2 py-1 bg-muted text-xs">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 w-full px-2 py-1.5 bg-muted text-xs hover:bg-muted/80"
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         <Icon className="w-3 h-3" />
-        <span className="font-medium">Step {index + 1}: {action}</span>
-        {timeMs > 0 && (
-          <span className="ml-auto text-muted-foreground">{timeMs}ms</span>
-        )}
-        <span className={status === 'error' ? 'text-destructive' : 'text-green-500'}>
-          {status}
-        </span>
-      </div>
-      {code && (
-        <pre className="px-2 py-1.5 text-[11px] bg-card overflow-x-auto max-h-[100px]">
-          <code>{code}</code>
-        </pre>
-      )}
-      {preview && (
-        <div className="px-2 py-1 text-[11px] text-muted-foreground border-t border-border max-h-[80px] overflow-auto whitespace-pre">
-          {preview.slice(0, 500)}
+        <span className="font-medium">{artifact.title}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground uppercase">{artifact.type}</span>
+      </button>
+
+      {open && (
+        <div className="relative">
+          <button
+            onClick={handleCopy}
+            className="absolute top-1 right-1 p-1 rounded hover:bg-muted text-muted-foreground z-10"
+            title="Copy"
+          >
+            {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+          </button>
+
+          {artifact.type === 'mermaid' ? (
+            <div className="p-2 overflow-x-auto">
+              <MermaidBlock code={artifact.content} />
+            </div>
+          ) : (
+            <pre className="px-2 py-1.5 text-[11px] bg-card overflow-x-auto max-h-[200px]">
+              <code>{artifact.content}</code>
+            </pre>
+          )}
         </div>
       )}
     </div>

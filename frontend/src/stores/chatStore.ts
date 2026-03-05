@@ -1,13 +1,20 @@
 import { create } from 'zustand'
 import type { QueryMode, WsIncoming } from '@/types/api'
 
+export interface Artifact {
+  type: 'mermaid' | 'code' | 'table' | 'log'
+  title: string
+  content: string
+  language?: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
   queryMode?: string
-  artifacts?: Record<string, unknown>[]
+  artifacts?: Artifact[]
   executionLog?: Record<string, unknown>[]
 }
 
@@ -58,6 +65,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           currentPhase: phase || s.currentPhase,
         }))
       } else if (msg.type === 'result') {
+        const extracted = _extractArtifacts(msg.response, msg.execution_log)
         set(s => ({
           messages: [...s.messages, {
             id: String(++msgId),
@@ -65,7 +73,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             content: msg.response,
             timestamp: Date.now(),
             queryMode: msg.query_mode,
-            artifacts: msg.artifacts,
+            artifacts: extracted,
             executionLog: msg.execution_log,
           }],
           isQuerying: false,
@@ -136,6 +144,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearMessages: () => set({ messages: [], executionEvents: [] }),
 }))
+
+// Extract artifacts from response content and execution log
+function _extractArtifacts(response: string, execLog: Record<string, unknown>[]): Artifact[] {
+  const artifacts: Artifact[] = []
+
+  // Extract mermaid blocks from markdown
+  const mermaidRe = /```mermaid\s*\n([\s\S]*?)```/g
+  let match: RegExpExecArray | null
+  let mermaidIdx = 0
+  while ((match = mermaidRe.exec(response)) !== null) {
+    artifacts.push({
+      type: 'mermaid',
+      title: `Diagram${mermaidIdx > 0 ? ` ${mermaidIdx + 1}` : ''}`,
+      content: match[1].trim(),
+    })
+    mermaidIdx++
+  }
+
+  // Extract SQL/Python steps from execution log
+  if (execLog?.length) {
+    for (const entry of execLog) {
+      const action = String(entry.action_type || entry.action || '')
+      const code = String(entry.code || '')
+      if (code && (action === 'sql' || action === 'python')) {
+        artifacts.push({
+          type: 'code',
+          title: `${action.toUpperCase()} query`,
+          content: code,
+          language: action,
+        })
+      }
+    }
+  }
+
+  return artifacts
+}
 
 // Map event types to phase labels
 function _phaseLabel(eventType: string, data: Record<string, unknown>): string | null {
