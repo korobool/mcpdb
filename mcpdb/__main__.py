@@ -29,6 +29,11 @@ Usage:
   mcpdb playground --port 9000   Playground on a specific port
   mcpdb query <conn> <question>  One-shot query mode
   mcpdb experience eval          Evaluate pending staged results
+  mcpdb experience stats         Show cache & staging statistics
+  mcpdb experience clear [--all] Clear all experience data
+  mcpdb experience clear --source <fp>  Clear one source fingerprint
+  mcpdb experience export [--source <fp>]  Export experience data as JSON
+  mcpdb experience antipatterns [--source <fp>]  List anti-patterns
 """
 
 
@@ -160,10 +165,27 @@ def main() -> None:
         _oneshot_query(connection_string, question, config, logger)
 
     elif command == "experience":
-        if len(args) < 2 or args[1] != "eval":
-            print("Usage: mcpdb experience eval")
+        if len(args) < 2:
+            print("Usage: mcpdb experience <stats|eval|clear|export|antipatterns>")
             sys.exit(1)
-        _experience_eval(config, logger)
+
+        subcmd = args[1]
+        sub_args = args[2:]
+
+        if subcmd == "eval":
+            _experience_eval(config, logger)
+        elif subcmd == "stats":
+            _experience_stats(config)
+        elif subcmd == "clear":
+            _experience_clear(config, sub_args)
+        elif subcmd == "export":
+            _experience_export(config, sub_args)
+        elif subcmd == "antipatterns":
+            _experience_antipatterns(config, sub_args)
+        else:
+            print(f"Unknown experience subcommand: {subcmd}")
+            print("Available: stats, eval, clear, export, antipatterns")
+            sys.exit(1)
 
     elif command in ("--help", "-h", "help"):
         print(USAGE)
@@ -307,18 +329,14 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
         from mcpdb.sources.registry import SourceRegistry
         from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
-        from mcpdb.experience.cache import ExperienceCache
-        from mcpdb.experience.staging import StagingStore
-        from mcpdb.experience.store import ExperienceStore
+        from mcpdb.experience.service import ExperienceService
         from mcpdb.llm.factory import create_provider
 
         progress = _ConsoleProgress()
         callbacks = CallbackManager()
         callbacks.add_listener(progress.on_event)
 
-        experience_store = ExperienceStore()
-        experience_cache = ExperienceCache(store=experience_store)
-        staging_store = StagingStore()
+        service = ExperienceService(config.experience)
 
         registry = SourceRegistry()
         try:
@@ -335,8 +353,8 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
 
             state = await run_agent(
                 question, registry, llm, callbacks,
-                experience_cache=experience_cache,
-                staging_store=staging_store,
+                experience_cache=service.cache,
+                staging_store=service.staging,
             )
             response = state.get("response") or "No response generated."
             progress.finish()
@@ -355,16 +373,15 @@ def _experience_eval(config, logger) -> None:
     import asyncio
 
     async def run():
-        from mcpdb.experience.cache import ExperienceCache
         from mcpdb.experience.evaluator import QualityEvaluator
-        from mcpdb.experience.staging import StagingStore
-        from mcpdb.experience.store import ExperienceStore
+        from mcpdb.experience.service import ExperienceService
         from mcpdb.llm.factory import create_provider
 
-        staging_store = StagingStore()
-        experience_store = ExperienceStore()
-        experience_cache = ExperienceCache(store=experience_store)
-        evaluator = QualityEvaluator()
+        service = ExperienceService(config.experience)
+        staging_store = service.staging
+        experience_store = service.store
+        experience_cache = service.cache
+        evaluator = QualityEvaluator(min_score=config.experience.quality_eval_min_score)
 
         pending = staging_store.get_all_pending()
         if not pending:
@@ -420,6 +437,193 @@ def _experience_eval(config, logger) -> None:
         print(f"\nDone: {promoted} promoted, {rejected} rejected, {errors} errors.")
 
     asyncio.run(run())
+
+
+def _experience_stats(config) -> None:
+    """Show experience cache and staging statistics."""
+    from mcpdb.experience.service import ExperienceService
+
+    service = ExperienceService(config.experience)
+    store = service.store
+    staging = service.staging
+    cache = service.cache
+
+    fingerprints = store.list_fingerprints()
+
+    if not fingerprints:
+        print("No experience data found.")
+    else:
+        print(f"Experience store ({len(fingerprints)} source(s)):")
+        print(f"  {'Fingerprint':<20s} {'Successes':>10s} {'Failures':>10s} {'Oldest':>12s} {'Newest':>12s}")
+        print(f"  {'─' * 20} {'─' * 10} {'─' * 10} {'─' * 12} {'─' * 12}")
+        for fp in fingerprints:
+            stats = store.get_stats(fp)
+            import time as _time
+            oldest = _time.strftime("%Y-%m-%d", _time.localtime(stats["oldest"])) if stats["oldest"] else "n/a"
+            newest = _time.strftime("%Y-%m-%d", _time.localtime(stats["newest"])) if stats["newest"] else "n/a"
+            print(f"  {fp[:20]:<20s} {stats['successes']:>10d} {stats['failures']:>10d} {oldest:>12s} {newest:>12s}")
+
+    # Staging stats
+    pending = staging.get_all_pending()
+    staging_fps = staging.list_fingerprints()
+    print(f"\nStaging: {len(pending)} pending record(s) across {len(staging_fps)} source(s)")
+
+    # Cache memory stats
+    cache_stats = cache.get_stats()
+    print(f"Memory cache: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries")
+
+
+def _experience_clear(config, sub_args: list[str]) -> None:
+    """Clear experience and staging data."""
+    from mcpdb.experience.service import ExperienceService
+
+    service = ExperienceService(config.experience)
+    store = service.store
+    staging = service.staging
+
+    source_fp = None
+    clear_all = False
+
+    i = 0
+    while i < len(sub_args):
+        if sub_args[i] == "--all":
+            clear_all = True
+            i += 1
+        elif sub_args[i] == "--source" and i + 1 < len(sub_args):
+            source_fp = sub_args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    if source_fp:
+        store.clear(source_fp)
+        # Clear staging for this fingerprint
+        for record in staging.get_all(source_fp):
+            staging.remove(source_fp, record.intent_hash)
+        print(f"Cleared experience data for source: {source_fp}")
+    elif clear_all:
+        count = 0
+        for fp in store.list_fingerprints():
+            store.clear(fp)
+            count += 1
+        for fp in staging.list_fingerprints():
+            for record in staging.get_all(fp):
+                staging.remove(fp, record.intent_hash)
+            count += 1
+        print(f"Cleared all experience data ({count} source(s)).")
+    else:
+        print("Usage: mcpdb experience clear --all")
+        print("       mcpdb experience clear --source <fingerprint>")
+        print("\nUse 'mcpdb experience stats' to see available fingerprints.")
+        sys.exit(1)
+
+
+def _experience_export(config, sub_args: list[str]) -> None:
+    """Export experience data as JSON to stdout."""
+    import json
+    from mcpdb.experience.service import ExperienceService
+
+    service = ExperienceService(config.experience)
+    store = service.store
+    staging = service.staging
+
+    source_fp = None
+    i = 0
+    while i < len(sub_args):
+        if sub_args[i] == "--source" and i + 1 < len(sub_args):
+            source_fp = sub_args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    all_records = []
+
+    if source_fp:
+        fingerprints = [source_fp]
+    else:
+        fingerprints = store.list_fingerprints()
+
+    for fp in fingerprints:
+        records = store._load_records(fp)
+        all_records.extend(records)
+
+    # Include staged records
+    staging_fps = [source_fp] if source_fp else staging.list_fingerprints()
+    for fp in staging_fps:
+        for record in staging.get_all(fp):
+            d = record.to_dict()
+            d["status"] = "staged"
+            all_records.append(d)
+
+    print(json.dumps(all_records, indent=2))
+
+
+def _experience_antipatterns(config, sub_args: list[str]) -> None:
+    """List anti-patterns with counts and avoidance hints."""
+    from collections import Counter
+    from mcpdb.experience.antipatterns import _simplify_error, _generate_hint
+    from mcpdb.experience.records import FailureRecord
+    from mcpdb.experience.service import ExperienceService
+
+    service = ExperienceService(config.experience)
+    store = service.store
+
+    source_fp = None
+    i = 0
+    while i < len(sub_args):
+        if sub_args[i] == "--source" and i + 1 < len(sub_args):
+            source_fp = sub_args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    if source_fp:
+        fingerprints = [source_fp]
+    else:
+        fingerprints = store.list_fingerprints()
+
+    if not fingerprints:
+        print("No experience data found.")
+        return
+
+    # Collect all failures across sources
+    pattern_counts: Counter[str] = Counter()
+    pattern_examples: dict[str, FailureRecord] = {}
+
+    for fp in fingerprints:
+        failures = store.get_failures(fp)
+        for f in failures:
+            key = f"{f.error_type}:{_simplify_error(f.error_message)}"
+            pattern_counts[key] += 1
+            pattern_examples[key] = f
+
+    if not pattern_counts:
+        print("No failure patterns found.")
+        return
+
+    # Show all patterns sorted by count
+    min_occ = config.experience.anti_pattern_min_occurrences
+    promoted = [(k, c) for k, c in pattern_counts.most_common() if c >= min_occ]
+    below = [(k, c) for k, c in pattern_counts.most_common() if c < min_occ]
+
+    if promoted:
+        print(f"Anti-patterns (promoted, >= {min_occ} occurrences):")
+        for key, count in promoted:
+            example = pattern_examples[key]
+            hint = _generate_hint(example)
+            print(f"\n  [{example.error_type}] {_simplify_error(example.error_message)}")
+            print(f"    Occurrences: {count}")
+            print(f"    Hint: {hint}")
+            if example.failed_code:
+                print(f"    Example code: {example.failed_code[:100]}")
+    else:
+        print("No promoted anti-patterns yet.")
+
+    if below:
+        print(f"\nPending patterns (< {min_occ} occurrences):")
+        for key, count in below:
+            example = pattern_examples[key]
+            print(f"  [{example.error_type}] {_simplify_error(example.error_message)} ({count}x)")
 
 
 if __name__ == "__main__":

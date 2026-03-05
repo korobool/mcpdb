@@ -48,6 +48,9 @@ RULES:
 - When computing ratios or percentages, use SQL directly for precision.
 - For date calculations, use the actual date columns in the data (e.g., the year from the date column, NOT the current year).
 - For large datasets (100K+ rows), prefer SQL or polars for aggregation over pandas.
+- Ratio/percentage: AVG(a/b) ≠ SUM(a)/SUM(b). Choose based on question intent — "average ratio per row" uses AVG(a/b), "overall ratio" uses SUM(a)/SUM(b).
+- MySQL median: Do NOT use PERCENTILE_CONT or OFFSET with subqueries. Use ROW_NUMBER() window function: SELECT AVG(val) FROM (SELECT val, ROW_NUMBER() OVER (ORDER BY val) AS rn, COUNT(*) OVER() AS cnt FROM t) sub WHERE rn IN (FLOOR((cnt+1)/2), CEIL((cnt+1)/2)).
+- NULL handling: Always filter NULLs with IS NOT NULL in WHERE clauses before aggregate functions like AVG, SUM on nullable columns.
 - For EDA or exploratory analysis: include diverse steps (distributions, correlations, outliers, trends). Use Python with matplotlib/seaborn for charts — always include `plt.show()` to capture them.
 
 Respond with JSON only:

@@ -73,6 +73,20 @@ async def run_agent(
         "cache_hit": False,
     }
 
+    # Build anti-pattern context from experience data
+    if experience_cache is not None:
+        try:
+            from mcpdb.experience.antipatterns import AntiPatternTracker
+            tracker = AntiPatternTracker(store=experience_cache._store)
+            for meta in registry.list_sources():
+                ctx = tracker.get_anti_pattern_context(meta)
+                if ctx:
+                    state["experience_context"] = ctx
+                    logger.info("Anti-pattern context injected: %d chars", len(ctx))
+                    break
+        except Exception as e:
+            logger.debug("Failed to build anti-pattern context: %s", e)
+
     # Check experience cache before doing any LLM work
     if experience_cache is not None and not force_rethink:
         for meta in registry.list_sources():
@@ -123,6 +137,24 @@ async def run_agent(
 
     else:
         state["response"] = f"Unknown mode: {mode}"
+
+    # Record execution failures as anti-patterns
+    if experience_cache is not None:
+        try:
+            from mcpdb.experience.antipatterns import AntiPatternTracker
+            tracker = AntiPatternTracker(store=experience_cache._store)
+            for entry in state.get("execution_log", []):
+                if entry.get("status") == "error":
+                    for meta in registry.list_sources():
+                        tracker.record_failure(
+                            question=question,
+                            source_metadata=meta,
+                            error_type="execution_error",
+                            error_message=str(entry.get("error", "")),
+                            failed_code=entry.get("code", ""),
+                        )
+        except Exception as e:
+            logger.debug("Failed to record execution failures: %s", e)
 
     # Stage results for async quality evaluation (or auto-promote quick mode)
     if _is_cacheable(state):

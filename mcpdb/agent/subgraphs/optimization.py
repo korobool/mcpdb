@@ -31,7 +31,11 @@ async def run_optimization(
     callbacks.emit("optimization/start")
 
     # 1. Plan
-    state = await make_plan(state, llm, callbacks, registry, query_mode="optimization_required")
+    state = await make_plan(
+        state, llm, callbacks, registry,
+        experience_context=state.get("experience_context"),
+        query_mode="optimization_required",
+    )
 
     plan = state.get("plan")
     if not plan or not plan.get("steps"):

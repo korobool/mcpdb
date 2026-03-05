@@ -8,17 +8,9 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from mcpdb.experience.cache import ExperienceCache
-from mcpdb.experience.staging import StagingStore
-from mcpdb.experience.store import ExperienceStore
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.mcp.analysis")
-
-# Module-level singleton — shared across all MCP tool calls
-_experience_store = ExperienceStore()
-_experience_cache = ExperienceCache(store=_experience_store)
-_staging_store = StagingStore()
 
 _TOOLS = [
     Tool(
@@ -74,9 +66,10 @@ def get_analysis_tools() -> list[Tool]:
 
 def handle_analysis_tool(
     name: str, args: dict[str, Any], registry: SourceRegistry, llm: Any,
+    experience_service: Any = None,
 ) -> list[TextContent]:
     if name == "ask_question":
-        return _ask_question(registry, args, llm)
+        return _ask_question(registry, args, llm, experience_service=experience_service)
     elif name == "suggest_followups":
         return _suggest_followups(registry, args, llm)
     return [TextContent(type="text", text=f"Unknown analysis tool: {name}")]
@@ -84,6 +77,7 @@ def handle_analysis_tool(
 
 def _ask_question(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
+    experience_service: Any = None,
 ) -> list[TextContent]:
     from mcpdb.agent.graph import run_agent
     from mcpdb.agent.callbacks import CallbackManager
@@ -95,6 +89,18 @@ def _ask_question(
 
     callbacks = CallbackManager()
 
+    # Resolve experience components from service or create inline fallback
+    if experience_service is not None:
+        experience_cache = experience_service.cache
+        staging_store = experience_service.staging
+    else:
+        from mcpdb.experience.cache import ExperienceCache
+        from mcpdb.experience.staging import StagingStore
+        from mcpdb.experience.store import ExperienceStore
+        _store = ExperienceStore()
+        experience_cache = ExperienceCache(store=_store)
+        staging_store = StagingStore()
+
     # Run the agent synchronously (MCP tool handlers are sync in our dispatch)
     loop = asyncio.new_event_loop()
     try:
@@ -105,9 +111,9 @@ def _ask_question(
                 llm=llm,
                 callbacks=callbacks,
                 mode_override=mode_override,
-                experience_cache=_experience_cache,
+                experience_cache=experience_cache,
                 force_rethink=force_rethink,
-                staging_store=_staging_store,
+                staging_store=staging_store,
             )
         )
     finally:

@@ -35,7 +35,11 @@ async def run_extended(
     callbacks.emit("extended/start")
 
     # 1. Plan (extended mode gets more steps)
-    state = await make_plan(state, llm, callbacks, registry, query_mode="extended")
+    state = await make_plan(
+        state, llm, callbacks, registry,
+        experience_context=state.get("experience_context"),
+        query_mode="extended",
+    )
 
     plan = state.get("plan")
     if not plan or not plan.get("steps"):

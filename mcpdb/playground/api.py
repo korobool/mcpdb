@@ -49,26 +49,18 @@ class LLMConfigUpdate(BaseModel):
 # App state (module-level, set by create_app)
 # ---------------------------------------------------------------------------
 
-from mcpdb.experience.cache import ExperienceCache
-from mcpdb.experience.evaluator import QualityEvaluator
-from mcpdb.experience.staging import StagingStore
-from mcpdb.experience.store import ExperienceStore
-from mcpdb.experience.worker import QualityWorker
+from mcpdb.experience.service import ExperienceService
 
 _registry: SourceRegistry | None = None
 _config: McpdbConfig | None = None
 _llm: Any = None
 _active_task: asyncio.Task | None = None
-_experience_store = ExperienceStore()
-_experience_cache = ExperienceCache(store=_experience_store)
-_staging_store = StagingStore()
-_quality_worker: QualityWorker | None = None
-_worker_task: asyncio.Task | None = None
+_experience_service: ExperienceService | None = None
 
 
 def create_app(config: McpdbConfig | None = None) -> FastAPI:
     """Create and configure the FastAPI app."""
-    global _registry, _config, _llm
+    global _registry, _config, _llm, _experience_service
 
     from mcpdb.config import load_config
     _config = config or load_config()
@@ -82,6 +74,9 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
     except Exception as e:
         logger.warning("Failed to create LLM provider: %s", e)
         _llm = None
+
+    # Create experience service
+    _experience_service = ExperienceService(_config.experience)
 
     # Auto-connect database from MCPDB_DATABASE_URL if set
     import os
@@ -97,27 +92,15 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global _quality_worker, _worker_task
-        # Start background quality worker if LLM is available
-        if _llm is not None:
-            _quality_worker = QualityWorker(
-                staging_store=_staging_store,
-                experience_cache=_experience_cache,
-                experience_store=_experience_store,
-            )
-            _worker_task = asyncio.create_task(_quality_worker.run(_llm))
-            logger.info("Quality evaluation worker started")
+        # Start background quality worker via ExperienceService
+        if _experience_service is not None:
+            await _experience_service.start(_llm)
 
         yield
 
         # Graceful shutdown
-        if _quality_worker is not None:
-            _quality_worker.stop()
-        if _worker_task is not None:
-            try:
-                await asyncio.wait_for(_worker_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                _worker_task.cancel()
+        if _experience_service is not None:
+            await _experience_service.stop()
         if _registry:
             _registry.close_all()
 
@@ -377,15 +360,19 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
         callbacks = CallbackManager()
         callbacks.add_listener(on_event)
 
+        # Resolve experience components from service
+        _exp_cache = _experience_service.cache if _experience_service else None
+        _exp_staging = _experience_service.staging if _experience_service else None
+
         # Run agent in a task so we can forward events as they arrive
         async def run_and_signal():
             try:
                 state = await run_agent(
                     question, _registry, _llm, callbacks,
                     mode_override=mode_override,
-                    experience_cache=_experience_cache,
+                    experience_cache=_exp_cache,
                     force_rethink=force_rethink,
-                    staging_store=_staging_store,
+                    staging_store=_exp_staging,
                 )
                 # Signal completion via queue
                 event_queue.put_nowait({

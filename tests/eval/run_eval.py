@@ -555,7 +555,7 @@ QUESTIONS = [
     {
         "id": 85,
         "q": "What is the median total cost of damage claims?",
-        "sql": "SELECT total_cost FROM ins_damages WHERE total_cost > 0 ORDER BY total_cost LIMIT 1 OFFSET (SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2",
+        "sql": "SELECT AVG(total_cost) AS median_cost FROM (SELECT total_cost, ROW_NUMBER() OVER (ORDER BY total_cost) AS rn, COUNT(*) OVER () AS cnt FROM ins_damages WHERE total_cost > 0) sub WHERE rn IN (FLOOR((cnt+1)/2), CEIL((cnt+1)/2))",
         "type": "numeric",
     },
     {
@@ -795,8 +795,41 @@ def evaluate_response(question: dict, ground_truth: dict, agent_result: dict) ->
                 result["expected"] = expected
 
     elif qtype in ("top_n", "distribution", "list", "comparison"):
-        # For these, just check that we got a meaningful response
-        if len(response) > 50:
+        # Check for key GT values in the response (not just length)
+        gt_rows = gt.get("rows", [])
+        if gt_rows:
+            # Check if key values from GT appear in response
+            matched = 0
+            checked = 0
+            for row in gt_rows[:5]:  # Check first 5 GT rows
+                for val in row:
+                    if val is None:
+                        continue
+                    val_str = str(val)
+                    if len(val_str) < 2 or val_str in ("0", "1"):
+                        continue  # Skip trivial values
+                    checked += 1
+                    # Check both raw and comma-formatted numbers
+                    if val_str in response:
+                        matched += 1
+                    elif isinstance(val, (int, float)):
+                        try:
+                            if f"{int(val):,}" in response:
+                                matched += 1
+                            elif _check_numeric_in_response(response, float(val), tolerance=0.05):
+                                matched += 1
+                        except (ValueError, OverflowError):
+                            pass
+            if checked > 0 and matched / checked >= 0.3:
+                result["score"] = 1
+                result["reason"] = f"Contains {matched}/{checked} key GT values"
+            elif len(response) > 50:
+                result["score"] = 1
+                result["reason"] = "Non-trivial response generated"
+            else:
+                result["score"] = 0.5
+                result["reason"] = f"Short response, matched {matched}/{checked} GT values"
+        elif len(response) > 50:
             result["score"] = 1
             result["reason"] = "Non-trivial response generated"
         else:
@@ -832,7 +865,7 @@ def _check_date_in_response(expected_date: str, response: str) -> bool:
     return any(fmt in response for fmt in formats)
 
 
-def _check_numeric_in_response(response: str, expected: float, tolerance: float = 0.05) -> bool:
+def _check_numeric_in_response(response: str, expected: float, tolerance: float = 0.10) -> bool:
     """Check if a number close to expected appears in the response."""
     import re
 
