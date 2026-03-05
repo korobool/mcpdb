@@ -33,7 +33,8 @@ interface ChatState {
 
   connect: () => void
   disconnect: () => void
-  sendQuery: (question: string, modeOverride?: QueryMode) => void
+  sendQuery: (question: string, modeOverride?: QueryMode, rethink?: boolean) => void
+  rethinkLast: () => void
   cancelQuery: () => void
   clearMessages: () => void
 }
@@ -111,7 +112,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ ws: null })
   },
 
-  sendQuery: (question, modeOverride) => {
+  sendQuery: (question, modeOverride, rethink) => {
     const { ws } = get()
     if (!ws || ws.readyState !== WebSocket.OPEN) return
 
@@ -120,19 +121,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [...s.messages, {
         id: String(++msgId),
         role: 'user',
-        content: question,
+        content: rethink ? `🔄 Rethink: ${question}` : question,
         timestamp: Date.now(),
       }],
       executionEvents: [],
       isQuerying: true,
-      currentPhase: 'Starting...',
+      currentPhase: rethink ? 'Rethinking...' : 'Starting...',
     }))
 
     ws.send(JSON.stringify({
       type: 'query',
       question,
       ...(modeOverride ? { mode_override: modeOverride } : {}),
+      ...(rethink ? { rethink: true } : {}),
     }))
+  },
+
+  rethinkLast: () => {
+    const { messages } = get()
+    // Find the last user message (skip rethink markers)
+    const lastUser = [...messages].reverse().find(
+      m => m.role === 'user' && !m.content.startsWith('🔄')
+    )
+    if (lastUser) {
+      get().sendQuery(lastUser.content, undefined, true)
+    }
   },
 
   cancelQuery: () => {

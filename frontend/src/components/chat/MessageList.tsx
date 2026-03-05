@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useChatStore, type ChatMessage } from '@/stores/chatStore'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { User, Bot, AlertCircle } from 'lucide-react'
+import { User, Bot, AlertCircle, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -31,8 +31,8 @@ export function MessageList() {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
       <AnimatePresence initial={false}>
-        {messages.map(msg => (
-          <Message key={msg.id} message={msg} />
+        {messages.map((msg, i) => (
+          <Message key={msg.id} message={msg} isLast={i === messages.length - 1} />
         ))}
       </AnimatePresence>
       <div ref={bottomRef} />
@@ -40,9 +40,12 @@ export function MessageList() {
   )
 }
 
-function Message({ message }: { message: ChatMessage }) {
+function Message({ message, isLast }: { message: ChatMessage; isLast: boolean }) {
   const isUser = message.role === 'user'
   const isError = message.role === 'system'
+  const isAssistant = message.role === 'assistant'
+  const isQuerying = useChatStore(s => s.isQuerying)
+  const rethinkLast = useChatStore(s => s.rethinkLast)
 
   return (
     <motion.div
@@ -82,13 +85,23 @@ function Message({ message }: { message: ChatMessage }) {
             <MarkdownRenderer content={message.content} />
           </div>
         )}
-        {message.queryMode && (
-          <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
+          {message.queryMode && (
             <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-background/50 text-muted-foreground">
               {message.queryMode}
             </span>
-          </div>
-        )}
+          )}
+          {isAssistant && isLast && !isQuerying && (
+            <button
+              onClick={rethinkLast}
+              className="flex items-center gap-1 text-[10px] uppercase px-1.5 py-0.5 rounded bg-background/50 text-muted-foreground hover:text-foreground hover:bg-background/80 transition-colors"
+              title="Bypass cache, re-plan and re-execute from scratch"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Rethink
+            </button>
+          )}
+        </div>
       </div>
 
       {isUser && (

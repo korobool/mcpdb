@@ -38,6 +38,11 @@ _TOOLS = [
                     "default": "auto",
                     "description": "Thinking mode override (auto = let classifier decide)",
                 },
+                "rethink": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Force fresh analysis: bypass cache, re-plan from scratch, replace cached solution",
+                },
             },
             "required": ["question"],
         },
@@ -84,6 +89,7 @@ def _ask_question(
     question = args["question"]
     mode = args.get("mode", "auto")
     mode_override = None if mode == "auto" else mode
+    force_rethink = args.get("rethink", False)
 
     callbacks = CallbackManager()
 
@@ -98,6 +104,7 @@ def _ask_question(
                 callbacks=callbacks,
                 mode_override=mode_override,
                 experience_cache=_experience_cache,
+                force_rethink=force_rethink,
             )
         )
     finally:

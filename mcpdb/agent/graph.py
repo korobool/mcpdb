@@ -30,6 +30,7 @@ async def run_agent(
     callbacks: CallbackManager | None = None,
     mode_override: str | None = None,
     experience_cache: ExperienceCache | None = None,
+    force_rethink: bool = False,
 ) -> AgentState:
     """Run the full agent pipeline for a question.
 
@@ -39,6 +40,9 @@ async def run_agent(
     Cache semantics: we cache the *code/plan*, not the response. On cache hit
     with executable steps, we re-execute them against live data and re-synthesize.
     Only quick-mode responses (no executable steps) are returned verbatim.
+
+    If force_rethink is True, skip the cache entirely, run the full pipeline,
+    and replace any existing cached entry with the new result.
     """
     if callbacks is None:
         callbacks = CallbackManager()
@@ -65,7 +69,7 @@ async def run_agent(
     }
 
     # Check experience cache before doing any LLM work
-    if experience_cache is not None:
+    if experience_cache is not None and not force_rethink:
         for meta in registry.list_sources():
             cached = experience_cache.lookup(question, meta)
             if cached is not None:
@@ -74,6 +78,12 @@ async def run_agent(
                 )
                 if result is not None:
                     return result
+
+    # If rethinking, invalidate old cache entry so the new run replaces it
+    if force_rethink and experience_cache is not None:
+        for meta in registry.list_sources():
+            experience_cache.invalidate(question, meta)
+        callbacks.emit("experience/rethink", question=question)
 
     # Apply mode override or classify
     if mode_override:
@@ -109,8 +119,8 @@ async def run_agent(
     else:
         state["response"] = f"Unknown mode: {mode}"
 
-    # Store successful results in experience cache
-    if experience_cache is not None and state.get("response"):
+    # Store results in experience cache — only if quality is sufficient
+    if experience_cache is not None and _is_cacheable(state):
         _store_experience(experience_cache, state, registry)
 
     callbacks.emit("agent/complete", mode=mode, has_response=bool(state.get("response")))
@@ -201,6 +211,45 @@ async def _replay_cached(
 
     callbacks.emit("agent/complete", mode=cached.query_mode, has_response=bool(state.get("response")))
     return state
+
+
+def _is_cacheable(state: AgentState) -> bool:
+    """Quality gate — only cache results that are good enough to reuse.
+
+    Rejects:
+    - Empty or very short responses (likely failures)
+    - Runs where validation marked results as inadequate
+    - Runs where most steps failed
+    - Error responses
+    """
+    response = state.get("response", "")
+    if not response or len(response.strip()) < 20:
+        logger.debug("Not caching: response too short")
+        return False
+
+    # Don't cache if validation said results were inadequate
+    if state.get("validation_result") == "inadequate":
+        logger.debug("Not caching: validation marked inadequate")
+        return False
+
+    # Don't cache error-like responses
+    lower = response.lower()
+    if any(phrase in lower for phrase in [
+        "could not determine", "could not calculate", "unable to",
+        "no data available", "failed to", "error:",
+    ]):
+        logger.debug("Not caching: response looks like an error")
+        return False
+
+    # Don't cache if majority of execution steps failed
+    exec_log = state.get("execution_log", [])
+    if exec_log:
+        failed = sum(1 for e in exec_log if e.get("status") == "error")
+        if failed > len(exec_log) / 2:
+            logger.debug("Not caching: %d/%d steps failed", failed, len(exec_log))
+            return False
+
+    return True
 
 
 def _store_experience(

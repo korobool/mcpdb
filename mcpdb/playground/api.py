@@ -331,6 +331,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
             return
 
         mode_override = msg.get("mode_override")
+        force_rethink = msg.get("rethink", False)
 
         # Create async queue for bridging sync callbacks → async WebSocket
         event_queue: asyncio.Queue = asyncio.Queue()
@@ -357,6 +358,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     question, _registry, _llm, callbacks,
                     mode_override=mode_override,
                     experience_cache=_experience_cache,
+                    force_rethink=force_rethink,
                 )
                 # Signal completion via queue
                 event_queue.put_nowait({
