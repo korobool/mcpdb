@@ -102,10 +102,10 @@ mcpdb query "sqlite:///mydata.db" "What are the top 5 products by sales?"
 
 ```bash
 mcpdb playground
-# Opens http://localhost:8080/playground
+# Auto-selects a free port, opens browser
 ```
 
-The Playground is a modern React-based web app with three resizable panels: data sources & schema on the left, chat in the center, and execution monitor & artifacts on the right. It auto-connects to a database if `MCPDB_DATABASE_URL` is set, and picks up the Gemini API key from `GEMINI_API_KEY`.
+The Playground is a modern React-based web app with three resizable panels: data sources & schema on the left, chat in the center, and execution monitor & artifacts on the right. It auto-selects an available port (starting from 8080), auto-connects to a database if `MCPDB_DATABASE_URL` is set, and picks up the Gemini API key from `GEMINI_API_KEY`.
 
 ```bash
 # Quick start — export your env vars and launch
@@ -128,8 +128,8 @@ mcpdb                          Print version
 mcpdb serve                    Start MCP server (stdio, for Claude Desktop)
 mcpdb serve --transport sse    Start MCP server (SSE, for web clients)
 mcpdb serve --port 8765        Start SSE server on custom port
-mcpdb playground               Start the Playground (FastAPI + React)
-mcpdb playground --port 8080   Playground on custom port
+mcpdb playground               Start Playground (auto-selects free port)
+mcpdb playground --port 9000   Playground on a specific port
 mcpdb playground --no-browser  Start without opening browser
 mcpdb ui                       Start the legacy web UI
 mcpdb ui --port 8080           Start UI on custom port
@@ -155,8 +155,8 @@ mcpdb serve --transport sse --port 8765
 
 **Playground** (recommended):
 ```bash
-mcpdb playground --port 8080
-# Opens browser automatically at http://localhost:8080/playground
+mcpdb playground
+# Auto-selects a free port (starting from 8080), opens browser
 # Auto-connects to MCPDB_DATABASE_URL if set
 # Uses GEMINI_API_KEY (or other provider keys) from environment
 # Stop with Ctrl+C
@@ -522,7 +522,7 @@ pip install mcpdb[playground,gemini]
 mcpdb playground
 ```
 
-The browser opens to `http://localhost:8080/playground` with your database already connected. Start asking questions.
+The browser opens automatically with your database already connected. Start asking questions.
 
 ### Development
 
@@ -534,7 +534,7 @@ npm install
 npm run dev          # Dev server at http://localhost:5173 (proxies API to :8080)
 
 # In another terminal:
-mcpdb playground --no-browser   # Backend at :8080
+mcpdb playground --port 8080 --no-browser   # Backend on fixed port for dev proxy
 ```
 
 Build for production:

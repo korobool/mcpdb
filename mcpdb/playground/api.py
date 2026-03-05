@@ -418,6 +418,19 @@ def _sanitize_list(items: list) -> list:
 # Runner
 # ---------------------------------------------------------------------------
 
+def find_available_port(start: int = 8080, end: int = 8180) -> int:
+    """Find an available TCP port in the given range."""
+    import socket
+    for port in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"No available port in range {start}-{end}")
+
+
 def run_playground(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True) -> None:
     """Start the playground server."""
     import uvicorn
