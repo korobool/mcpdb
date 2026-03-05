@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from mcpdb.agent.state import AgentState
 from mcpdb.agent.callbacks import CallbackManager
 from mcpdb.agent.nodes.classify import classify
+from mcpdb.agent.nodes.common import execute_step, synthesize
 from mcpdb.agent.subgraphs.quick import run_quick
 from mcpdb.agent.subgraphs.simple import run_simple
 from mcpdb.agent.subgraphs.optimization import run_optimization
 from mcpdb.agent.subgraphs.extended import run_extended
 from mcpdb.agent.subgraphs.deep import run_deep
 from mcpdb.experience.cache import ExperienceCache
-from mcpdb.experience.records import CodeStep
+from mcpdb.experience.records import CodeStep, SuccessRecord
 from mcpdb.llm.provider import LLMProvider
 from mcpdb.sources.registry import SourceRegistry
 
@@ -33,6 +35,10 @@ async def run_agent(
 
     Classify → route to subgraph → return final state.
     Checks experience cache before running and stores results after success.
+
+    Cache semantics: we cache the *code/plan*, not the response. On cache hit
+    with executable steps, we re-execute them against live data and re-synthesize.
+    Only quick-mode responses (no executable steps) are returned verbatim.
     """
     if callbacks is None:
         callbacks = CallbackManager()
@@ -63,14 +69,11 @@ async def run_agent(
         for meta in registry.list_sources():
             cached = experience_cache.lookup(question, meta)
             if cached is not None:
-                logger.info("Experience cache hit for: %s", question[:60])
-                callbacks.emit("experience/cache_hit", question=question)
-                state["cache_hit"] = True
-                state["cached_response"] = cached.response
-                state["response"] = cached.response
-                state["query_mode"] = cached.query_mode
-                callbacks.emit("agent/complete", mode=cached.query_mode, has_response=True)
-                return state
+                result = await _replay_cached(
+                    cached, state, llm, callbacks, registry,
+                )
+                if result is not None:
+                    return result
 
     # Apply mode override or classify
     if mode_override:
@@ -114,6 +117,92 @@ async def run_agent(
     return state
 
 
+async def _replay_cached(
+    cached: SuccessRecord,
+    state: AgentState,
+    llm: LLMProvider,
+    callbacks: CallbackManager,
+    registry: SourceRegistry,
+) -> AgentState | None:
+    """Replay a cached experience — re-execute code, re-synthesize from fresh results.
+
+    Quick-mode responses (no executable steps) are returned directly since they
+    are derived from the schema, which is already validated by the cache.
+    Returns None if replay fails (caller should fall through to full pipeline).
+    """
+    executable_steps = [
+        s for s in cached.steps
+        if s.action_type in ("sql", "python", "schema", "sample")
+    ]
+
+    # Quick mode: no executable steps → return cached response directly.
+    # Schema drift was already checked by the cache, so the response is valid.
+    if not executable_steps:
+        logger.info("Cache hit (quick, no steps): %s", cached.question[:60])
+        callbacks.emit("experience/cache_hit", question=state["question"])
+        state["cache_hit"] = True
+        state["query_mode"] = cached.query_mode
+        state["response"] = cached.response
+        callbacks.emit("agent/complete", mode=cached.query_mode, has_response=True)
+        return state
+
+    # Has executable steps → replay the code against live data
+    logger.info("Cache hit (replay %d steps): %s", len(executable_steps), cached.question[:60])
+    callbacks.emit("experience/cache_hit", question=state["question"], replaying=True)
+
+    state["cache_hit"] = True
+    state["query_mode"] = cached.query_mode
+
+    # Build a plan from cached steps so execute_step() can process them
+    plan_steps = []
+    for i, cs in enumerate(executable_steps):
+        plan_steps.append({
+            "step_number": i + 1,
+            "action": cs.action_type,
+            "code": cs.code,
+            "source_id": state["active_source_ids"][0] if state["active_source_ids"] else "",
+            "description": f"Cached {cs.action_type} step",
+            "status": "pending",
+            "attempts": 0,
+        })
+
+    state["plan"] = {
+        "analysis": cached.question,
+        "approach": "cached_replay",
+        "current_step_index": 0,
+        "steps": plan_steps,
+    }
+
+    # Execute each step against live data
+    had_error = False
+    for _ in range(len(plan_steps)):
+        idx = state["plan"]["current_step_index"]
+        if idx >= len(plan_steps):
+            break
+        state = await execute_step(state, callbacks, registry)
+        if state.get("current_error"):
+            # Cached code failed on current data — fall through to full pipeline
+            logger.warning("Cached step %d failed, falling through to full pipeline", idx + 1)
+            had_error = True
+            break
+
+    if had_error:
+        # Reset state so the full pipeline starts fresh
+        state["plan"] = None
+        state["execution_log"] = []
+        state["artifacts"] = []
+        state["current_error"] = None
+        state["cache_hit"] = False
+        state["response"] = None
+        return None
+
+    # Re-synthesize from fresh execution results
+    state = await synthesize(state, llm, callbacks)
+
+    callbacks.emit("agent/complete", mode=cached.query_mode, has_response=bool(state.get("response")))
+    return state
+
+
 def _store_experience(
     cache: ExperienceCache,
     state: AgentState,
@@ -131,7 +220,7 @@ def _store_experience(
     steps = []
     for entry in state.get("execution_log", []):
         steps.append(CodeStep(
-            action_type=entry.get("action_type", "unknown"),
+            action_type=entry.get("action", entry.get("action_type", "unknown")),
             code=entry.get("code", ""),
             result_preview=str(entry.get("result_preview", "")),
             time_ms=entry.get("time_ms", 0.0),
