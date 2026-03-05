@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from mcpdb.sandbox.security import ImportViolation, validate_imports
+from mcpdb.sandbox.security import ImportViolation, get_security, validate_imports
 
 logger = logging.getLogger("mcpdb.sandbox")
 
@@ -46,6 +46,10 @@ _WRAPPER_SCRIPT = textwrap.dedent('''\
     # Pre-inject libraries
     import pandas as pd
     import numpy as np
+    try:
+        import polars as pl
+    except ImportError:
+        pl = None
 
     _mcpdb_charts = []
     _mcpdb_df_result = None
@@ -84,7 +88,7 @@ _WRAPPER_SCRIPT = textwrap.dedent('''\
     # Execute user code
     _user_ns = {{
         "pd": pd, "np": np, "df": df,
-        "plt": plt, "sns": sns,
+        "plt": plt, "sns": sns, "pl": pl,
     }}
     try:
         exec({user_code!r}, _user_ns)
@@ -96,11 +100,19 @@ _WRAPPER_SCRIPT = textwrap.dedent('''\
     if plt is not None and plt.get_fignums():
         _capture_show()
 
-    # Check if user code produced a new df
-    if "result_df" in _user_ns and isinstance(_user_ns["result_df"], pd.DataFrame):
-        _mcpdb_df_result = _user_ns["result_df"]
-    elif "df" in _user_ns and _user_ns["df"] is not df and isinstance(_user_ns.get("df"), pd.DataFrame):
-        _mcpdb_df_result = _user_ns["df"]
+    # Check if user code produced a new df (supports pandas and polars)
+    if "result_df" in _user_ns:
+        rdf = _user_ns["result_df"]
+        if isinstance(rdf, pd.DataFrame):
+            _mcpdb_df_result = rdf
+        elif pl is not None and isinstance(rdf, pl.DataFrame):
+            _mcpdb_df_result = rdf.to_pandas()
+    elif "df" in _user_ns and _user_ns["df"] is not df:
+        udf = _user_ns.get("df")
+        if isinstance(udf, pd.DataFrame):
+            _mcpdb_df_result = udf
+        elif pl is not None and isinstance(udf, pl.DataFrame):
+            _mcpdb_df_result = udf.to_pandas()
 
     # Write results to stdout as JSON envelope
     output = {{"_mcpdb_meta": True}}
@@ -139,7 +151,8 @@ def execute_python(
         SandboxResult with stdout, stderr, captured DataFrames and charts.
     """
     # Validate imports before execution
-    violations = validate_imports(code)
+    security = get_security()
+    violations = security.validate_imports(code)
     if violations:
         return SandboxResult(
             success=False,
