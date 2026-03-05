@@ -12,6 +12,19 @@ function ensureInit(dark: boolean) {
   initialized = true
 }
 
+// Fix common LLM-generated mermaid issues before rendering.
+// e.g. erDiagram attributes: "INTEGER id PK FK" → "INTEGER id PK,FK"
+function sanitizeMermaid(code: string): string {
+  const keys = ['PK', 'FK', 'UK']
+  return code.replace(
+    /^(\s+\w+\s+\w+)\s+((?:PK|FK|UK)(?:\s+(?:PK|FK|UK))+)\s*$/gm,
+    (_match, prefix: string, attrs: string) => {
+      const parts = attrs.split(/\s+/).filter((k: string) => keys.includes(k))
+      return `${prefix} ${parts.join(',')}`
+    },
+  )
+}
+
 let counter = 0
 
 export function MermaidBlock({ code }: { code: string }) {
@@ -24,8 +37,9 @@ export function MermaidBlock({ code }: { code: string }) {
     const dark = document.documentElement.classList.contains('dark')
     ensureInit(dark)
 
+    const sanitized = sanitizeMermaid(code.trim())
     let cancelled = false
-    mermaid.render(idRef.current, code.trim()).then(
+    mermaid.render(idRef.current, sanitized).then(
       ({ svg }) => { if (!cancelled) setSvg(svg) },
       (err) => { if (!cancelled) setError(String(err)) },
     )

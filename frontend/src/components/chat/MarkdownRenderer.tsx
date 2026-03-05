@@ -3,43 +3,64 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { MermaidBlock } from './MermaidBlock'
 
-function extractText(children: unknown): string {
-  if (typeof children === 'string') return children
-  if (Array.isArray(children)) return children.map(extractText).join('')
-  if (children && typeof children === 'object' && 'props' in (children as any)) {
-    return extractText((children as any).props.children)
+// Split markdown into alternating text/mermaid segments so mermaid blocks
+// bypass rehype-highlight entirely (which strips unknown language classes).
+const MERMAID_RE = /```mermaid\s*\n([\s\S]*?)```/g
+
+interface Segment {
+  type: 'md' | 'mermaid'
+  content: string
+}
+
+function splitMermaid(content: string): Segment[] {
+  const segments: Segment[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = MERMAID_RE.exec(content)) !== null) {
+    if (match.index > last) {
+      segments.push({ type: 'md', content: content.slice(last, match.index) })
+    }
+    segments.push({ type: 'mermaid', content: match[1].trim() })
+    last = match.index + match[0].length
   }
-  return ''
+  if (last < content.length) {
+    segments.push({ type: 'md', content: content.slice(last) })
+  }
+  return segments.length ? segments : [{ type: 'md', content }]
 }
 
 export function MarkdownRenderer({ content }: { content: string }) {
+  const segments = splitMermaid(content)
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'mermaid' ? (
+          <MermaidBlock key={i} code={seg.content} />
+        ) : (
+          <MarkdownSegment key={i} content={seg.content} />
+        )
+      )}
+    </>
+  )
+}
+
+function MarkdownSegment({ content }: { content: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
+      rehypePlugins={[[rehypeHighlight, { ignoreMissing: true }]]}
       components={{
         table: ({ children }) => (
           <div className="overflow-x-auto my-2">
             <table className="w-full">{children}</table>
           </div>
         ),
-        pre: ({ children }) => {
-          // Check if this is a mermaid code block
-          const child = Array.isArray(children) ? children[0] : children
-          if (child && typeof child === 'object' && 'props' in (child as any)) {
-            const props = (child as any).props
-            const className: string = props.className || ''
-            if (className.includes('mermaid')) {
-              const code = extractText(props.children)
-              return <MermaidBlock code={code} />
-            }
-          }
-          return (
-            <pre className="overflow-x-auto rounded-md p-3 my-2 bg-muted text-sm">
-              {children}
-            </pre>
-          )
-        },
+        pre: ({ children }) => (
+          <pre className="overflow-x-auto rounded-md p-3 my-2 bg-muted text-sm">
+            {children}
+          </pre>
+        ),
         code: ({ className, children, ...props }) => {
           const isInline = !className
           if (isInline) {
