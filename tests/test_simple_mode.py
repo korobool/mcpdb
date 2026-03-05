@@ -855,11 +855,8 @@ class TestOrchestratorSimpleMode:
             "target_sources": ["test_sqlite"],
             "key_entities": ["customers"],
         })
-        # Quick → escalate
-        llm.queue({
-            "action": "escalate",
-            "reason": "needs actual data",
-        })
+        # Quick → escalate (plain text triggers escalation)
+        llm.queue("ESCALATE")
         # Simple: Plan
         llm.queue({
             "analysis": "Top customers",

@@ -21,26 +21,53 @@ const PHASE_LABELS: Record<string, string> = {
   'synthesize/start': 'Synthesizing',
   'synthesize/complete': 'Complete',
   'quick/start': 'Quick answer',
+  'quick/complete': 'Done',
   'quick/escalate': 'Escalating',
   'experience/cache_hit': 'Cache hit',
   'agent/complete': 'Done',
 }
 
-function stepIcon(eventType: string) {
-  if (eventType.endsWith('/complete') || eventType === 'debug/fixed' || eventType === 'agent/complete') {
+// Map from start event to its corresponding completion events
+const COMPLETION_MAP: Record<string, string[]> = {
+  'classify/start': ['classify/complete'],
+  'plan/start': ['plan/ready', 'plan/error'],
+  'step/start': ['step/complete', 'step/error'],
+  'debug/start': ['debug/fixed', 'debug/give_up'],
+  'checkpoint/start': ['checkpoint/complete'],
+  'revise/start': ['revise/ready'],
+  'synthesize/start': ['synthesize/complete'],
+  'quick/start': ['quick/complete', 'quick/escalate'],
+}
+
+function resolveIcon(eventType: string, allEvents: ExecutionStep[], index: number) {
+  // Completed/success events
+  if (eventType.endsWith('/complete') || eventType.endsWith('/ready') ||
+      eventType === 'debug/fixed' || eventType === 'agent/complete' ||
+      eventType === 'experience/cache_hit' || eventType === 'quick/complete') {
     return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
   }
+  // Error events
   if (eventType.endsWith('/error') || eventType === 'debug/give_up') {
     return <AlertCircle className="w-3.5 h-3.5 text-destructive" />
   }
+  // Start events — check if a matching completion exists later in the list
   if (eventType.endsWith('/start')) {
+    const completions = COMPLETION_MAP[eventType]
+    if (completions) {
+      const hasCompletion = allEvents.slice(index + 1).some(
+        e => completions.includes(e.event_type)
+      )
+      if (hasCompletion) {
+        return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+      }
+    }
     return <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
   }
   return <Circle className="w-3.5 h-3.5 text-muted-foreground" />
 }
 
 export function ExecutionMonitor() {
-  const { executionEvents, isQuerying, currentPhase } = useChatStore()
+  const { executionEvents, isQuerying } = useChatStore()
 
   return (
     <div className="border-b border-sidebar-border">
@@ -61,7 +88,7 @@ export function ExecutionMonitor() {
         <div className="px-3 pb-3 space-y-0.5 max-h-[400px] overflow-y-auto">
           <AnimatePresence initial={false}>
             {executionEvents.map((step, i) => (
-              <StepRow key={i} step={step} />
+              <StepRow key={i} step={step} index={i} allEvents={executionEvents} />
             ))}
           </AnimatePresence>
         </div>
@@ -70,7 +97,7 @@ export function ExecutionMonitor() {
   )
 }
 
-function StepRow({ step }: { step: ExecutionStep }) {
+function StepRow({ step, index, allEvents }: { step: ExecutionStep; index: number; allEvents: ExecutionStep[] }) {
   const label = PHASE_LABELS[step.event_type] || step.event_type
   const detail = _detail(step)
 
@@ -81,7 +108,7 @@ function StepRow({ step }: { step: ExecutionStep }) {
       transition={{ duration: 0.15 }}
       className="flex items-start gap-2 py-1"
     >
-      <div className="mt-0.5">{stepIcon(step.event_type)}</div>
+      <div className="mt-0.5">{resolveIcon(step.event_type, allEvents, index)}</div>
       <div className="min-w-0">
         <div className="text-xs">{label}</div>
         {detail && <div className="text-[10px] text-muted-foreground truncate">{detail}</div>}
