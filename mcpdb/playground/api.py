@@ -72,6 +72,18 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
         logger.warning("Failed to create LLM provider: %s", e)
         _llm = None
 
+    # Auto-connect database from MCPDB_DATABASE_URL if set
+    import os
+    db_url = os.environ.get("MCPDB_DATABASE_URL")
+    if db_url:
+        try:
+            from mcpdb.sources.database.source import DatabaseSource
+            source = DatabaseSource(db_url)
+            _registry.add_source(source)
+            logger.info("Auto-connected database from MCPDB_DATABASE_URL")
+        except Exception as e:
+            logger.warning("Failed to auto-connect MCPDB_DATABASE_URL: %s", e)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
