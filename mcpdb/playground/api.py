@@ -92,6 +92,29 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
 
     app = FastAPI(title="MCPDB Playground", version=__version__, lifespan=lifespan)
 
+    # --- Favicon ----------------------------------------------------------
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        # Serve a tiny inline SVG favicon (database icon)
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+            'stroke="%232563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            '<ellipse cx="12" cy="5" rx="9" ry="3"/>'
+            '<path d="M3 5V19A9 3 0 0 0 21 19V5"/>'
+            '<path d="M3 12A9 3 0 0 0 21 12"/>'
+            '</svg>'
+        )
+        from fastapi.responses import Response
+        return Response(content=svg, media_type="image/svg+xml")
+
+    # --- Reject stale NiceGUI WebSocket requests silently -----------------
+
+    @app.websocket("/_nicegui_ws/{path:path}")
+    async def reject_nicegui_ws(ws: WebSocket, path: str = ""):
+        # Old NiceGUI tabs may keep retrying — close immediately without log spam
+        await ws.close(code=1000)
+
     # --- Health -----------------------------------------------------------
 
     @app.get("/api/health")
