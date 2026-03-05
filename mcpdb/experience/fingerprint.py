@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from mcpdb.sources.base import SourceMetadata
@@ -46,5 +47,87 @@ def fingerprint_schema(metadata: SourceMetadata) -> str:
 def intent_hash(question: str, source_fingerprint: str) -> str:
     """Hash a question + source fingerprint for exact-match cache lookup."""
     normalized = question.strip().lower()
+    raw = f"{normalized}|{source_fingerprint}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+
+# ---------------------------------------------------------------------------
+# Semantic normalization — strips filler so differently-phrased questions
+# that ask the same thing produce the same hash.
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = frozenset({
+    # articles
+    'a', 'an', 'the',
+    # pronouns
+    'i', 'me', 'my', 'mine', 'you', 'your', 'yours', 'we', 'our', 'us',
+    'he', 'she', 'it', 'its', 'they', 'their', 'this', 'that', 'these', 'those',
+    # prepositions
+    'of', 'in', 'for', 'to', 'from', 'at', 'by', 'with', 'on', 'about', 'as',
+    'into', 'through', 'between', 'after', 'before', 'above', 'below',
+    # conjunctions
+    'and', 'or', 'but', 'nor', 'so', 'yet',
+    # modals / auxiliaries
+    'please', 'can', 'could', 'would', 'should', 'will', 'shall',
+    'do', 'does', 'did', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'having',
+    # request verbs — these frame how the user asks, not *what* they ask
+    'show', 'plot', 'draw', 'render', 'display', 'visualize', 'illustrate',
+    'generate', 'create', 'make', 'build', 'produce', 'write', 'output',
+    'give', 'provide', 'present', 'print', 'list', 'describe', 'explain',
+    'get', 'fetch', 'retrieve', 'find', 'tell',
+    # filler
+    'want', 'need', 'like', 'just', 'also', 'very', 'really', 'quite',
+    'now', 'then', 'here', 'there', 'some', 'any', 'all', 'each', 'every',
+    'using', 'use',
+})
+
+# Normalize domain synonyms so "database schema" = "db schema", etc.
+_SYNONYMS: dict[str, str] = {
+    'database': 'db', 'databases': 'db',
+    'tables': 'table',
+    'columns': 'column', 'col': 'column', 'cols': 'column',
+    'fields': 'field',
+    'diagrams': 'diagram', 'chart': 'diagram', 'charts': 'diagram',
+    'graph': 'diagram', 'graphs': 'diagram',
+    'relationships': 'relationship', 'relations': 'relationship', 'relation': 'relationship',
+    'entity': 'er', 'erd': 'er',
+    'queries': 'query',
+    'rows': 'row', 'records': 'record',
+    'values': 'value',
+    'counts': 'count', 'counting': 'count',
+    'totals': 'total',
+    'averages': 'average', 'avg': 'average', 'mean': 'average',
+    'maximum': 'max', 'minimum': 'min',
+}
+
+_NON_ALPHA = re.compile(r'[^a-z0-9_]+')
+
+
+def normalize_question(question: str) -> str:
+    """Reduce a question to its semantic content words.
+
+    Strips stopwords, normalizes synonyms, sorts alphabetically.
+    Result is deterministic — same intent always produces the same string
+    regardless of phrasing.
+    """
+    text = question.lower()
+    tokens = _NON_ALPHA.split(text)
+    kept = []
+    for tok in tokens:
+        if not tok or tok in _STOPWORDS:
+            continue
+        tok = _SYNONYMS.get(tok, tok)
+        kept.append(tok)
+    kept.sort()
+    return ' '.join(kept)
+
+
+def semantic_hash(question: str, source_fingerprint: str) -> str:
+    """Hash normalized question + source fingerprint for fuzzy-match lookup.
+
+    Two differently-phrased questions with the same intent produce the same hash.
+    """
+    normalized = normalize_question(question)
     raw = f"{normalized}|{source_fingerprint}"
     return hashlib.sha256(raw.encode()).hexdigest()[:20]

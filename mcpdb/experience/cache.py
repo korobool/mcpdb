@@ -1,4 +1,8 @@
-"""Experience cache — exact-match O(1) lookup for repeated questions."""
+"""Experience cache — two-tier lookup for repeated questions.
+
+Tier 1: exact intent_hash  — O(1), identical question text.
+Tier 2: semantic_hash      — O(1), same meaning but different phrasing.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,9 @@ import logging
 import time
 from typing import Any
 
-from mcpdb.experience.fingerprint import fingerprint_source, fingerprint_schema, intent_hash
+from mcpdb.experience.fingerprint import (
+    fingerprint_source, fingerprint_schema, intent_hash, semantic_hash,
+)
 from mcpdb.experience.records import CodeStep, SuccessRecord
 from mcpdb.experience.store import ExperienceStore
 from mcpdb.sources.base import SourceMetadata
@@ -15,13 +21,13 @@ logger = logging.getLogger("mcpdb.experience.cache")
 
 
 class ExperienceCache:
-    """Exact-match cache for repeated questions.
+    """Two-tier cache for repeated questions.
 
     Flow:
-    1. On query: compute intent_hash(question, source_fingerprint)
-    2. Check in-memory cache (O(1))
-    3. If miss, check persistent store
-    4. If hit, verify schema hasn't drifted
+    1. Compute intent_hash (exact) and semantic_hash (normalized)
+    2. Try exact match in memory → disk
+    3. Try semantic match in memory → disk
+    4. Verify schema hasn't drifted
     5. Return cached response or None
     """
 
@@ -35,6 +41,8 @@ class ExperienceCache:
 
         # In-memory LRU-ish cache: intent_hash → SuccessRecord
         self._memory: dict[str, SuccessRecord] = {}
+        # Semantic index: semantic_hash → intent_hash (for O(1) fuzzy lookup)
+        self._semantic_index: dict[str, str] = {}
         self._max_memory = 200
 
     def lookup(
@@ -42,37 +50,66 @@ class ExperienceCache:
         question: str,
         source_metadata: SourceMetadata,
     ) -> SuccessRecord | None:
-        """Look up a cached response for an exact question match.
+        """Look up a cached response — exact match first, then semantic.
 
         Returns SuccessRecord if found and schema is still valid, else None.
         """
         fp = fingerprint_source(source_metadata)
         ih = intent_hash(question, fp)
 
-        # Check in-memory first
+        # --- Tier 1: exact match ---
+        record = self._lookup_by_key(ih, fp, source_metadata)
+        if record is not None:
+            logger.debug("Cache hit (exact): %s", ih)
+            return record
+
+        # --- Tier 2: semantic match ---
+        sh = semantic_hash(question, fp)
+        mapped_ih = self._semantic_index.get(sh)
+        if mapped_ih and mapped_ih != ih:
+            record = self._lookup_by_key(mapped_ih, fp, source_metadata)
+            if record is not None:
+                logger.info("Cache hit (semantic): %r → %s", question[:60], mapped_ih)
+                return record
+
+        # Check disk for semantic match
+        record = self._store.find_by_semantic(fp, sh)
+        if record is not None and self._is_valid(record, source_metadata):
+            self._memory[record.intent_hash] = record
+            self._semantic_index[sh] = record.intent_hash
+            self._evict_memory_if_needed()
+            logger.info("Cache hit (semantic/disk): %r → %s", question[:60], record.intent_hash)
+            return record
+
+        return None
+
+    def _lookup_by_key(
+        self,
+        ih: str,
+        fp: str,
+        source_metadata: SourceMetadata,
+    ) -> SuccessRecord | None:
+        """Look up by intent_hash in memory, then disk."""
+        # Memory
         if ih in self._memory:
             record = self._memory[ih]
             if self._is_valid(record, source_metadata):
-                logger.debug("Cache hit (memory): %s", ih)
                 return record
-            else:
-                del self._memory[ih]
-                return None
+            del self._memory[ih]
+            return None
 
-        # Check persistent store
+        # Disk
         record = self._store.find_by_intent(fp, ih)
         if record is None:
             return None
-
         if not self._is_valid(record, source_metadata):
-            logger.info("Cache hit but schema drifted: %s", ih)
             return None
 
-        # Promote to memory cache
+        # Promote to memory
         self._memory[ih] = record
+        if record.semantic_hash:
+            self._semantic_index[record.semantic_hash] = ih
         self._evict_memory_if_needed()
-
-        logger.debug("Cache hit (disk): %s", ih)
         return record
 
     def store(
@@ -86,25 +123,28 @@ class ExperienceCache:
     ) -> None:
         """Store a successful response in the cache."""
         fp = fingerprint_source(source_metadata)
-        sh = fingerprint_schema(source_metadata)
+        sh_schema = fingerprint_schema(source_metadata)
         ih = intent_hash(question, fp)
+        sh = semantic_hash(question, fp)
 
         record = SuccessRecord(
             intent_hash=ih,
             question=question,
             source_fingerprint=fp,
-            schema_hash=sh,
+            schema_hash=sh_schema,
             query_mode=query_mode,
             steps=steps,
             response=response,
             metadata=metadata or {},
+            semantic_hash=sh,
         )
 
         self._store.store_success(record)
         self._memory[ih] = record
+        self._semantic_index[sh] = ih
         self._evict_memory_if_needed()
 
-        logger.debug("Cached response: %s", ih)
+        logger.debug("Cached response: %s (semantic: %s)", ih, sh)
 
     def invalidate(self, question: str, source_metadata: SourceMetadata) -> None:
         """Remove a cached entry."""

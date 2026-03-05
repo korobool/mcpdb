@@ -30,9 +30,10 @@ class SuccessRecord:
     response: str
     timestamp: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
+    semantic_hash: str = ""  # normalized intent hash for fuzzy matching
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "type": "success",
             "intent_hash": self.intent_hash,
             "question": self.question,
@@ -52,6 +53,9 @@ class SuccessRecord:
             "timestamp": self.timestamp,
             "metadata": self.metadata,
         }
+        if self.semantic_hash:
+            d["semantic_hash"] = self.semantic_hash
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SuccessRecord:
@@ -74,6 +78,7 @@ class SuccessRecord:
             response=d["response"],
             timestamp=d.get("timestamp", 0.0),
             metadata=d.get("metadata", {}),
+            semantic_hash=d.get("semantic_hash", ""),
         )
 
 

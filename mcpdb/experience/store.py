@@ -77,6 +77,15 @@ class ExperienceStore:
                 return record
         return None
 
+    def find_by_semantic(
+        self, fingerprint: str, semantic_hash: str
+    ) -> SuccessRecord | None:
+        """Find a cached success record by semantic hash (fuzzy match)."""
+        for record in self.get_successes(fingerprint):
+            if record.semantic_hash and record.semantic_hash == semantic_hash:
+                return record
+        return None
+
     def _load_records(self, fingerprint: str) -> list[dict[str, Any]]:
         """Load all records from a source's JSONL file."""
         path = self._source_path(fingerprint)
