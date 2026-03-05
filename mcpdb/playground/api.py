@@ -108,11 +108,12 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
         from fastapi.responses import Response
         return Response(content=svg, media_type="image/svg+xml")
 
-    # --- Reject stale NiceGUI WebSocket requests silently -----------------
+    # --- Silently close stale NiceGUI WebSocket connections ----------------
+    # Old browser tabs from `mcpdb ui` keep retrying /_nicegui_ws/...
 
     @app.websocket("/_nicegui_ws/{path:path}")
-    async def reject_nicegui_ws(ws: WebSocket, path: str = ""):
-        # Old NiceGUI tabs may keep retrying — close immediately without log spam
+    async def _reject_nicegui(ws: WebSocket, path: str = ""):
+        await ws.accept()
         await ws.close(code=1000)
 
     # --- Health -----------------------------------------------------------
