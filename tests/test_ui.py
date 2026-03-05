@@ -111,6 +111,15 @@ class TestUIState:
         assert len(state.messages) == 0
         assert state.execution.phase == "idle"
         assert len(state.artifacts) == 0
+        assert state.config is not None
+        assert state.config.llm.reasoning.provider == "gemini"
+
+    def test_initial_state_with_config(self):
+        from mcpdb.config import McpdbConfig, LLMConfig, LLMModelConfig
+        cfg = McpdbConfig(llm=LLMConfig(reasoning=LLMModelConfig(provider="openai", model="gpt-4.1")))
+        state = UIState(config=cfg)
+        assert state.config.llm.reasoning.provider == "openai"
+        assert state.config.llm.reasoning.model == "gpt-4.1"
 
     def test_add_message(self):
         state = UIState()
@@ -250,6 +259,14 @@ class TestImports:
     def test_import_excel_viewer(self):
         from mcpdb.ui.components.excel_viewer import create_excel_viewer
         assert callable(create_excel_viewer)
+
+    def test_import_llm_selector(self):
+        from mcpdb.ui.components.llm_selector import create_llm_selector, PROVIDER_MODELS
+        assert callable(create_llm_selector)
+        assert "gemini" in PROVIDER_MODELS
+        assert "openai" in PROVIDER_MODELS
+        assert "anthropic" in PROVIDER_MODELS
+        assert "ollama" in PROVIDER_MODELS
 
     def test_import_cost_gate_dialog(self):
         from mcpdb.ui.components.cost_gate_dialog import CostGateDialog

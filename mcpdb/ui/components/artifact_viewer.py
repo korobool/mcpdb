@@ -59,17 +59,14 @@ def _render_table(data: dict[str, Any]) -> None:
         for c in columns
     ]
     table_rows = [
-        {str(c): str(v) for c, v in zip(columns, row)} for row in rows[:50]
+        {str(c): str(v) for c, v in zip(columns, row)} for row in rows
     ]
 
     ui.table(
         columns=table_columns,
         rows=table_rows,
-        pagination=10,
+        pagination=20,
     ).classes("w-full")
-
-    if total > 50:
-        ui.label(f"Showing 50 of {total} rows").classes("text-xs text-gray-400")
 
 
 def _render_chart(data: dict[str, Any]) -> None:
