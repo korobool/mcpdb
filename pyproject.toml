@@ -47,14 +47,7 @@ csv = [
     "duckdb>=1.0",
     "chardet>=5.0",
 ]
-ui = [
-    "nicegui>=3.0",
-]
-streamlit = [
-    "streamlit>=1.36",
-    "streamlit-mermaid>=0.2",
-]
-playground = [
+web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
@@ -73,7 +66,7 @@ ollama = [
     "httpx>=0.25",
 ]
 all = [
-    "mcpdb[postgresql,mysql,excel,csv,ui,streamlit,playground,export,sandbox,openai,gemini,ollama]",
+    "mcpdb[postgresql,mysql,excel,csv,web,export,sandbox,openai,gemini,ollama]",
 ]
 
 [project.scripts]

@@ -23,14 +23,9 @@ Usage:
   mcpdb serve                    Start MCP server (stdio, for Claude Desktop)
   mcpdb serve --transport sse    Start MCP server (SSE, for web clients)
   mcpdb serve --port 8765        Start SSE server on custom port
-  mcpdb ui                       Start the web UI
-  mcpdb ui --port 8080           Start UI on custom port
-  mcpdb webchat                  Start Streamlit MCP webchat
-  mcpdb webchat --port 8501      Webchat on custom port
   mcpdb web                      Start web client (recommended)
   mcpdb web --port 8080          Web client on custom port
-  mcpdb playground               Start Playground (auto-selects free port)
-  mcpdb playground --port 9000   Playground on a specific port
+  mcpdb web --no-browser         Start without opening browser
   mcpdb query <conn> <question>  One-shot query mode
   mcpdb experience eval          Evaluate pending staged results
   mcpdb experience stats         Show cache & staging statistics
@@ -101,48 +96,6 @@ def main() -> None:
             print(f"Unknown transport: {transport}")
             sys.exit(1)
 
-    elif command == "ui":
-        port = 8080
-        theme = "dark"
-
-        i = 1
-        while i < len(args):
-            if args[i] == "--port" and i + 1 < len(args):
-                port = int(args[i + 1])
-                i += 2
-            elif args[i] == "--theme" and i + 1 < len(args):
-                theme = args[i + 1]
-                i += 2
-            else:
-                i += 1
-
-        logger.info("mcpdb v%s UI starting on port %d", __version__, port)
-        try:
-            from mcpdb.ui.app import run_ui
-            run_ui(port=port, theme=theme, config=config)
-        except ImportError:
-            print("UI requires NiceGUI. Install with: pip install mcpdb[ui]")
-            sys.exit(1)
-
-    elif command == "webchat":
-        port = None  # None means auto-select
-
-        i = 1
-        while i < len(args):
-            if args[i] == "--port" and i + 1 < len(args):
-                port = int(args[i + 1])
-                i += 2
-            else:
-                i += 1
-
-        logger.info("mcpdb v%s webchat starting", __version__)
-        try:
-            from mcpdb.streamlit.app import run_webchat
-            run_webchat(port=port)
-        except ImportError:
-            print("Webchat requires Streamlit. Install with: pip install mcpdb[streamlit]")
-            sys.exit(1)
-
     elif command == "web":
         port = None
         no_browser = False
@@ -170,32 +123,9 @@ def main() -> None:
         logger.info("mcpdb v%s web client starting on port %d", __version__, port)
         run_web(config=config, port=port, open_browser=not no_browser)
 
-    elif command == "playground":
-        port = None  # None means auto-select
-        no_browser = False
-
-        i = 1
-        while i < len(args):
-            if args[i] == "--port" and i + 1 < len(args):
-                port = int(args[i + 1])
-                i += 2
-            elif args[i] == "--no-browser":
-                no_browser = True
-                i += 1
-            else:
-                i += 1
-
-        try:
-            from mcpdb.playground.api import run_playground, find_available_port
-        except ImportError:
-            print("Playground requires FastAPI + Uvicorn. Install with: pip install mcpdb[playground]")
-            sys.exit(1)
-
-        if port is None:
-            port = find_available_port()
-
-        logger.info("mcpdb v%s playground starting on port %d", __version__, port)
-        run_playground(config=config, port=port, open_browser=not no_browser)
+    elif command in ("ui", "webchat", "playground"):
+        print(f"The '{command}' command has been removed. Use 'mcpdb web' instead.")
+        sys.exit(1)
 
     elif command == "query":
         if len(args) < 3:

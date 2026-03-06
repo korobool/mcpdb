@@ -109,13 +109,6 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
     app = FastAPI(title="MCPDB", version=__version__, lifespan=lifespan)
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-    # --- Silently reject stale NiceGUI WebSocket retries from old tabs ----
-
-    @app.websocket("/_nicegui_ws/{path:path}")
-    async def _reject_nicegui(ws: WebSocket, path: str = ""):
-        await ws.accept()
-        await ws.close(code=1000)
-
     # --- Main page --------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)

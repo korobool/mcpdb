@@ -14,8 +14,7 @@ MCPDB lets you connect databases, CSVs, and Excel files to AI assistants (like C
 - **Experience System** — Caches successful queries, learns from failures, transfers knowledge across sources
 - **Cost Gate** — EXPLAIN-based cost estimation with user approval for expensive queries
 - **Streaming** — Real-time token streaming and step-by-step execution progress
-- **Playground** — FastAPI + React web app with 3-panel layout, real-time execution monitor, and markdown rendering
-- **Web UI** — NiceGUI-based interface with schema viewer, chat, artifact display, and export
+- **Web Client** — FastAPI + WebSocket web app with 3-panel layout, real-time execution monitor, chart rendering, and markdown
 - **Export** — Conversations to HTML, PDF, or Jupyter notebooks
 
 ## Installation
@@ -43,8 +42,7 @@ pip install mcpdb[oracle]      # Oracle (cx_Oracle)
 ```bash
 pip install mcpdb[csv]         # CSV support (DuckDB, chardet)
 pip install mcpdb[excel]       # Excel support (openpyxl)
-pip install mcpdb[playground]   # Playground (FastAPI + React)
-pip install mcpdb[ui]          # Legacy Web UI (NiceGUI)
+pip install mcpdb[web]         # Web client (FastAPI + Uvicorn)
 pip install mcpdb[export]      # PDF/notebook export (weasyprint, nbformat)
 pip install mcpdb[sandbox]     # Charts & ML (matplotlib, seaborn, scikit-learn, scipy)
 ```
@@ -98,27 +96,20 @@ Restart Claude Desktop. You can now ask Claude to connect a database and explore
 mcpdb query "sqlite:///mydata.db" "What are the top 5 products by sales?"
 ```
 
-### 3. Playground
+### 3. Web Client
 
 ```bash
-mcpdb playground
+mcpdb web
 # Auto-selects a free port, opens browser
 ```
 
-The Playground is a modern React-based web app with three resizable panels: data sources & schema on the left, chat in the center, and execution monitor & artifacts on the right. It auto-selects an available port (starting from 8080), auto-connects to a database if `MCPDB_DATABASE_URL` is set, and picks up the Gemini API key from `GEMINI_API_KEY`.
+The web client is a 3-panel interface: data sources & schema on the left, chat in the center, and execution monitor on the right. It auto-selects an available port (starting from 8080), auto-connects to a database if `MCPDB_DATABASE_URL` is set, and picks up the Gemini API key from `GEMINI_API_KEY`.
 
 ```bash
 # Quick start — export your env vars and launch
 export GEMINI_API_KEY="your-key"
 export MCPDB_DATABASE_URL="postgresql://user:pass@localhost/mydb"
-mcpdb playground
-```
-
-### 4. Legacy Web UI
-
-```bash
-mcpdb ui
-# Opens http://localhost:8080
+mcpdb web
 ```
 
 ## CLI Reference
@@ -128,11 +119,9 @@ mcpdb                          Print version
 mcpdb serve                    Start MCP server (stdio, for Claude Desktop)
 mcpdb serve --transport sse    Start MCP server (SSE, for web clients)
 mcpdb serve --port 8765        Start SSE server on custom port
-mcpdb playground               Start Playground (auto-selects free port)
-mcpdb playground --port 9000   Playground on a specific port
-mcpdb playground --no-browser  Start without opening browser
-mcpdb ui                       Start the legacy web UI
-mcpdb ui --port 8080           Start UI on custom port
+mcpdb web                      Start web client (recommended)
+mcpdb web --port 8080          Web client on custom port
+mcpdb web --no-browser         Start without opening browser
 mcpdb query <conn> <question>  One-shot query mode
 mcpdb --help                   Show help
 mcpdb --version                Show version
@@ -153,19 +142,12 @@ mcpdb serve --transport sse --port 8765
 # Stop with Ctrl+C
 ```
 
-**Playground** (recommended):
+**Web client** (recommended):
 ```bash
-mcpdb playground
+mcpdb web
 # Auto-selects a free port (starting from 8080), opens browser
 # Auto-connects to MCPDB_DATABASE_URL if set
 # Uses GEMINI_API_KEY (or other provider keys) from environment
-# Stop with Ctrl+C
-```
-
-**Legacy Web UI**:
-```bash
-mcpdb ui --port 8080
-# Opens browser automatically
 # Stop with Ctrl+C
 ```
 
@@ -221,10 +203,6 @@ experience:
   enabled: true
   storage_dir: ~/.mcpdb/experience
   cache_max_age_days: 30
-
-ui:
-  theme: dark                     # dark or light
-  port: 8080
 
 sandbox:
   allowed_modules: []             # Extra modules to allow (added to defaults)
@@ -458,48 +436,32 @@ mcpdb/
 │   ├── strategy_records.py  # Cost gate strategy tracking
 │   ├── cross_dialect.py     # Cross-source pattern sharing
 │   └── schema_drift.py     # Schema change detection
-├── playground/          # Playground web app (FastAPI + React)
-│   ├── api.py           # FastAPI REST + WebSocket + SPA serving
-│   └── static/          # Built React SPA (committed)
+├── web/                 # Web client (FastAPI + WebSocket)
+│   ├── app.py           # FastAPI REST + WebSocket + event streaming
+│   └── templates/       # Single-page HTML template
 ├── session/             # Session lifecycle
 │   └── session_manager.py # Persistent sessions with disk storage
-├── export/              # Conversation export
-│   ├── html_export.py   # Standalone HTML rendering
-│   ├── pdf_export.py    # PDF via weasyprint
-│   └── notebook_export.py # Jupyter notebook generation
-└── ui/                  # Legacy web interface (NiceGUI)
-    ├── app.py           # Application layout + routing
-    ├── state.py         # UIState, ExecutionStatus
-    ├── theme.py         # Dark/light themes
-    ├── pages/
-    │   └── chat.py      # Chat page with agent integration
-    └── components/      # UI components
-        ├── llm_selector.py      # LLM provider/model picker
-        ├── source_panel.py
-        ├── schema_viewer.py
-        ├── excel_viewer.py
-        ├── artifact_viewer.py
-        ├── execution_monitor.py # Step-by-step progress display
-        ├── deep_analysis_viewer.py
-        ├── cost_gate_dialog.py
-        └── export_dialog.py
+└── export/              # Conversation export
+    ├── html_export.py   # Standalone HTML rendering
+    ├── pdf_export.py    # PDF via weasyprint
+    └── notebook_export.py # Jupyter notebook generation
 ```
 
-## Playground
+## Web Client
 
-The Playground is a modern web interface for interactively exploring your data. It runs a FastAPI backend that serves a React single-page app — same origin, no CORS issues.
+The web client is an interactive interface for exploring your data. It runs a FastAPI backend with WebSocket event streaming and serves a single-page HTML template — no build step, no npm.
 
 ### Features
 
-- **3-panel layout** — Data sources & schema (left), chat (center), execution monitor & artifacts (right)
+- **3-panel layout** — Data sources & schema (left), chat (center), execution monitor (right)
 - **Source management** — Connect databases, upload CSV/Excel files from the UI
-- **Schema browser** — Expandable tree of tables/columns with inline data preview
-- **5 query modes** — Auto, Quick, Simple, Optimize, Extended, Deep — selectable per query
-- **Real-time execution** — Watch classification, planning, step execution, and synthesis as they happen
-- **Markdown responses** — Syntax-highlighted code blocks, GFM tables, links
-- **Artifact viewer** — Execution log with SQL/Python code and result previews
-- **LLM switcher** — Change provider/model/API key on the fly
-- **Dark/light theme** — System-aware with manual toggle
+- **Schema browser** — Expandable tree of tables/columns with inline data preview and ERD
+- **6 query modes** — Auto, Quick, Simple, Optimize, Extended, Deep — selectable per query
+- **Real-time execution monitor** — Watch classification, planning, step execution, and synthesis as they happen
+- **Chart rendering** — Python-generated matplotlib/seaborn charts displayed as images
+- **Deep mode streaming** — Investigation results streamed as they complete
+- **Markdown responses** — Syntax-highlighted code blocks, Mermaid diagrams, GFM tables
+- **Follow-up suggestions** — Context-aware follow-up questions after every response
 
 ### Environment Variables
 
@@ -518,30 +480,11 @@ export GEMINI_API_KEY="your-key"
 export MCPDB_DATABASE_URL="postgresql://user:pass@localhost/mydb"
 
 # Install and launch
-pip install mcpdb[playground,gemini]
-mcpdb playground
+pip install mcpdb[web,gemini]
+mcpdb web
 ```
 
 The browser opens automatically with your database already connected. Start asking questions.
-
-### Development
-
-The frontend source lives in `frontend/` (React 18 + TypeScript + Vite + Tailwind CSS). To modify:
-
-```bash
-cd frontend
-npm install
-npm run dev          # Dev server at http://localhost:5173 (proxies API to :8080)
-
-# In another terminal:
-mcpdb playground --port 8080 --no-browser   # Backend on fixed port for dev proxy
-```
-
-Build for production:
-
-```bash
-cd frontend && npm run build   # Outputs to mcpdb/playground/static/
-```
 
 ## Thinking Modes
 
