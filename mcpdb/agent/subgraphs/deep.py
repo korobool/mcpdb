@@ -151,7 +151,7 @@ async def run_deep(
             "deep/investigation_complete",
             investigation_id=inv_id,
             success=bool(inv_response),
-            response=inv_response[:2000],
+            response=inv_response,
             has_artifacts=bool(inv_artifacts),
             artifact_count=len(inv_artifacts),
         )
