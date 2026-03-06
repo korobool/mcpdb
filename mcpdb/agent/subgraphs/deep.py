@@ -28,13 +28,16 @@ Create a research blueprint with:
 1. A clear research goal
 2. 2-5 investigation questions that together will comprehensively answer the main question
 3. For each investigation, specify what kind of analysis is needed
+4. At least one investigation MUST include data visualization (charts, plots, distributions)
 
-IMPORTANT: Keep investigations focused and non-overlapping. Prefer fewer, targeted investigations over many broad ones.
-
-Each investigation should be independent enough to run as a separate analysis.
+IMPORTANT:
+- Keep investigations focused and non-overlapping
+- Prefer fewer, targeted investigations over many broad ones
+- Each investigation should be independent enough to run as a separate analysis
+- Include visualization-focused investigations (e.g., "What does the distribution of X look like?", "How does Y trend over time?") — these produce charts that make the report more insightful
 
 Respond with JSON:
-{{"research_goal": "Overall goal", "investigations": [{{"id": 1, "question": "Sub-question", "approach": "How to investigate", "priority": "high|medium|low"}}]}}
+{{"research_goal": "Overall goal", "investigations": [{{"id": 1, "question": "Sub-question", "approach": "How to investigate", "priority": "high|medium|low", "needs_visualization": true}}]}}
 """
 
 REASONING_PROMPT = """\
@@ -71,11 +74,11 @@ REASONING NOTES:
 Format as a structured report with:
 - Executive Summary
 - Methodology
-- Key Findings (numbered)
+- Key Findings (numbered, with specific data values and statistics)
 - Limitations
 - Recommendations
 
-Use markdown formatting.
+Use markdown formatting. Reference specific numbers, percentages, and data points from the investigation results. The individual investigation results have already been shown to the user, so focus on synthesis and cross-cutting insights rather than repeating raw data.
 """
 
 
@@ -107,6 +110,7 @@ async def run_deep(
 
     # 2. Investigation + reasoning loop
     completed: list[dict[str, Any]] = []
+    all_artifacts: list[dict[str, Any]] = []
     reasoning_log: list[str] = []
     iteration = 0
 
@@ -117,29 +121,39 @@ async def run_deep(
         inv = investigations.pop(0)
         inv_id = inv.get("id", iteration)
         inv_question = inv["question"]
+        needs_viz = inv.get("needs_visualization", False)
 
         callbacks.emit(
             "deep/investigation_start",
             investigation_id=inv_id,
             question=inv_question,
+            approach=inv.get("approach", ""),
         )
 
         # Run investigation as a Simple mode sub-agent
         inv_result = await _run_investigation(
             inv_question, state, llm, callbacks, registry,
+            needs_visualization=needs_viz,
         )
+
+        inv_response = inv_result.get("response", "No results.")
+        inv_artifacts = inv_result.get("artifacts", [])
+        all_artifacts.extend(inv_artifacts)
 
         completed.append({
             "id": inv_id,
             "question": inv_question,
             "approach": inv.get("approach", ""),
-            "result": inv_result,
+            "result": inv_response,
         })
 
         callbacks.emit(
             "deep/investigation_complete",
             investigation_id=inv_id,
-            success=bool(inv_result),
+            success=bool(inv_response),
+            response=inv_response[:2000],
+            has_artifacts=bool(inv_artifacts),
+            artifact_count=len(inv_artifacts),
         )
 
         # Reasoning checkpoint (after every 2 investigations or at end)
@@ -186,6 +200,9 @@ async def run_deep(
         state, goal, completed, reasoning_log, llm, callbacks,
     )
 
+    # Attach all investigation artifacts to the final state
+    state["artifacts"] = state.get("artifacts", []) + all_artifacts
+
     callbacks.emit("deep/complete", investigations=len(completed))
     return state
 
@@ -218,10 +235,22 @@ async def _run_investigation(
     llm: LLMProvider,
     callbacks: CallbackManager,
     registry: SourceRegistry,
-) -> str:
-    """Run a single investigation using Simple mode."""
+    needs_visualization: bool = False,
+) -> dict[str, Any]:
+    """Run a single investigation using Simple mode.
+
+    Returns dict with 'response' text and 'artifacts' list.
+    """
+    # Append visualization hint to the question if needed
+    inv_question = question
+    if needs_visualization:
+        inv_question += (
+            " — Include a Python visualization step (matplotlib/seaborn) "
+            "with plt.show() to create an informative chart."
+        )
+
     inv_state: AgentState = {
-        "question": question,
+        "question": inv_question,
         "source_context": parent_state.get("source_context", ""),
         "active_source_ids": parent_state.get("active_source_ids", []),
         "query_mode": "simple",
@@ -238,10 +267,13 @@ async def _run_investigation(
 
     try:
         inv_state = await run_simple(inv_state, llm, callbacks, registry)
-        return inv_state.get("response", "No results.")
+        return {
+            "response": inv_state.get("response", "No results."),
+            "artifacts": inv_state.get("artifacts", []),
+        }
     except Exception as e:
         logger.warning("Investigation failed: %s", e)
-        return f"Investigation failed: {e}"
+        return {"response": f"Investigation failed: {e}", "artifacts": []}
 
 
 async def _reason_about_results(

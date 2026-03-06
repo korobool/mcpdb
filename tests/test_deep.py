@@ -124,8 +124,10 @@ class TestRunInvestigation:
             "What is the churn rate?",
             base_state, mock_llm, callbacks, mock_registry,
         )
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert isinstance(result, dict)
+        assert "response" in result
+        assert len(result["response"]) > 0
+        assert "artifacts" in result
 
 
 # ---------------------------------------------------------------------------

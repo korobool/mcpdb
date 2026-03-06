@@ -81,6 +81,9 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
 .message.assistant .role { color: var(--green); }
 .msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
+.message.intermediate { opacity: 0.85; border-left: 3px solid var(--purple); padding-left: 12px; }
+.message.intermediate .role { color: var(--purple); }
+.message.intermediate .bubble h3 { font-size: 14px; margin-bottom: 8px; }
 
 /* Welcome message */
 .welcome-content { line-height: 1.6; }
@@ -292,6 +295,7 @@ let mon = {
   llmActive: false, llmLabel: '',
   // Deep mode
   deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+  deepReasoningStatus: '',
   // Log & timing
   log: [], startTime: 0, elapsed: 0,
 };
@@ -430,15 +434,44 @@ function handleEvent(msg) {
     addLog(`Blueprint: ${mon.deepInvestigationCount} investigations`);
   }
   else if (et === 'deep/investigation_start') {
-    mon.deepInvestigations.push({ id: d.investigation_id, question: d.question || '', status: 'running' });
-    addLog(`Investigation ${d.investigation_id}: ${(d.question || '').slice(0, 60)}`);
+    mon.deepInvestigations.push({
+      id: d.investigation_id,
+      question: d.question || '',
+      approach: d.approach || '',
+      status: 'running',
+    });
+    // Reset step-level state for the new sub-investigation
+    mon.steps = [];
+    mon.planSteps = [];
+    mon.planAnalysis = '';
+    mon.planApproach = '';
+    mon.planStepCount = 0;
+    mon.debugAttempts = 0;
+    mon.validationStatus = '';
+    mon.validationReason = '';
+    setPhase('planning');
+    addLog(`Investigation ${d.investigation_id}: ${(d.question || '').slice(0, 80)}`);
   }
   else if (et === 'deep/investigation_complete') {
     const inv = mon.deepInvestigations.find(i => i.id === d.investigation_id);
-    if (inv) inv.status = d.success ? 'success' : 'error';
+    if (inv) {
+      inv.status = d.success ? 'success' : 'error';
+      inv.response = d.response || '';
+    }
     addLog(`Investigation ${d.investigation_id} ${d.success ? '✓' : '✗'}`);
+    // Stream the intermediate result as a chat message
+    if (d.response) {
+      const invObj = mon.deepInvestigations.find(i => i.id === d.investigation_id);
+      const invTitle = invObj ? invObj.question : `Investigation ${d.investigation_id}`;
+      const content = `### Investigation ${d.investigation_id}: ${invTitle}\n\n${d.response}`;
+      addMessage('assistant', content, { isIntermediate: true, investigationId: d.investigation_id });
+    }
   }
-  else if (et === 'deep/reasoning') { addLog(`Reasoning: ${d.sufficient ? 'sufficient evidence' : 'need more data'}`); }
+  else if (et === 'deep/reasoning') {
+    const text = d.sufficient ? 'Sufficient evidence gathered' : 'Need more data, continuing...';
+    mon.deepReasoningStatus = text;
+    addLog(`Reasoning: ${text}`);
+  }
   else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
 
   // Strategy gate, cost check, optimize
@@ -474,6 +507,7 @@ function resetMonitor() {
     replanCount: 0,
     llmActive: false, llmLabel: '',
     deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+    deepReasoningStatus: '',
     log: [], startTime: 0, elapsed: 0,
   };
   renderMonitor();
@@ -553,9 +587,11 @@ function addMessage(role, content, meta = {}) {
 function renderMessage(msg) {
   const container = document.getElementById('messages');
   const div = document.createElement('div');
-  div.className = `message ${msg.role}`;
+  const isIntermediate = msg.meta && msg.meta.isIntermediate;
+  div.className = `message ${msg.role}${isIntermediate ? ' intermediate' : ''}`;
 
-  let html = `<div class="role">${msg.role === 'user' ? 'You' : 'MCPDB'}</div>`;
+  const roleLabel = isIntermediate ? 'Investigation Result' : (msg.role === 'user' ? 'You' : 'MCPDB');
+  let html = `<div class="role">${roleLabel}</div>`;
   html += `<div class="bubble">${renderMarkdown(msg.content)}</div>`;
 
   if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
@@ -688,18 +724,37 @@ function renderMonitor() {
   // ── Deep mode blueprint ──
   if (mon.deepGoal) {
     h += '<div class="mon-deep-box">';
-    h += `<div class="mon-section-label">Research Blueprint</div>`;
+    h += '<div class="mon-section-label">Research Blueprint</div>';
     h += `<div class="mon-deep-goal">${escHtml(mon.deepGoal)}</div>`;
+
+    const doneInv = mon.deepInvestigations.filter(i => i.status !== 'running').length;
+    const totalInv = Math.max(mon.deepInvestigationCount, mon.deepInvestigations.length);
+    if (totalInv > 0) {
+      const pct = (doneInv / totalInv * 100);
+      h += `<div style="margin:8px 0 6px"><div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'done' : 'running'}" style="width:${pct}%;background:var(--purple)"></div></div>`;
+      h += `<div class="progress-text">${doneInv}/${totalInv} investigations</div></div>`;
+    }
+
     for (const inv of mon.deepInvestigations) {
       let icon = '<span class="spinner spinner-sm"></span>';
       if (inv.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
       else if (inv.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
-      h += `<div class="mon-investigation"><span class="inv-icon">${icon}</span><span class="inv-text">${escHtml(inv.question)}</span></div>`;
+      h += '<div class="mon-investigation">';
+      h += `<span class="inv-icon">${icon}</span>`;
+      h += `<span class="inv-text">${escHtml(inv.question)}`;
+      if (inv.approach) h += `<br><span style="font-size:11px;color:var(--fg3)">${escHtml(inv.approach)}</span>`;
+      h += '</span></div>';
     }
     if (mon.deepInvestigationCount > mon.deepInvestigations.length) {
       const remaining = mon.deepInvestigationCount - mon.deepInvestigations.length;
-      h += `<div class="mon-investigation"><span class="inv-icon" style="color:var(--fg3)">○</span><span class="inv-text" style="color:var(--fg3)">${remaining} more investigation${remaining > 1 ? 's' : ''} pending</span></div>`;
+      h += `<div class="mon-investigation"><span class="inv-icon" style="color:var(--fg3)">○</span><span class="inv-text" style="color:var(--fg3)">${remaining} more pending</span></div>`;
     }
+
+    // Reasoning status
+    if (mon.deepReasoningStatus) {
+      h += `<div style="font-size:11px;color:var(--purple);margin-top:6px;font-style:italic">💭 ${escHtml(mon.deepReasoningStatus)}</div>`;
+    }
+
     h += '</div>';
   }
 
