@@ -350,6 +350,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
 
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.agent.graph import run_agent
+        from mcpdb.mcp.tools.analysis import _generate_followups_inline
 
         callbacks = CallbackManager()
         callbacks.add_listener(on_event)
@@ -366,12 +367,22 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     force_rethink=force_rethink,
                     staging_store=exp_staging,
                 )
+                # Generate follow-up suggestions (best-effort, non-blocking)
+                followups = []
+                try:
+                    followups = await _generate_followups_inline(
+                        _registry, _llm, question,
+                    )
+                except Exception:
+                    pass
+
                 event_queue.put_nowait({
                     "type": "result",
                     "response": state.get("response", ""),
                     "artifacts": _sanitize_list(state.get("artifacts", [])),
                     "execution_log": _sanitize_list(state.get("execution_log", [])),
                     "query_mode": state.get("query_mode", ""),
+                    "followups": followups,
                 })
             except asyncio.CancelledError:
                 event_queue.put_nowait({"type": "cancelled"})

@@ -374,7 +374,7 @@ function handleResult(msg) {
   addLog(`Done in ${mon.elapsed.toFixed(1)}s`);
   renderMonitor();
 
-  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: msg.artifacts || [], executionLog: msg.execution_log || [] };
+  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: msg.artifacts || [], executionLog: msg.execution_log || [], followups: msg.followups || [] };
   addMessage('assistant', msg.response, meta);
   toggleInputState(false);
 }
@@ -456,8 +456,15 @@ function renderMessage(msg) {
     if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
     if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
 
-    // Follow-ups (extracted from response if present)
-    // Artifacts rendered inline are part of the markdown
+    // Follow-up suggestions
+    const followups = msg.meta.followups || [];
+    if (followups.length) {
+      html += '<div class="followups">';
+      for (const q of followups) {
+        html += `<button class="followup-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
+      }
+      html += '</div>';
+    }
   }
 
   div.innerHTML = html;
