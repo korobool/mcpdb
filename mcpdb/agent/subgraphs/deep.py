@@ -83,7 +83,7 @@ Format as a structured report with:
 - Limitations
 - Recommendations
 
-Use markdown formatting. Reference specific numbers, percentages, and data points from the investigation results. The individual investigation results have already been shown to the user, so focus on synthesis and cross-cutting insights rather than repeating raw data.
+Use markdown formatting. Reference specific numbers, percentages, and data points from the investigation results. The individual investigation results have already been shown to the user, so focus on synthesis and cross-cutting insights rather than repeating raw data. Charts and visualizations from investigations have been captured and displayed as images to the user.
 """
 
 
@@ -159,6 +159,7 @@ async def run_deep(
             response=inv_response,
             has_artifacts=bool(inv_artifacts),
             artifact_count=len(inv_artifacts),
+            artifacts=inv_artifacts,
         )
 
         # Reasoning checkpoint (after every 2 investigations or at end)

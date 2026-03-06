@@ -325,7 +325,10 @@ async def execute_step(
 
         # Record success
         step["status"] = "success"
-        step["result_preview"] = str(result.get("output", ""))
+        preview = str(result.get("output", ""))
+        if result.get("charts"):
+            preview += f"\n[{len(result['charts'])} chart(s) captured and will be displayed]"
+        step["result_preview"] = preview
         step["time_ms"] = elapsed_ms
         step["attempts"] = step.get("attempts", 0) + 1
 
@@ -579,6 +582,7 @@ Guidelines:
 - Use markdown formatting
 - Interpret data, don't just repeat raw numbers
 - If some steps failed, note what worked and what didn't
+- Charts and visualizations have been captured from Python execution and will be displayed as images alongside your answer. Reference what the chart shows in your narrative.
 """
 
 
@@ -608,6 +612,11 @@ async def synthesize(
                 f"\nTable: {artifact.get('title', 'Result')}\n"
                 f"Columns: {data.get('columns', [])}\n"
                 f"Rows: {data.get('total_rows', 0)}"
+            )
+        elif artifact["type"] == "chart":
+            results_parts.append(
+                f"\nChart: {artifact.get('title', 'Visualization')} "
+                f"[image captured and will be displayed to user]"
             )
 
     results_text = "\n\n".join(results_parts) if results_parts else "No execution results."

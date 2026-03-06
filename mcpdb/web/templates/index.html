@@ -193,6 +193,11 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .activity-log summary { font-size: 11px; color: var(--fg3); cursor: pointer; user-select: none; }
 .activity-log .entry { font-size: 11px; color: var(--fg3); padding: 2px 0; font-family: 'SFMono-Regular', Consolas, monospace; }
 
+/* Chart artifacts */
+.chart-artifact { margin: 12px 0; }
+.chart-artifact img { max-width: 100%; border-radius: var(--radius); border: 1px solid var(--border); background: #fff; }
+.chart-artifact .chart-title { font-size: 12px; color: var(--fg2); margin-bottom: 4px; }
+
 /* Mermaid */
 .mermaid svg { max-width: 100%; }
 
@@ -464,7 +469,7 @@ function handleEvent(msg) {
       const invObj = mon.deepInvestigations.find(i => i.id === d.investigation_id);
       const invTitle = invObj ? invObj.question : `Investigation ${d.investigation_id}`;
       const content = `### Investigation ${d.investigation_id}: ${invTitle}\n\n${d.response}`;
-      addMessage('assistant', content, { isIntermediate: true, investigationId: d.investigation_id });
+      addMessage('assistant', content, { isIntermediate: true, investigationId: d.investigation_id, artifacts: d.artifacts || [] });
     }
   }
   else if (et === 'deep/reasoning') {
@@ -522,7 +527,12 @@ function handleResult(msg) {
   addLog(`Done in ${mon.elapsed.toFixed(1)}s`);
   renderMonitor();
 
-  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: msg.artifacts || [], executionLog: msg.execution_log || [], followups: msg.followups || [] };
+  // For deep mode, charts were already shown in intermediate investigation messages — skip them in the final result
+  let resultArtifacts = msg.artifacts || [];
+  if (msg.query_mode === 'deep' && mon.deepInvestigations.length > 0) {
+    resultArtifacts = resultArtifacts.filter(a => a.type !== 'chart');
+  }
+  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [] };
   addMessage('assistant', msg.response, meta);
   toggleInputState(false);
 }
@@ -595,6 +605,17 @@ function renderMessage(msg) {
   let html = `<div class="role">${roleLabel}</div>`;
   html += `<div class="bubble">${renderMarkdown(msg.content)}</div>`;
 
+  // Render chart artifacts as images
+  const artifacts = (msg.meta && msg.meta.artifacts) || [];
+  for (const art of artifacts) {
+    if (art.type === 'chart' && art.data && art.data.image_base64) {
+      html += '<div class="chart-artifact">';
+      if (art.title) html += `<div class="chart-title">${escHtml(art.title)}</div>`;
+      html += `<img src="data:image/${art.data.format || 'png'};base64,${art.data.image_base64}" alt="${escHtml(art.title || 'Chart')}" />`;
+      html += '</div>';
+    }
+  }
+
   if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
     // Metadata footer
     const parts = [];
@@ -632,6 +653,8 @@ function renderMessage(msg) {
 
 function renderMarkdown(text) {
   if (!text) return '';
+  // Strip inline base64 image references (charts are rendered from artifacts instead)
+  text = text.replace(/!\[[^\]]*\]\(data:image\/[^)]+\)/g, '*[chart displayed below]*');
   // Use marked to render markdown
   return marked.parse(text, { breaks: true, gfm: true });
 }
@@ -711,9 +734,11 @@ function renderMonitor() {
         const executed = mon.steps.find(s => s.number === ps.step_number);
         let statusIcon = '<span style="color:var(--fg3)">○</span>';
         if (executed) {
-          if (executed.status === 'success') statusIcon = '<span style="color:var(--green)">✓</span>';
-          else if (executed.status === 'error') statusIcon = '<span style="color:var(--red)">✗</span>';
-          else if (executed.status === 'running') statusIcon = '<span class="spinner spinner-sm"></span>';
+          if (executed.status === 'error') statusIcon = '<span style="color:var(--red)">✗</span>';
+          else if (executed.status === 'success') statusIcon = '<span style="color:var(--green)">✓</span>';
+          else if (executed.status === 'running') statusIcon = isDone
+            ? '<span style="color:var(--green)">✓</span>'
+            : '<span class="spinner spinner-sm"></span>';
         }
         h += `<li>${statusIcon} <span class="step-action">${escHtml(ps.action)}</span> ${escHtml(ps.description)}</li>`;
       }
@@ -728,16 +753,18 @@ function renderMonitor() {
     h += '<div class="mon-section-label">Research Blueprint</div>';
     h += `<div class="mon-deep-goal">${escHtml(mon.deepGoal)}</div>`;
 
-    const doneInv = mon.deepInvestigations.filter(i => i.status !== 'running').length;
+    const doneInv = isDone ? mon.deepInvestigations.length : mon.deepInvestigations.filter(i => i.status !== 'running').length;
     const totalInv = Math.max(mon.deepInvestigationCount, mon.deepInvestigations.length);
     if (totalInv > 0) {
-      const pct = (doneInv / totalInv * 100);
+      const pct = isDone ? 100 : (doneInv / totalInv * 100);
       h += `<div style="margin:8px 0 6px"><div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'done' : 'running'}" style="width:${pct}%;background:var(--purple)"></div></div>`;
       h += `<div class="progress-text">${doneInv}/${totalInv} investigations</div></div>`;
     }
 
     for (const inv of mon.deepInvestigations) {
-      let icon = '<span class="spinner spinner-sm"></span>';
+      let icon = isDone
+        ? '<span style="color:var(--green)">✓</span>'
+        : '<span class="spinner spinner-sm"></span>';
       if (inv.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
       else if (inv.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
       h += '<div class="mon-investigation">';
@@ -761,7 +788,7 @@ function renderMonitor() {
 
   // ── Progress bar ──
   if (mon.steps.length > 0) {
-    const done = mon.steps.filter(s => s.status === 'success' || s.status === 'error').length;
+    const done = isDone ? mon.steps.length : mon.steps.filter(s => s.status === 'success' || s.status === 'error').length;
     const total = Math.max(mon.steps.length, mon.planStepCount);
     const pct = total > 0 ? (done / total * 100) : 0;
     const barClass = isDone ? 'done' : 'running';
@@ -770,7 +797,7 @@ function renderMonitor() {
   }
 
   // ── LLM activity indicator ──
-  if (mon.llmActive) {
+  if (mon.llmActive && !isDone) {
     const labelMap = { plan: 'Planning', synthesize: 'Synthesizing', classify: 'Classifying', debug: 'Debugging', validate: 'Validating', checkpoint: 'Reviewing' };
     const displayLabel = labelMap[mon.llmLabel] || mon.llmLabel || 'Thinking';
     h += `<div class="mon-llm"><span class="dot"></span> LLM: ${escHtml(displayLabel)}</div>`;
@@ -778,11 +805,13 @@ function renderMonitor() {
 
   // ── Execution steps ──
   for (const s of mon.steps) {
+    // Resolve effective status: treat 'running' as 'success' when done
+    const effectiveStatus = (isDone && s.status === 'running') ? 'success' : s.status;
     let icon = '<span class="spinner spinner-sm"></span>';
-    if (s.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
-    else if (s.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+    if (effectiveStatus === 'success') icon = '<span style="color:var(--green)">✓</span>';
+    else if (effectiveStatus === 'error') icon = '<span style="color:var(--red)">✗</span>';
 
-    h += `<div class="step ${s.status}">`;
+    h += `<div class="step ${effectiveStatus}">`;
     h += `<div class="icon">${icon}</div>`;
     h += '<div class="info">';
     // Step title: description or action
@@ -793,11 +822,11 @@ function renderMonitor() {
       h += `<div class="step-detail"><span style="color:var(--cyan)">${escHtml(s.action)}</span></div>`;
     }
     // Code preview (while running)
-    if (s.status === 'running' && s.codePreview) {
+    if (effectiveStatus === 'running' && s.codePreview) {
       h += `<div class="code-preview">${escHtml(s.codePreview)}</div>`;
     }
     // Result preview (after success)
-    if (s.status === 'success' && s.resultPreview) {
+    if (effectiveStatus === 'success' && s.resultPreview) {
       let preview = s.resultPreview.slice(0, 120);
       if (s.rows > 0) preview = `${s.rows} rows — ${preview}`;
       h += `<div class="result-preview">${escHtml(preview)}</div>`;
@@ -1023,6 +1052,13 @@ customRenderer.code = function({ text, lang }) {
     return `<div class="mermaid-pending">${escHtml(text)}</div>`;
   }
   return `<pre><code class="language-${lang || 'plaintext'}">${text}</code></pre>`;
+};
+// Skip relative image paths (e.g. chart.png) — actual charts are rendered from artifacts
+customRenderer.image = function({ href, title, text }) {
+  if (href && !href.startsWith('http') && !href.startsWith('data:')) {
+    return `<em>[chart: ${escHtml(text || title || href)}]</em>`;
+  }
+  return `<img src="${href}" alt="${escHtml(text || '')}" title="${escHtml(title || '')}" />`;
 };
 marked.setOptions({ renderer: customRenderer });
 
