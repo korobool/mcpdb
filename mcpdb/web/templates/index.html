@@ -27,7 +27,7 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 #app { display: flex; height: 100vh; }
 #sidebar { width: 280px; min-width: 280px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#monitor { width: 320px; min-width: 320px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+#monitor { width: 340px; min-width: 340px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 16px; }
 
 /* ── Sidebar ─────────────────────────────────────────── */
 .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
@@ -103,39 +103,92 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 /* ── Execution Monitor ───────────────────────────────── */
 #monitor h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 12px; }
 .mon-idle { color: var(--fg3); font-size: 13px; font-style: italic; }
-.mon-phase { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.mon-phase .label { font-weight: 600; font-size: 14px; }
-.mon-phase .mode-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--blue); color: var(--blue); }
-.mon-classify { font-size: 12px; color: var(--purple); font-style: italic; margin-bottom: 8px; }
-.mon-plan { font-size: 12px; color: var(--cyan); margin-bottom: 8px; }
+
+/* Phase pipeline */
+.mon-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mon-header .spinner { flex-shrink: 0; }
+.mon-header .label { font-weight: 600; font-size: 15px; }
+.mode-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.mode-badge.quick { border: 1px solid var(--green); color: var(--green); }
+.mode-badge.simple { border: 1px solid var(--blue); color: var(--blue); }
+.mode-badge.optimization { border: 1px solid var(--orange); color: var(--orange); }
+.mode-badge.extended { border: 1px solid var(--purple); color: var(--purple); }
+.mode-badge.deep { border: 1px solid var(--red); color: var(--red); }
+.mode-badge.unknown { border: 1px solid var(--fg3); color: var(--fg3); }
+
+/* Phase pipeline steps */
+.mon-pipeline { display: flex; align-items: center; gap: 4px; margin-bottom: 14px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.pipe-step { font-size: 11px; padding: 3px 8px; border-radius: 10px; background: var(--bg4); color: var(--fg3); white-space: nowrap; }
+.pipe-step.active { background: var(--blue); color: #000; font-weight: 600; }
+.pipe-step.done { background: var(--bg4); color: var(--green); }
+.pipe-arrow { color: var(--fg3); font-size: 10px; }
+
+/* Classify section */
+.mon-section { margin-bottom: 12px; }
+.mon-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg3); margin-bottom: 4px; }
+.mon-classify-text { font-size: 12px; color: var(--purple); font-style: italic; line-height: 1.4; }
+
+/* Plan section */
+.mon-plan-box { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; border-left: 3px solid var(--cyan); }
+.mon-plan-analysis { font-size: 12px; color: var(--fg); line-height: 1.4; margin-bottom: 8px; }
+.mon-plan-approach { font-size: 11px; color: var(--cyan); margin-bottom: 6px; }
+.mon-plan-steps { list-style: none; padding: 0; margin: 0; }
+.mon-plan-steps li { font-size: 12px; color: var(--fg2); padding: 3px 0; display: flex; align-items: flex-start; gap: 6px; }
+.mon-plan-steps .step-num { color: var(--fg3); font-size: 11px; min-width: 18px; text-align: right; flex-shrink: 0; }
+.mon-plan-steps .step-action { font-size: 10px; color: var(--cyan); background: var(--bg4); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
 
 /* Progress bar */
-.progress-bar { height: 4px; background: var(--bg4); border-radius: 2px; margin-bottom: 10px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--blue); border-radius: 2px; transition: width 0.3s ease; }
-.progress-text { font-size: 11px; color: var(--fg3); margin-bottom: 10px; text-align: right; }
+.progress-bar { height: 6px; background: var(--bg4); border-radius: 3px; margin-bottom: 4px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.progress-fill.running { background: var(--blue); }
+.progress-fill.done { background: var(--green); }
+.progress-text { font-size: 11px; color: var(--fg3); margin-bottom: 12px; text-align: right; }
 
-/* Steps */
-.step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; padding: 6px 8px; border-radius: var(--radius); }
+/* Steps (execution) */
+.step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 2px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid transparent; }
 .step .icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 14px; margin-top: 1px; }
 .step .info { flex: 1; min-width: 0; }
-.step .info .desc { font-size: 13px; }
+.step .info .desc { font-size: 13px; font-weight: 500; }
+.step .info .step-detail { font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.step .info .code-preview { font-size: 11px; color: var(--fg3); font-family: 'SFMono-Regular', Consolas, monospace; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.step .info .result-preview { font-size: 11px; color: var(--green); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .step .info .timing { font-size: 11px; color: var(--fg3); }
-.step .info .error { font-size: 11px; color: var(--red); word-break: break-all; }
-.step.running { background: rgba(88, 166, 255, 0.06); }
+.step .info .error { font-size: 11px; color: var(--red); word-break: break-all; margin-top: 2px; }
+.step.running { background: rgba(88, 166, 255, 0.06); border-color: rgba(88, 166, 255, 0.15); }
+.step.success { opacity: 0.8; }
 
 /* Spinner animation */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--fg3); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.6s linear infinite; }
 .spinner-sm { width: 10px; height: 10px; border-width: 1.5px; }
 
+/* LLM activity */
+@keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+.mon-llm { font-size: 11px; color: var(--fg3); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 4px 8px; background: var(--bg3); border-radius: var(--radius); }
+.mon-llm .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+
 /* Status indicators */
-.mon-debug, .mon-validate, .mon-replan { font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
-.mon-elapsed { font-size: 11px; color: var(--fg3); margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.mon-status-row { font-size: 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius); }
+.mon-status-row.debug { background: rgba(210, 153, 34, 0.08); color: var(--orange); }
+.mon-status-row.validate-ok { background: rgba(63, 185, 80, 0.08); color: var(--green); }
+.mon-status-row.validate-fail { background: rgba(210, 153, 34, 0.08); color: var(--orange); }
+.mon-status-row.replan { background: rgba(188, 140, 255, 0.08); color: var(--purple); }
+
+/* Deep mode */
+.mon-deep-box { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; border-left: 3px solid var(--red); }
+.mon-deep-goal { font-size: 12px; color: var(--fg); margin-bottom: 6px; }
+.mon-investigation { font-size: 12px; padding: 4px 0; display: flex; align-items: flex-start; gap: 6px; }
+.mon-investigation .inv-icon { flex-shrink: 0; font-size: 13px; }
+.mon-investigation .inv-text { color: var(--fg2); }
+
+/* Elapsed & footer */
+.mon-elapsed { font-size: 12px; color: var(--fg2); margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; display: flex; align-items: center; gap: 6px; }
+.mon-elapsed .time { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Activity log */
-.activity-log { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
-.activity-log summary { font-size: 12px; color: var(--fg2); cursor: pointer; user-select: none; }
-.activity-log .entry { font-size: 11px; color: var(--fg3); padding: 1px 0; }
+.activity-log { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.activity-log summary { font-size: 11px; color: var(--fg3); cursor: pointer; user-select: none; }
+.activity-log .entry { font-size: 11px; color: var(--fg3); padding: 2px 0; font-family: 'SFMono-Regular', Consolas, monospace; }
 
 /* Mermaid */
 .mermaid svg { max-width: 100%; }
@@ -234,9 +287,19 @@ let isQuerying = false;
 
 // Execution monitor state
 let mon = {
-  phase: 'idle', mode: '', classifyReasoning: '', planStepCount: 0,
-  steps: [], debugAttempts: 0, validationStatus: '', validationReason: '',
-  replanCount: 0, log: [], startTime: 0, elapsed: 0,
+  phase: 'idle', mode: '', classifyReasoning: '',
+  // Plan
+  planAnalysis: '', planApproach: '', planSteps: [], planStepCount: 0,
+  // Execution
+  steps: [], debugAttempts: 0,
+  validationStatus: '', validationReason: '',
+  replanCount: 0,
+  // LLM
+  llmActive: false, llmLabel: '',
+  // Deep mode
+  deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+  // Log & timing
+  log: [], startTime: 0, elapsed: 0,
 };
 let elapsedTimer = null;
 
@@ -267,17 +330,21 @@ function handleEvent(msg) {
     mon.mode = d.mode || '';
     mon.classifyReasoning = d.reasoning || '';
     setPhase('planning');
-    addLog(`Mode: ${mon.mode}` + (d.reasoning ? ` \u2014 ${d.reasoning}` : ''));
+    addLog(`Mode: ${mon.mode}` + (d.reasoning ? ` — ${d.reasoning}` : ''));
   }
   else if (et === 'classify/override') {
     mon.mode = d.mode || '';
+    setPhase('planning');
     addLog(`Mode override: ${mon.mode}`);
   }
 
   // Planning
-  else if (et === 'plan/start') { addLog('Generating execution plan...'); }
+  else if (et === 'plan/start') { setPhase('planning'); addLog('Generating execution plan...'); }
   else if (et === 'plan/ready') {
     mon.planStepCount = d.step_count || 0;
+    mon.planAnalysis = d.analysis || '';
+    mon.planApproach = d.approach || '';
+    mon.planSteps = d.steps || [];
     setPhase('executing');
     addLog(`Plan ready: ${mon.planStepCount} steps`);
   }
@@ -286,66 +353,109 @@ function handleEvent(msg) {
 
   // Steps
   else if (et === 'step/start') {
-    const step = { number: d.step_number, action: d.action || '', status: 'running', timeMs: 0, error: '' };
+    const step = {
+      number: d.step_number, action: d.action || '', status: 'running',
+      description: d.description || '', codePreview: d.code_preview || '',
+      timeMs: 0, error: '', resultPreview: '', rows: 0,
+    };
     mon.steps.push(step);
-    addLog(`Executing step ${step.number} (${step.action})`);
+    addLog(`Step ${step.number}: ${step.description || step.action}`);
   }
   else if (et === 'step/complete') {
     const s = mon.steps.find(s => s.number === d.step_number);
-    if (s) { s.status = 'success'; s.timeMs = d.time_ms || 0; }
-    addLog(`Step ${d.step_number} completed (${d.time_ms || 0}ms)`);
+    if (s) {
+      s.status = 'success'; s.timeMs = d.time_ms || 0;
+      s.resultPreview = d.result_preview || '';
+      s.rows = d.rows || 0;
+    }
+    addLog(`Step ${d.step_number} ✓ (${d.time_ms || 0}ms)`);
   }
   else if (et === 'step/error') {
     const s = mon.steps.find(s => s.number === d.step_number);
     if (s) { s.status = 'error'; s.error = d.error || ''; }
-    addLog(`Step ${d.step_number} failed: ${(d.error || '').slice(0, 100)}`);
+    addLog(`Step ${d.step_number} ✗ ${(d.error || '').slice(0, 80)}`);
   }
 
   // Debug
-  else if (et === 'debug/start') { mon.debugAttempts++; addLog(`Debugging step (attempt ${d.attempt || mon.debugAttempts})...`); }
-  else if (et === 'debug/fixed') { addLog('Debug fix applied, retrying step'); }
-  else if (et === 'debug/give_up') { addLog('Debug gave up, skipping step'); }
+  else if (et === 'debug/start') { mon.debugAttempts++; addLog(`Debug attempt ${d.attempt || mon.debugAttempts}...`); }
+  else if (et === 'debug/fixed') { addLog('Debug: fix applied, retrying'); }
+  else if (et === 'debug/give_up') { addLog('Debug: gave up, skipping step'); }
 
   // Validation
-  else if (et === 'validate/start') { addLog('Validating results...'); }
-  else if (et === 'validate/adequate') { mon.validationStatus = 'adequate'; addLog('Validation: adequate'); }
+  else if (et === 'validate/start') { setPhase('validating'); addLog('Validating results...'); }
+  else if (et === 'validate/adequate') { mon.validationStatus = 'adequate'; addLog('Validation: adequate ✓'); }
   else if (et === 'validate/inadequate') {
     mon.validationStatus = 'inadequate';
     mon.validationReason = d.reason || '';
-    addLog(`Validation inadequate: ${(d.reason || '').slice(0, 100)}`);
+    addLog(`Validation: inadequate — ${(d.reason || '').slice(0, 80)}`);
   }
 
   // Replan
-  else if (et === 'replan/start') { mon.replanCount++; addLog('Replanning...'); }
+  else if (et === 'replan/start') { mon.replanCount++; setPhase('replanning'); addLog('Replanning...'); }
   else if (et === 'replan/ready') {
     mon.planStepCount = d.step_count || 0;
     mon.steps = [];
-    addLog(`Replan ready: ${mon.planStepCount} steps`);
+    setPhase('executing');
+    addLog(`Replan: ${mon.planStepCount} new steps`);
   }
 
   // Quick mode
   else if (et === 'quick/start') { setPhase('executing'); mon.mode = 'quick'; addLog('Quick mode: answering from context'); }
-  else if (et === 'quick/escalate') { addLog(`Quick \u2192 Simple escalation: ${d.reason || ''}`); }
+  else if (et === 'quick/escalate') { addLog(`Quick → Simple escalation: ${d.reason || ''}`); }
 
   // Extended
-  else if (et === 'checkpoint/start') { addLog('Reviewing progress (checkpoint)...'); }
+  else if (et === 'checkpoint/start') { addLog('Checkpoint: reviewing progress...'); }
+  else if (et === 'checkpoint/complete') { addLog(`Checkpoint: ${d.action || 'continue'} — ${(d.reason || '').slice(0, 60)}`); }
   else if (et === 'revise/start') { addLog('Revising plan...'); }
   else if (et === 'revise/ready') { addLog(`Revised: ${d.new_step_count || 0} steps remaining`); }
+  else if (et === 'reflect/start') { addLog('Reflecting on results...'); }
+  else if (et === 'reflect/ready') { addLog('Reflection complete'); }
 
   // Synthesis
   else if (et === 'synthesize/start') { setPhase('synthesizing'); addLog('Synthesizing final answer...'); }
   else if (et === 'synthesize/complete') { addLog('Synthesis complete'); }
 
   // Experience
-  else if (et === 'experience/cache_hit') { addLog('Cache hit \u2014 using previous result'); }
+  else if (et === 'experience/cache_hit') { setPhase('executing'); addLog('Cache hit — replaying previous result'); }
+  else if (et === 'experience/rethink') { addLog('Force rethink — ignoring cache'); }
+
+  // LLM streaming
+  else if (et === 'llm/start') { mon.llmActive = true; mon.llmLabel = d.label || 'llm'; }
+  else if (et === 'llm/complete' || et === 'llm/cancelled') { mon.llmActive = false; mon.llmLabel = ''; }
 
   // Mode-level
   else if (et === 'simple/start') { addLog('Simple mode started'); }
+  else if (et === 'optimization/start') { addLog('Optimization mode started'); }
   else if (et === 'extended/start') { addLog('Extended mode started'); }
   else if (et === 'deep/start') { addLog('Deep analysis started'); }
 
+  // Deep mode specifics
+  else if (et === 'deep/blueprint') {
+    mon.deepGoal = d.goal || '';
+    mon.deepInvestigationCount = d.investigation_count || 0;
+    addLog(`Blueprint: ${mon.deepInvestigationCount} investigations`);
+  }
+  else if (et === 'deep/investigation_start') {
+    mon.deepInvestigations.push({ id: d.investigation_id, question: d.question || '', status: 'running' });
+    addLog(`Investigation ${d.investigation_id}: ${(d.question || '').slice(0, 60)}`);
+  }
+  else if (et === 'deep/investigation_complete') {
+    const inv = mon.deepInvestigations.find(i => i.id === d.investigation_id);
+    if (inv) inv.status = d.success ? 'success' : 'error';
+    addLog(`Investigation ${d.investigation_id} ${d.success ? '✓' : '✗'}`);
+  }
+  else if (et === 'deep/reasoning') { addLog(`Reasoning: ${d.sufficient ? 'sufficient evidence' : 'need more data'}`); }
+  else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
+
+  // Strategy gate, cost check, optimize
+  else if (et === 'strategy_gate/pass') { addLog('Strategy gate: pass'); }
+  else if (et === 'strategy_gate/escalate') { addLog(`Strategy gate: escalate → ${d.to_mode || ''}`); }
+  else if (et === 'cost_check/start') { addLog('Cost check...'); }
+  else if (et === 'cost_check/complete') { addLog(`Cost check: ${d.decision || ''}`); }
+  else if (et === 'optimize/start') { addLog(`Optimizing: ${d.strategy || ''}`); }
+
   // Agent done
-  else if (et === 'agent/complete') { addLog(`Agent complete (mode: ${d.mode || ''})`); }
+  else if (et === 'agent/complete') { addLog(`Done (mode: ${d.mode || ''})`); }
 
   renderMonitor();
 }
@@ -362,7 +472,16 @@ function addLog(text) { mon.log.push(text); }
 
 function resetMonitor() {
   if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
-  mon = { phase: 'idle', mode: '', classifyReasoning: '', planStepCount: 0, steps: [], debugAttempts: 0, validationStatus: '', validationReason: '', replanCount: 0, log: [], startTime: 0, elapsed: 0 };
+  mon = {
+    phase: 'idle', mode: '', classifyReasoning: '',
+    planAnalysis: '', planApproach: '', planSteps: [], planStepCount: 0,
+    steps: [], debugAttempts: 0,
+    validationStatus: '', validationReason: '',
+    replanCount: 0,
+    llmActive: false, llmLabel: '',
+    deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+    log: [], startTime: 0, elapsed: 0,
+  };
   renderMonitor();
 }
 
@@ -511,6 +630,12 @@ function newConversation() {
 }
 
 // ── Execution Monitor rendering ────────────────────────
+const PHASES = ['classifying', 'planning', 'executing', 'validating', 'synthesizing'];
+const PHASE_LABELS = {
+  classifying: 'Classify', planning: 'Plan', executing: 'Execute',
+  validating: 'Validate', replanning: 'Replan', synthesizing: 'Synthesize',
+};
+
 function renderMonitor() {
   const el = document.getElementById('mon-content');
   if (mon.phase === 'idle' && !mon.log.length) {
@@ -519,77 +644,150 @@ function renderMonitor() {
   }
 
   let h = '';
-  const PHASE_LABELS = { classifying: 'Classifying...', planning: 'Planning...', executing: 'Executing...', synthesizing: 'Synthesizing...' };
 
-  // Phase + mode badge
-  if (mon.phase !== 'idle') {
-    h += '<div class="mon-phase">';
-    h += '<span class="spinner"></span>';
-    h += `<span class="label">${PHASE_LABELS[mon.phase] || mon.phase}</span>`;
-    if (mon.mode) h += `<span class="mode-badge">${mon.mode}</span>`;
-    h += '</div>';
-  } else if (mon.mode) {
-    h += `<div class="mon-phase"><span class="label">Done</span><span class="mode-badge">${mon.mode}</span></div>`;
+  // ── Header: spinner/done + phase label + mode badge ──
+  const isDone = mon.phase === 'idle' && mon.log.length > 0;
+  const modeClass = mon.mode || 'unknown';
+  h += '<div class="mon-header">';
+  if (!isDone) h += '<span class="spinner"></span>';
+  else h += '<span style="color:var(--green);font-size:16px">✓</span>';
+  h += `<span class="label">${isDone ? 'Complete' : (PHASE_LABELS[mon.phase] || mon.phase) + '...'}</span>`;
+  if (mon.mode) h += `<span class="mode-badge ${modeClass}">${mon.mode}</span>`;
+  h += '</div>';
+
+  // ── Phase pipeline ──
+  const curPhaseIdx = PHASES.indexOf(mon.phase);
+  h += '<div class="mon-pipeline">';
+  for (let i = 0; i < PHASES.length; i++) {
+    if (i > 0) h += '<span class="pipe-arrow">›</span>';
+    let cls = '';
+    if (isDone) cls = 'done';
+    else if (i < curPhaseIdx) cls = 'done';
+    else if (i === curPhaseIdx) cls = 'active';
+    h += `<span class="pipe-step ${cls}">${PHASE_LABELS[PHASES[i]]}</span>`;
   }
+  h += '</div>';
 
-  // Classification reasoning
+  // ── Classification reasoning ──
   if (mon.classifyReasoning) {
-    h += `<div class="mon-classify">${escHtml(mon.classifyReasoning)}</div>`;
+    h += '<div class="mon-section">';
+    h += '<div class="mon-section-label">Classification</div>';
+    h += `<div class="mon-classify-text">${escHtml(mon.classifyReasoning)}</div>`;
+    h += '</div>';
   }
 
-  // Plan info
-  if (mon.planStepCount > 0) {
-    h += `<div class="mon-plan">\u{1F4CB} Plan: ${mon.planStepCount} steps</div>`;
+  // ── Plan details ──
+  if (mon.planSteps.length > 0 || mon.planAnalysis) {
+    h += '<div class="mon-plan-box">';
+    if (mon.planAnalysis) {
+      h += `<div class="mon-plan-analysis">${escHtml(mon.planAnalysis)}</div>`;
+    }
+    if (mon.planApproach) {
+      h += `<div class="mon-plan-approach">Approach: ${escHtml(mon.planApproach)}</div>`;
+    }
+    if (mon.planSteps.length) {
+      h += '<ul class="mon-plan-steps">';
+      for (const ps of mon.planSteps) {
+        const executed = mon.steps.find(s => s.number === ps.step_number);
+        let statusIcon = '<span style="color:var(--fg3)">○</span>';
+        if (executed) {
+          if (executed.status === 'success') statusIcon = '<span style="color:var(--green)">✓</span>';
+          else if (executed.status === 'error') statusIcon = '<span style="color:var(--red)">✗</span>';
+          else if (executed.status === 'running') statusIcon = '<span class="spinner spinner-sm"></span>';
+        }
+        h += `<li>${statusIcon} <span class="step-action">${escHtml(ps.action)}</span> ${escHtml(ps.description)}</li>`;
+      }
+      h += '</ul>';
+    }
+    h += '</div>';
   }
 
-  // Progress bar
+  // ── Deep mode blueprint ──
+  if (mon.deepGoal) {
+    h += '<div class="mon-deep-box">';
+    h += `<div class="mon-section-label">Research Blueprint</div>`;
+    h += `<div class="mon-deep-goal">${escHtml(mon.deepGoal)}</div>`;
+    for (const inv of mon.deepInvestigations) {
+      let icon = '<span class="spinner spinner-sm"></span>';
+      if (inv.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
+      else if (inv.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+      h += `<div class="mon-investigation"><span class="inv-icon">${icon}</span><span class="inv-text">${escHtml(inv.question)}</span></div>`;
+    }
+    if (mon.deepInvestigationCount > mon.deepInvestigations.length) {
+      const remaining = mon.deepInvestigationCount - mon.deepInvestigations.length;
+      h += `<div class="mon-investigation"><span class="inv-icon" style="color:var(--fg3)">○</span><span class="inv-text" style="color:var(--fg3)">${remaining} more investigation${remaining > 1 ? 's' : ''} pending</span></div>`;
+    }
+    h += '</div>';
+  }
+
+  // ── Progress bar ──
   if (mon.steps.length > 0) {
     const done = mon.steps.filter(s => s.status === 'success' || s.status === 'error').length;
     const total = Math.max(mon.steps.length, mon.planStepCount);
     const pct = total > 0 ? (done / total * 100) : 0;
-    h += `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`;
-    h += `<div class="progress-text">${done}/${total} steps</div>`;
+    const barClass = isDone ? 'done' : 'running';
+    h += `<div class="progress-bar"><div class="progress-fill ${barClass}" style="width:${pct}%"></div></div>`;
+    h += `<div class="progress-text">${done}/${total} steps completed</div>`;
   }
 
-  // Steps
+  // ── LLM activity indicator ──
+  if (mon.llmActive) {
+    const labelMap = { plan: 'Planning', synthesize: 'Synthesizing', classify: 'Classifying', debug: 'Debugging', validate: 'Validating', checkpoint: 'Reviewing' };
+    const displayLabel = labelMap[mon.llmLabel] || mon.llmLabel || 'Thinking';
+    h += `<div class="mon-llm"><span class="dot"></span> LLM: ${escHtml(displayLabel)}</div>`;
+  }
+
+  // ── Execution steps ──
   for (const s of mon.steps) {
     let icon = '<span class="spinner spinner-sm"></span>';
-    if (s.status === 'success') icon = '<span style="color:var(--green)">\u2713</span>';
-    else if (s.status === 'error') icon = '<span style="color:var(--red)">\u2717</span>';
-    else if (s.status === 'pending') icon = '<span style="color:var(--fg3)">\u25cb</span>';
+    if (s.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
+    else if (s.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
 
-    h += `<div class="step ${s.status === 'running' ? 'running' : ''}">`;
+    h += `<div class="step ${s.status}">`;
     h += `<div class="icon">${icon}</div>`;
     h += '<div class="info">';
-    h += `<div class="desc">Step ${s.number}: ${escHtml(s.action)}</div>`;
-    if (s.timeMs > 0) h += `<div class="timing">${s.timeMs}ms</div>`;
+    // Step title: description or action
+    const title = s.description || s.action;
+    h += `<div class="desc">Step ${s.number}: ${escHtml(title)}</div>`;
+    // Action badge + detail
+    if (s.description && s.action) {
+      h += `<div class="step-detail"><span style="color:var(--cyan)">${escHtml(s.action)}</span></div>`;
+    }
+    // Code preview (while running)
+    if (s.status === 'running' && s.codePreview) {
+      h += `<div class="code-preview">${escHtml(s.codePreview)}</div>`;
+    }
+    // Result preview (after success)
+    if (s.status === 'success' && s.resultPreview) {
+      let preview = s.resultPreview.slice(0, 120);
+      if (s.rows > 0) preview = `${s.rows} rows — ${preview}`;
+      h += `<div class="result-preview">${escHtml(preview)}</div>`;
+    }
+    if (s.timeMs > 0) h += `<div class="timing">${fmtMs(s.timeMs)}</div>`;
     if (s.error) h += `<div class="error">${escHtml(s.error.slice(0, 200))}</div>`;
     h += '</div></div>';
   }
 
-  // Debug attempts
+  // ── Status indicators ──
   if (mon.debugAttempts > 0) {
-    h += `<div class="mon-debug"><span style="color:var(--orange)">\u{1F41B}</span> Debug attempts: ${mon.debugAttempts}</div>`;
+    h += `<div class="mon-status-row debug">🐛 Debug attempts: ${mon.debugAttempts}</div>`;
   }
-
-  // Validation
   if (mon.validationStatus) {
-    const color = mon.validationStatus === 'adequate' ? 'var(--green)' : 'var(--orange)';
-    const icon = mon.validationStatus === 'adequate' ? '\u2705' : '\u26a0\ufe0f';
+    const ok = mon.validationStatus === 'adequate';
+    const cls = ok ? 'validate-ok' : 'validate-fail';
+    const icon = ok ? '✓' : '⚠';
     let text = `Validation: ${mon.validationStatus}`;
-    if (mon.validationReason) text += ` \u2014 ${mon.validationReason.slice(0, 80)}`;
-    h += `<div class="mon-validate"><span>${icon}</span> <span style="color:${color}">${escHtml(text)}</span></div>`;
+    if (mon.validationReason) text += ` — ${mon.validationReason.slice(0, 80)}`;
+    h += `<div class="mon-status-row ${cls}">${icon} ${escHtml(text)}</div>`;
   }
-
-  // Replan
   if (mon.replanCount > 0) {
-    h += `<div class="mon-replan"><span>\u{1F504}</span> Replanned ${mon.replanCount} time(s)</div>`;
+    h += `<div class="mon-status-row replan">↻ Replanned ${mon.replanCount} time(s)</div>`;
   }
 
-  // Elapsed
-  h += `<div class="mon-elapsed" id="mon-elapsed">${mon.elapsed.toFixed(0)}s elapsed</div>`;
+  // ── Elapsed ──
+  h += `<div class="mon-elapsed" id="mon-elapsed"><span class="time">${fmtElapsed(mon.elapsed)}</span> elapsed</div>`;
 
-  // Activity log
+  // ── Activity log ──
   if (mon.log.length) {
     h += '<details class="activity-log"><summary>Activity log (' + mon.log.length + ')</summary>';
     for (const entry of mon.log) {
@@ -603,7 +801,21 @@ function renderMonitor() {
 
 function renderMonitorElapsed() {
   const el = document.getElementById('mon-elapsed');
-  if (el) el.textContent = `${mon.elapsed.toFixed(0)}s elapsed`;
+  if (el) {
+    const time = el.querySelector('.time');
+    if (time) time.textContent = fmtElapsed(mon.elapsed);
+  }
+}
+
+function fmtMs(ms) {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function fmtElapsed(s) {
+  if (s < 60) return `${s.toFixed(0)}s`;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}m ${sec}s`;
 }
 
 // ── Source management ──────────────────────────────────

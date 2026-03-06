@@ -162,7 +162,20 @@ async def make_plan(
         }
 
         if steps:
-            callbacks.emit("plan/ready", step_count=len(steps))
+            callbacks.emit(
+                "plan/ready",
+                step_count=len(steps),
+                analysis=plan_result.get("analysis", ""),
+                approach=plan_result.get("approach", ""),
+                steps=[
+                    {
+                        "step_number": s.get("step_number", i + 1),
+                        "action": s.get("action", ""),
+                        "description": s.get("description", ""),
+                    }
+                    for i, s in enumerate(steps)
+                ],
+            )
             return state
 
     # Attempt 3: Generate a hardcoded fallback plan for common queries
@@ -279,7 +292,13 @@ async def execute_step(
     code = step.get("code", "")
     source_id = step.get("source_id")
 
-    callbacks.emit("step/start", step_number=step.get("step_number", idx + 1), action=action)
+    callbacks.emit(
+        "step/start",
+        step_number=step.get("step_number", idx + 1),
+        action=action,
+        description=step.get("description", ""),
+        code_preview=code[:200] if code else "",
+    )
 
     start_time = time.time()
 
@@ -339,6 +358,8 @@ async def execute_step(
             "step/complete",
             step_number=step.get("step_number", idx + 1),
             time_ms=elapsed_ms,
+            result_preview=step["result_preview"][:200] if step.get("result_preview") else "",
+            rows=result.get("dataframe", None) is not None and len(result["dataframe"]) or 0,
         )
 
     except Exception as e:
