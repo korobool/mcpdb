@@ -82,16 +82,16 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .message.assistant .role { color: var(--green); }
 .msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
 
-/* Welcome */
-#welcome { text-align: center; padding: 60px 20px; }
-#welcome h2 { font-size: 24px; margin-bottom: 6px; }
-#welcome .subtitle { color: var(--fg2); margin-bottom: 24px; }
-#schema-table { margin: 0 auto 24px; text-align: left; }
-#schema-table th, #schema-table td { padding: 4px 16px; font-size: 13px; }
-#schema-table th { color: var(--fg2); font-weight: 500; }
-#schema-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.erd-container { margin: 0 auto 24px; max-width: 900px; overflow-x: auto; }
-.starter-questions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 700px; margin: 0 auto; }
+/* Welcome message */
+.welcome-content { line-height: 1.6; }
+.welcome-content h2 { font-size: 20px; margin-bottom: 4px; }
+.welcome-content .subtitle { color: var(--fg2); margin-bottom: 16px; font-size: 13px; }
+.schema-table { text-align: left; margin-bottom: 16px; }
+.schema-table th, .schema-table td { padding: 4px 16px; font-size: 13px; }
+.schema-table th { color: var(--fg2); font-weight: 500; }
+.schema-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.erd-container { margin-bottom: 16px; max-width: 900px; overflow-x: auto; }
+.starter-questions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 700px; margin-top: 8px; }
 .starter-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 8px 16px; color: var(--fg); font-size: 13px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
 .starter-btn:hover { border-color: var(--blue); background: var(--bg4); }
 
@@ -246,13 +246,7 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 
   <!-- ── Chat ───────────────────────────────────────── -->
   <div id="main">
-    <div id="messages">
-      <div id="welcome">
-        <h2>MCPDB</h2>
-        <p class="subtitle">Natural language database exploration</p>
-        <div id="welcome-content"></div>
-      </div>
-    </div>
+    <div id="messages"></div>
     <div id="input-bar">
       <textarea id="question" rows="1" placeholder="Ask a question about your data..." onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
       <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
@@ -528,10 +522,6 @@ function sendQuestion(text) {
   autoGrow(document.getElementById('question'));
   addMessage('user', q);
 
-  // Clear welcome
-  const welcome = document.getElementById('welcome');
-  if (welcome) welcome.remove();
-
   isQuerying = true;
   resetMonitor();
   setPhase('classifying');
@@ -618,15 +608,8 @@ function newConversation() {
   messages = [];
   const container = document.getElementById('messages');
   container.innerHTML = '';
-
-  // Re-add welcome
-  const welcome = document.createElement('div');
-  welcome.id = 'welcome';
-  welcome.innerHTML = '<h2>MCPDB</h2><p class="subtitle">Natural language database exploration</p><div id="welcome-content"></div>';
-  container.appendChild(welcome);
-  renderWelcome();
-
   resetMonitor();
+  renderWelcome();
 }
 
 // ── Execution Monitor rendering ────────────────────────
@@ -861,51 +844,80 @@ async function connectDatabase() {
   } catch (e) { alert('Connection failed: ' + e); }
 }
 
-// ── Welcome screen ─────────────────────────────────────
+// ── Welcome / discovery message ─────────────────────────
 async function renderWelcome() {
-  const el = document.getElementById('welcome-content');
-  if (!el) return;
-  if (!sources.length) { el.innerHTML = '<p style="color:var(--fg2)">Connect a database to get started.</p>'; return; }
+  if (!sources.length) {
+    addMessage('assistant', 'Welcome to **MCPDB**. Connect a database to get started.', { isWelcome: true });
+    return;
+  }
 
   const s = sources[0];
   const tables = s.table_summary || [];
-  let h = '';
+  let parts = [];
 
-  // Schema table
+  parts.push(`## Connected: ${escHtml(s.display_name || s.source_id)}`);
+  parts.push(`*${s.source_type} · ${tables.length} tables*`);
+
+  // Schema table as markdown
   if (tables.length) {
-    h += `<p style="margin-bottom:12px; color:var(--fg)">Connected to <strong>${escHtml(s.display_name || s.source_id)}</strong> \u00b7 ${tables.length} tables</p>`;
-    h += '<table id="schema-table"><thead><tr><th>Table</th><th>Columns</th><th>Rows</th></tr></thead><tbody>';
+    parts.push('');
+    parts.push('| Table | Columns | Rows |');
+    parts.push('|-------|--------:|-----:|');
     for (const t of tables) {
-      const rows = t.rows != null ? t.rows.toLocaleString() : '\u2014';
-      h += `<tr><td>${escHtml(t.name)}</td><td class="num">${t.columns}</td><td class="num">${rows}</td></tr>`;
+      const rows = t.rows != null ? t.rows.toLocaleString() : '—';
+      parts.push(`| ${t.name} | ${t.columns} | ${rows} |`);
     }
-    h += '</tbody></table>';
   }
 
-  // ERD
+  const content = parts.join('\n');
+
+  // Fetch ERD
+  let erdMermaid = '';
   try {
     const res = await fetch(`/api/sources/${s.source_id}/erd`);
     if (res.ok) {
       const data = await res.json();
-      if (data.mermaid) {
-        h += '<div class="erd-container"><div class="mermaid">' + escHtml(data.mermaid) + '</div></div>';
-      }
+      erdMermaid = data.mermaid || '';
     }
   } catch (e) {}
 
   // Starter questions
   const starters = suggestStarters(tables);
-  if (starters.length) {
-    h += '<div class="starter-questions">';
-    for (const q of starters) {
-      h += `<button class="starter-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
-    }
-    h += '</div>';
+
+  // Render as assistant message with custom HTML for ERD + starters
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'message assistant';
+
+  let html = '<div class="role">MCPDB</div>';
+  html += `<div class="bubble"><div class="welcome-content">${renderMarkdown(content)}`;
+
+  if (erdMermaid) {
+    html += '<div class="erd-container"><div class="mermaid">' + escHtml(erdMermaid) + '</div></div>';
   }
 
-  el.innerHTML = h;
-  // Render mermaid in welcome
-  el.querySelectorAll('.mermaid').forEach(node => { mermaid.run({ nodes: [node] }); });
+  html += '</div></div>';
+
+  if (starters.length) {
+    html += '<div class="starter-questions">';
+    for (const q of starters) {
+      html += `<button class="starter-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
+    }
+    html += '</div>';
+  }
+
+  div.innerHTML = html;
+  container.appendChild(div);
+
+  // Store in messages array so it persists conceptually
+  messages.push({ role: 'assistant', content, meta: { isWelcome: true } });
+
+  // Render mermaid
+  div.querySelectorAll('.mermaid').forEach(node => { mermaid.run({ nodes: [node] }); });
+  // Highlight code
+  div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+
+  scrollToBottom();
 }
 
 function suggestStarters(tables) {
