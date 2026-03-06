@@ -368,14 +368,10 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     staging_store=exp_staging,
                 )
                 # Generate follow-up suggestions (best-effort, non-blocking)
-                followups = []
-                try:
-                    followups = await _generate_followups_inline(
-                        _registry, _llm, question,
-                    )
-                    logger.debug("Generated %d follow-ups for: %s", len(followups), question[:60])
-                except Exception as e:
-                    logger.debug("Follow-up generation failed: %s", e)
+                followups = await _safe_generate_followups(
+                    _registry, _llm, question,
+                    state.get("response", ""),
+                )
 
                 event_queue.put_nowait({
                     "type": "result",
@@ -407,6 +403,63 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
         _active_task = None
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# Follow-up generation with fallback
+# ---------------------------------------------------------------------------
+
+async def _safe_generate_followups(
+    registry: SourceRegistry,
+    llm: Any,
+    question: str,
+    response: str,
+) -> list[str]:
+    """Generate follow-ups with LLM, falling back to response-based suggestions."""
+    from mcpdb.mcp.tools.analysis import _generate_followups_inline
+
+    # Try LLM-based generation
+    try:
+        followups = await _generate_followups_inline(registry, llm, question)
+        if followups:
+            logger.debug("LLM follow-ups (%d) for: %s", len(followups), question[:60])
+            return followups
+    except Exception as e:
+        logger.debug("LLM follow-up generation failed: %s", e)
+
+    # Fallback: generate from response context
+    return _fallback_followups(question, response, registry)
+
+
+def _fallback_followups(
+    question: str, response: str, registry: SourceRegistry,
+) -> list[str]:
+    """Generate simple follow-up suggestions from response context."""
+    followups = []
+    q_lower = question.lower()
+
+    # Context-aware follow-ups based on question patterns
+    if any(w in q_lower for w in ("how many", "count", "total")):
+        followups.append("How has this changed over time?")
+        followups.append("Which category has the highest count?")
+    elif any(w in q_lower for w in ("average", "mean", "median")):
+        followups.append("What is the distribution of these values?")
+        followups.append("Are there any outliers?")
+    elif any(w in q_lower for w in ("top", "highest", "most", "best")):
+        followups.append("What about the bottom performers?")
+        followups.append("How do these compare to the overall average?")
+    elif any(w in q_lower for w in ("trend", "over time", "by month", "by year")):
+        followups.append("What is driving this trend?")
+        followups.append("Are there seasonal patterns?")
+
+    # Always add some generic useful follow-ups
+    if not followups:
+        followups.append("Can you break this down by category?")
+        followups.append("What are the key trends in this data?")
+
+    followups.append("What other insights can you find?")
+
+    return followups[:4]
 
 
 # ---------------------------------------------------------------------------
