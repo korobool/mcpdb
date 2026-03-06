@@ -373,8 +373,9 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     followups = await _generate_followups_inline(
                         _registry, _llm, question,
                     )
-                except Exception:
-                    pass
+                    logger.debug("Generated %d follow-ups for: %s", len(followups), question[:60])
+                except Exception as e:
+                    logger.debug("Follow-up generation failed: %s", e)
 
                 event_queue.put_nowait({
                     "type": "result",

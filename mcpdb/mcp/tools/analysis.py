@@ -240,8 +240,18 @@ async def _generate_followups_inline(
             ),
             timeout=15,
         )
+        # LLM may return a plain list or wrap it in a dict
         if isinstance(result, list):
             return [str(q) for q in result[:5]]
+        if isinstance(result, dict):
+            # Try common keys: questions, followups, suggestions, etc.
+            for key in ("questions", "followups", "follow_ups", "suggestions"):
+                if key in result and isinstance(result[key], list):
+                    return [str(q) for q in result[key][:5]]
+            # Fallback: grab the first list value
+            for v in result.values():
+                if isinstance(v, list) and v and isinstance(v[0], str):
+                    return [str(q) for q in v[:5]]
     except Exception:
         logger.debug("Inline followup generation failed", exc_info=True)
     return []
