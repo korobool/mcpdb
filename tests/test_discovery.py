@@ -686,21 +686,21 @@ class TestMCPPrompts:
 
 
 class TestSuggestFollowups:
-    def test_suggest_followups_no_llm(self, registry_with_db):
+    async def test_suggest_followups_no_llm(self, registry_with_db):
         registry, source_id = registry_with_db
-        result = handle_analysis_tool("suggest_followups", {
+        result = await handle_analysis_tool("suggest_followups", {
             "_name": "suggest_followups",
         }, registry, llm=None)
         assert "not configured" in result[0].text.lower()
 
-    def test_suggest_followups_no_sources(self):
+    async def test_suggest_followups_no_sources(self):
         registry = SourceRegistry()
-        result = handle_analysis_tool("suggest_followups", {
+        result = await handle_analysis_tool("suggest_followups", {
             "_name": "suggest_followups",
         }, registry, llm="mock")
         assert "No data sources" in result[0].text
 
-    def test_suggest_followups_with_mock_llm(self, registry_with_db):
+    async def test_suggest_followups_with_mock_llm(self, registry_with_db):
         """Test with a mock LLM that returns follow-up questions."""
         registry, source_id = registry_with_db
 
@@ -712,7 +712,7 @@ class TestSuggestFollowups:
                     "Which product category generates the most revenue?",
                 ], None
 
-        result = handle_analysis_tool("suggest_followups", {
+        result = await handle_analysis_tool("suggest_followups", {
             "_name": "suggest_followups",
             "context": "I just looked at the top customers by revenue.",
         }, registry, llm=MockLLM())
@@ -723,7 +723,7 @@ class TestSuggestFollowups:
         assert "2." in text
         assert "3." in text
 
-    def test_suggest_followups_llm_error(self, registry_with_db):
+    async def test_suggest_followups_llm_error(self, registry_with_db):
         """Test graceful handling when LLM fails."""
         registry, source_id = registry_with_db
 
@@ -731,7 +731,7 @@ class TestSuggestFollowups:
             async def generate_json(self, messages, **kwargs):
                 raise RuntimeError("API error")
 
-        result = handle_analysis_tool("suggest_followups", {
+        result = await handle_analysis_tool("suggest_followups", {
             "_name": "suggest_followups",
         }, registry, llm=FailingLLM())
         assert "Failed" in result[0].text

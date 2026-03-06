@@ -1,9 +1,10 @@
-"""Sidebar component — source selector, mode picker, conversation controls."""
+"""Sidebar component — source display, connection form, mode picker, controls."""
 
 from __future__ import annotations
 
-import json
 import logging
+import os
+import re
 
 import streamlit as st
 
@@ -13,7 +14,6 @@ from mcpdb.streamlit.state import (
     clear_messages,
     get_active_source,
     get_client,
-    get_followups,
     get_mode,
     get_sources,
     set_active_source,
@@ -27,6 +27,21 @@ logger = logging.getLogger(__name__)
 
 MODES = ["auto", "quick", "simple", "optimization", "extended", "deep"]
 
+MODE_DESCRIPTIONS = {
+    "auto": "Automatically selects the best mode",
+    "quick": "Fast answer from schema context",
+    "simple": "Single-pass analysis",
+    "optimization": "With validation & replanning",
+    "extended": "Multi-revision deep analysis",
+    "deep": "Multi-investigation blueprint",
+}
+
+_SOURCE_ICONS = {
+    "database": ":material/database:",
+    "csv": ":material/description:",
+    "excel": ":material/table:",
+}
+
 
 def render_sidebar() -> None:
     """Render the full sidebar."""
@@ -34,45 +49,46 @@ def render_sidebar() -> None:
         st.title("MCPDB")
         st.caption("Natural language database exploration")
 
-        _render_source_section()
+        _render_sources()
         st.divider()
         _render_mode_selector()
         st.divider()
-        _render_followups()
-        st.divider()
-        _render_conversation_controls()
+        _render_controls()
 
 
-def _render_source_section() -> None:
-    """Show connected sources and connection controls."""
-    st.subheader("Sources")
+# ------------------------------------------------------------------
+# Sources
+# ------------------------------------------------------------------
 
-    client = get_client()
+def _render_sources() -> None:
+    """Connected sources list + add source form."""
     sources = get_sources()
+    client = get_client()
 
     if sources:
+        st.subheader(f"Sources ({len(sources)})")
         for src in sources:
-            active = get_active_source() == src.source_id
-            icon = {"database": ":material/database:", "csv": ":material/description:", "excel": ":material/table:"}.get(src.source_type, ":material/source:")
-            label = f"{src.name}" + (" *" if active else "")
-            st.markdown(f"{icon} **{label}** ({src.source_type})")
+            icon = _SOURCE_ICONS.get(src.source_type, ":material/source:")
+            details = f" — {src.details}" if src.details else ""
+            st.markdown(f"{icon} **{src.name}**{details}")
     else:
-        st.info("No sources connected.")
+        st.subheader("Sources")
 
-    # Connect database form
-    with st.expander("Connect database", expanded=not sources):
+    # Add source — always available as expander, collapsed when connected
+    with st.expander("Add source" if sources else "Connect database", expanded=not sources):
         conn_str = st.text_input(
             "Connection string",
             placeholder="mysql://user:pass@host/db",
             key="connect_db_input",
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("Name (optional)", key="connect_db_name")
-        with col2:
-            if st.button("Connect", key="connect_db_btn", disabled=not conn_str):
-                if client and conn_str:
-                    _do_connect(client, conn_str, name or None)
+        name = st.text_input("Display name (optional)", key="connect_db_name")
+        if st.button(
+            "Connect",
+            key="connect_db_btn",
+            disabled=not conn_str or not (client and client.connected),
+            use_container_width=True,
+        ):
+            _do_connect(client, conn_str, name or None)
 
 
 def _do_connect(client, conn_str: str, name: str | None) -> None:
@@ -80,85 +96,98 @@ def _do_connect(client, conn_str: str, name: str | None) -> None:
     try:
         with st.spinner("Connecting..."):
             result = client.connect_database(conn_str, name=name)
-        if result.is_error:
-            set_error(result.text)
+        if result.is_error and "already exists" not in result.text:
             st.error(result.text)
-        else:
-            st.success("Connected!")
-            _refresh_sources(client)
+            return
+        _refresh_sources(client)
+        st.rerun()
     except McpClientError as exc:
-        set_error(str(exc))
-        st.error(str(exc))
+        if "already exists" not in str(exc):
+            st.error(str(exc))
+            return
+        _refresh_sources(client)
+        st.rerun()
 
 
 def _refresh_sources(client) -> None:
-    """Fetch source list from server and update state."""
+    """Fetch source list from server and update state.
+
+    The server returns plain text lines like:
+        - src_1 (database): mydb — 21 tables
+    """
     try:
         result = client.list_sources()
         if result.is_error:
             return
-        data = result.json
-        if data and isinstance(data, list):
-            sources = []
-            for item in data:
-                sources.append(SourceInfo(
-                    source_id=item.get("source_id", item.get("id", "")),
-                    name=item.get("name", ""),
-                    source_type=item.get("type", "database"),
-                    details=item.get("details", ""),
-                ))
-            set_sources(sources)
-            if sources and not get_active_source():
-                set_active_source(sources[0].source_id)
+
+        text = result.text.strip()
+        if not text or text == "No data sources connected.":
+            set_sources([])
+            return
+
+        sources = []
+        for line in text.splitlines():
+            line = line.strip().lstrip("- ")
+            if not line:
+                continue
+            parsed = _parse_source_line(line)
+            if parsed:
+                sources.append(parsed)
+
+        set_sources(sources)
+        if sources and not get_active_source():
+            set_active_source(sources[0].source_id)
     except McpClientError:
         logger.warning("Failed to refresh sources", exc_info=True)
 
 
+def _parse_source_line(line: str) -> SourceInfo | None:
+    """Parse a source line from list_sources text output.
+
+    Format: ``src_id (type): display_name — N tables``
+    """
+    m = re.match(r"(\S+)\s+\((\w+)\):\s+(.+?)(?:\s+—\s+(.*))?$", line)
+    if not m:
+        return None
+    return SourceInfo(
+        source_id=m.group(1),
+        name=m.group(3).strip(),
+        source_type=m.group(2),
+        details=m.group(4) or "",
+    )
+
+
+# ------------------------------------------------------------------
+# Mode selector
+# ------------------------------------------------------------------
+
 def _render_mode_selector() -> None:
-    """Mode dropdown."""
-    st.subheader("Query Mode")
     mode = st.selectbox(
-        "Mode",
+        "Query mode",
         options=MODES,
         index=MODES.index(get_mode()),
         key="mode_selector",
-        label_visibility="collapsed",
     )
     if mode:
         set_mode(mode)
-
-    st.caption({
-        "auto": "Automatically selects the best mode",
-        "quick": "Fast answer from schema context",
-        "simple": "Single-pass analysis",
-        "optimization": "With validation & replanning",
-        "extended": "Multi-revision deep analysis",
-        "deep": "Multi-investigation blueprint",
-    }.get(mode, ""))
+        st.caption(MODE_DESCRIPTIONS[mode])
 
 
-def _render_followups() -> None:
-    """Show follow-up suggestions as clickable buttons."""
-    followups = get_followups()
-    if not followups:
-        return
+# ------------------------------------------------------------------
+# Controls
+# ------------------------------------------------------------------
 
-    st.subheader("Follow-ups")
-    for i, q in enumerate(followups):
-        if st.button(q, key=f"followup_{i}", use_container_width=True):
-            # Set the followup as the next question — handled by chat component
-            st.session_state["pending_followup"] = q
-            st.rerun()
-
-
-def _render_conversation_controls() -> None:
-    """New conversation button."""
+def _render_controls() -> None:
     if st.button("New conversation", key="new_conv_btn", use_container_width=True):
         clear_messages()
         set_followups([])
         set_error(None)
         st.rerun()
 
+
+# ------------------------------------------------------------------
+# Public helper
+# ------------------------------------------------------------------
 
 def refresh_sources_if_needed() -> None:
     """Called on app init to populate sources from server."""

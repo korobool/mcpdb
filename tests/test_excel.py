@@ -564,9 +564,9 @@ class TestExcelTools:
         assert "explain_formula" in names
         assert len(tools) == 5
 
-    def test_load_excel(self, simple_workbook):
+    async def test_load_excel(self, simple_workbook):
         registry = SourceRegistry()
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook)},
             registry,
@@ -577,59 +577,59 @@ class TestExcelTools:
         assert "Source ID" in text
         assert len(registry.list_sources()) == 1
 
-    def test_load_excel_with_display_name(self, simple_workbook):
+    async def test_load_excel_with_display_name(self, simple_workbook):
         registry = SourceRegistry()
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook), "display_name": "My Sales"},
             registry,
         )
         assert "My Sales" in result[0].text
 
-    def test_load_excel_bad_path(self):
+    async def test_load_excel_bad_path(self):
         registry = SourceRegistry()
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": "/nonexistent/file.xlsx"},
             registry,
         )
         assert "Error" in result[0].text
 
-    def test_list_sheets(self, simple_workbook):
+    async def test_list_sheets(self, simple_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "list_sheets",
             {"_name": "list_sheets", "source_id": source_id},
             registry,
         )
         assert "Sales" in result[0].text
 
-    def test_list_sheets_not_found(self):
+    async def test_list_sheets_not_found(self):
         registry = SourceRegistry()
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "list_sheets",
             {"_name": "list_sheets", "source_id": "nonexistent"},
             registry,
         )
         assert "not found" in result[0].text
 
-    def test_read_range_full_sheet(self, simple_workbook):
+    async def test_read_range_full_sheet(self, simple_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "read_range",
             {"_name": "read_range", "source_id": source_id, "sheet": "Sales"},
             registry,
@@ -637,16 +637,16 @@ class TestExcelTools:
         assert "Product" in result[0].text
         assert "Widget" in result[0].text
 
-    def test_read_range_specific(self, simple_workbook):
+    async def test_read_range_specific(self, simple_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "read_range",
             {"_name": "read_range", "source_id": source_id, "sheet": "Sales", "range": "A1:B3"},
             registry,
@@ -654,16 +654,16 @@ class TestExcelTools:
         text = result[0].text
         assert "Product" in text
 
-    def test_extract_excel_table(self, simple_workbook):
+    async def test_extract_excel_table(self, simple_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(simple_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "extract_excel_table",
             {"_name": "extract_excel_table", "source_id": source_id, "sheet": "Sales", "range": "A1:C5"},
             registry,
@@ -672,16 +672,16 @@ class TestExcelTools:
         assert "Extracted table" in text
         assert "rows" in text
 
-    def test_explain_formula_list_all(self, formula_workbook):
+    async def test_explain_formula_list_all(self, formula_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(formula_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "explain_formula",
             {"_name": "explain_formula", "source_id": source_id, "sheet": "Budget"},
             registry,
@@ -690,16 +690,16 @@ class TestExcelTools:
         assert "Formulas" in text
         assert "SUM" in text or "D2" in text
 
-    def test_explain_formula_specific_cell(self, formula_workbook):
+    async def test_explain_formula_specific_cell(self, formula_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(formula_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "explain_formula",
             {"_name": "explain_formula", "source_id": source_id, "sheet": "Budget", "cell": "B4"},
             registry,
@@ -708,25 +708,25 @@ class TestExcelTools:
         assert "B4" in text
         assert "SUM" in text
 
-    def test_explain_formula_no_formula(self, formula_workbook):
+    async def test_explain_formula_no_formula(self, formula_workbook):
         registry = SourceRegistry()
-        handle_excel_tool(
+        await handle_excel_tool(
             "load_excel",
             {"_name": "load_excel", "file_path": str(formula_workbook)},
             registry,
         )
         source_id = registry.list_sources()[0].source_id
 
-        result = handle_excel_tool(
+        result = await handle_excel_tool(
             "explain_formula",
             {"_name": "explain_formula", "source_id": source_id, "sheet": "Budget", "cell": "A1"},
             registry,
         )
         assert "No formula" in result[0].text
 
-    def test_unknown_tool(self):
+    async def test_unknown_tool(self):
         registry = SourceRegistry()
-        result = handle_excel_tool("unknown_tool", {"_name": "unknown_tool"}, registry)
+        result = await handle_excel_tool("unknown_tool", {"_name": "unknown_tool"}, registry)
         assert "Unknown" in result[0].text
 
 

@@ -19,11 +19,14 @@
     overflow-y: auto;
 }
 
-/* Source info cards */
-.source-card {
-    border: 1px solid rgba(128, 128, 128, 0.2);
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
+/* Welcome screen */
+.mcpdb-welcome {
+    text-align: center;
+    padding: 3rem 2rem;
+    opacity: 0.6;
+}
+
+.mcpdb-welcome h2 {
     margin-bottom: 0.5rem;
 }
 
@@ -37,12 +40,6 @@
     animation: pulse 1.5s ease-in-out infinite;
 }
 
-/* Follow-up buttons */
-[data-testid="stSidebar"] button[kind="secondary"] {
-    text-align: left;
-    font-size: 0.85rem;
-}
-
 /* Make the chat input area sticky */
 [data-testid="stChatInput"] {
     position: sticky;
@@ -53,4 +50,16 @@
 .stChatMessage .stCaption {
     margin-top: 0.25rem;
     opacity: 0.6;
+}
+
+/* Schema overview and artifact dataframes — constrain height */
+[data-testid="stDataFrame"] {
+    max-height: 400px;
+}
+
+/* Execution log in expander — compact code blocks */
+[data-testid="stExpander"] .stCode {
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.8rem;
 }

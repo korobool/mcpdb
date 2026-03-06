@@ -123,24 +123,9 @@ def _explain_query(
 def _render_erd(
     registry: SourceRegistry, args: dict[str, Any]
 ) -> list[TextContent]:
+    from mcpdb.mcp.resources import _build_mermaid_erd
+
     source = registry.get_source(args["source_id"])
     tables = source.get_tables()
     relationships = source.get_relationships()
-
-    lines = ["erDiagram"]
-    for table in tables:
-        lines.append(f"    {table.name} {{")
-        for i, col in enumerate(table.columns):
-            pk = "PK" if col.name in table.primary_keys else ""
-            lines.append(f"        {col.dtype} {col.name} {pk}".rstrip())
-            if i >= 9:
-                lines.append(f"        ... {len(table.columns) - 10}_more_columns")
-                break
-        lines.append("    }")
-
-    for rel in relationships:
-        src = rel["source_table"]
-        tgt = rel["target_table"]
-        lines.append(f'    {tgt} ||--o{{ {src} : ""')
-
-    return [TextContent(type="text", text="\n".join(lines))]
+    return [TextContent(type="text", text=_build_mermaid_erd(tables, relationships))]

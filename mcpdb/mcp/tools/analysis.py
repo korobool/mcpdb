@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -11,6 +12,80 @@ from mcp.types import TextContent, Tool
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.mcp.analysis")
+
+# Human-readable labels for agent events (sent as MCP log notifications)
+_EVENT_LABELS = {
+    "classify/start": "Classifying question",
+    "plan/start": "Planning analysis",
+    "plan/retry": "Retrying plan",
+    "plan/error": "Plan failed, using fallback",
+    "debug/start": "Debugging failed step",
+    "debug/fixed": "Fix applied",
+    "debug/give_up": "Skipping failed step",
+    "checkpoint/start": "Reviewing progress",
+    "revise/start": "Revising plan",
+    "reflect/start": "Reflecting on results",
+    "validate/start": "Validating results",
+    "validate/inadequate": "Results incomplete, replanning",
+    "replan/start": "Creating corrected plan",
+    "synthesize/start": "Synthesizing response",
+    "experience/cache_hit": "Using cached result",
+    "quick/start": "Answering from context",
+    "quick/escalate": "Escalating to full analysis",
+}
+
+
+def _attach_progress_notifier(callbacks) -> None:
+    """Attach a listener that forwards agent events as MCP log notifications."""
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+        ctx = request_ctx.get()
+        session = ctx.session
+    except (LookupError, AttributeError):
+        return  # Not running inside an MCP request context
+
+    step_count = 0
+
+    def _on_event(event) -> None:
+        nonlocal step_count
+        etype = event.type
+        data = event.data
+        msg = None
+
+        if etype == "classify/complete":
+            msg = f"Mode: {data.get('mode', '?')}"
+        elif etype == "plan/ready":
+            step_count = data.get("step_count", 0)
+            msg = f"Plan ready — {step_count} steps"
+        elif etype == "step/start":
+            step_num = data.get("step_number", "?")
+            action = data.get("action", "")
+            total = step_count or "?"
+            msg = f"Step {step_num}/{total}: {action}"
+        elif etype == "step/complete":
+            step_num = data.get("step_number", "?")
+            ms = data.get("time_ms", 0)
+            msg = f"Step {step_num} done ({ms}ms)"
+        elif etype == "step/error":
+            step_num = data.get("step_number", "?")
+            err = str(data.get("error", ""))[:80]
+            msg = f"Step {step_num} error: {err}"
+        elif etype == "replan/ready":
+            step_count = data.get("step_count", 0)
+            msg = f"New plan — {step_count} steps"
+        elif etype == "revise/ready":
+            msg = f"Revised — {data.get('new_step_count', 0)} steps remaining"
+        elif etype in _EVENT_LABELS:
+            msg = _EVENT_LABELS[etype]
+
+        if msg is not None:
+            try:
+                session.send_log_message(level="info", data=msg, logger="mcpdb.progress")
+            except Exception:
+                pass  # Best-effort; don't break agent on notification failure
+
+    callbacks.add_listener(_on_event)
+
 
 _TOOLS = [
     Tool(
@@ -64,18 +139,18 @@ def get_analysis_tools() -> list[Tool]:
     return list(_TOOLS)
 
 
-def handle_analysis_tool(
+async def handle_analysis_tool(
     name: str, args: dict[str, Any], registry: SourceRegistry, llm: Any,
     experience_service: Any = None,
 ) -> list[TextContent]:
     if name == "ask_question":
-        return _ask_question(registry, args, llm, experience_service=experience_service)
+        return await _ask_question(registry, args, llm, experience_service=experience_service)
     elif name == "suggest_followups":
-        return _suggest_followups(registry, args, llm)
+        return await _suggest_followups(registry, args, llm)
     return [TextContent(type="text", text=f"Unknown analysis tool: {name}")]
 
 
-def _ask_question(
+async def _ask_question(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
     experience_service: Any = None,
 ) -> list[TextContent]:
@@ -89,6 +164,9 @@ def _ask_question(
 
     callbacks = CallbackManager()
 
+    # Forward agent events as MCP log notifications for real-time progress
+    _attach_progress_notifier(callbacks)
+
     # Resolve experience components from service or create inline fallback
     if experience_service is not None:
         experience_cache = experience_service.cache
@@ -101,37 +179,72 @@ def _ask_question(
         experience_cache = ExperienceCache(store=_store)
         staging_store = StagingStore()
 
-    # Run the agent synchronously (MCP tool handlers are sync in our dispatch)
-    loop = asyncio.new_event_loop()
-    try:
-        state = loop.run_until_complete(
-            run_agent(
-                question=question,
-                registry=registry,
-                llm=llm,
-                callbacks=callbacks,
-                mode_override=mode_override,
-                experience_cache=experience_cache,
-                force_rethink=force_rethink,
-                staging_store=staging_store,
-            )
-        )
-    finally:
-        loop.close()
+    state = await run_agent(
+        question=question,
+        registry=registry,
+        llm=llm,
+        callbacks=callbacks,
+        mode_override=mode_override,
+        experience_cache=experience_cache,
+        force_rethink=force_rethink,
+        staging_store=staging_store,
+    )
 
     response = state.get("response", "No response generated.")
     mode_used = state.get("query_mode", "unknown")
 
-    # Build response with metadata
-    parts = [response]
-    if state.get("artifacts"):
-        parts.append(f"\n[{len(state['artifacts'])} artifact(s) generated]")
+    # Truncate large table artifacts (>200 rows)
+    artifacts = []
+    for a in state.get("artifacts", []):
+        if a.get("type") == "table":
+            rows = a.get("data", {}).get("rows", [])
+            if len(rows) > 200:
+                a = {**a, "data": {**a["data"], "rows": rows[:200], "truncated": True}}
+        artifacts.append(a)
 
     events = callbacks.get_events()
-    event_summary = " → ".join(e.type for e in events)
-    parts.append(f"\n\n_Mode: {mode_used} | Steps: {event_summary}_")
 
-    return [TextContent(type="text", text="\n".join(parts))]
+    # Best-effort inline followups
+    followups = await _generate_followups_inline(registry, llm, question)
+
+    result_json = {
+        "response": response,
+        "mode": mode_used,
+        "artifacts": artifacts,
+        "execution_log": state.get("execution_log", []),
+        "followups": followups,
+        "event_summary": " → ".join(e.type for e in events),
+    }
+    return [TextContent(type="text", text=json.dumps(result_json))]
+
+
+async def _generate_followups_inline(
+    registry: SourceRegistry, llm: Any, question: str,
+) -> list[str]:
+    """Best-effort follow-up generation, reusing the suggest_followups prompt."""
+    if llm is None:
+        return []
+    sources = registry.list_sources()
+    if not sources:
+        return []
+
+    from mcpdb.llm.provider import Message
+
+    schema = registry.get_combined_context()
+    prompt = _FOLLOWUP_PROMPT.format(schema=schema, context=question)
+    try:
+        result, _usage = await asyncio.wait_for(
+            llm.generate_json(
+                [Message(role="user", content=prompt)],
+                temperature=0.7,
+            ),
+            timeout=15,
+        )
+        if isinstance(result, list):
+            return [str(q) for q in result[:5]]
+    except Exception:
+        logger.debug("Inline followup generation failed", exc_info=True)
+    return []
 
 
 _FOLLOWUP_PROMPT = """\
@@ -155,7 +268,7 @@ Return ONLY a JSON array of strings, no other text. Example:
 """
 
 
-def _suggest_followups(
+async def _suggest_followups(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
 ) -> list[TextContent]:
     from mcpdb.llm.provider import Message
@@ -172,19 +285,14 @@ def _suggest_followups(
 
     prompt = _FOLLOWUP_PROMPT.format(schema=schema, context=context)
 
-    loop = asyncio.new_event_loop()
     try:
-        result, _usage = loop.run_until_complete(
-            llm.generate_json(
-                [Message(role="user", content=prompt)],
-                temperature=0.7,
-            )
+        result, _usage = await llm.generate_json(
+            [Message(role="user", content=prompt)],
+            temperature=0.7,
         )
     except Exception as e:
         logger.error("Failed to generate follow-ups: %s", e)
         return [TextContent(type="text", text=f"Failed to generate suggestions: {e}")]
-    finally:
-        loop.close()
 
     if isinstance(result, list):
         lines = ["## Suggested Follow-up Questions"]

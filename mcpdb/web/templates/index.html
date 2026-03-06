@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCPDB</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<style>
+/* ── Reset & Base ────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --bg2: #161b22; --bg3: #1c2128; --bg4: #21262d;
+  --fg: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
+  --blue: #58a6ff; --green: #3fb950; --red: #f85149;
+  --orange: #d29922; --purple: #bc8cff; --cyan: #39d2c0;
+  --border: #30363d; --radius: 8px;
+}
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
+a { color: var(--blue); }
+code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+
+/* ── Layout: 3-column ────────────────────────────────── */
+#app { display: flex; height: 100vh; }
+#sidebar { width: 280px; min-width: 280px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#monitor { width: 320px; min-width: 320px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+.sidebar-header h1 { font-size: 18px; font-weight: 700; }
+.sidebar-header .version { font-size: 12px; color: var(--fg2); }
+.sidebar-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 8px; }
+
+/* Source cards */
+.source-card { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; }
+.source-card .name { font-weight: 600; font-size: 13px; }
+.source-card .meta { font-size: 11px; color: var(--fg2); margin-top: 2px; }
+
+/* Mode selector */
+.mode-select { width: 100%; padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 13px; }
+.mode-desc { font-size: 11px; color: var(--fg2); margin-top: 4px; }
+
+/* Connect form */
+.connect-form { display: flex; flex-direction: column; gap: 6px; }
+.connect-form input { padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 13px; }
+.connect-form input::placeholder { color: var(--fg3); }
+.btn { padding: 6px 12px; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: var(--blue); color: #000; }
+.btn-secondary { background: var(--bg4); color: var(--fg); border: 1px solid var(--border); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ── Chat area ───────────────────────────────────────── */
+#messages { flex: 1; overflow-y: auto; padding: 16px 24px; }
+#input-bar { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg2); display: flex; gap: 8px; align-items: flex-end; }
+#input-bar textarea { flex: 1; resize: none; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 14px; font-family: inherit; max-height: 120px; line-height: 1.4; }
+#input-bar textarea::placeholder { color: var(--fg3); }
+#input-bar textarea:focus { outline: none; border-color: var(--blue); }
+#send-btn { padding: 10px 18px; }
+#cancel-btn { padding: 10px 14px; background: var(--red); color: #fff; display: none; }
+
+/* Messages */
+.message { margin-bottom: 20px; max-width: 100%; }
+.message.user .bubble { background: var(--bg3); border-radius: var(--radius); padding: 10px 14px; display: inline-block; max-width: 80%; }
+.message.assistant .bubble { line-height: 1.6; }
+.message.assistant .bubble p { margin-bottom: 8px; }
+.message.assistant .bubble h1, .message.assistant .bubble h2, .message.assistant .bubble h3,
+.message.assistant .bubble h4, .message.assistant .bubble h5, .message.assistant .bubble h6 { margin: 16px 0 8px; }
+.message.assistant .bubble ul, .message.assistant .bubble ol { margin: 4px 0 8px 20px; }
+.message.assistant .bubble table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+.message.assistant .bubble th, .message.assistant .bubble td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 13px; }
+.message.assistant .bubble th { background: var(--bg3); font-weight: 600; }
+.message.assistant .bubble pre { background: var(--bg3); border-radius: var(--radius); padding: 12px; overflow-x: auto; margin: 8px 0; }
+.message.assistant .bubble code { font-size: 13px; }
+.message.assistant .bubble p code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
+.message.assistant .role { color: var(--green); }
+.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
+
+/* Welcome */
+#welcome { text-align: center; padding: 60px 20px; }
+#welcome h2 { font-size: 24px; margin-bottom: 6px; }
+#welcome .subtitle { color: var(--fg2); margin-bottom: 24px; }
+#schema-table { margin: 0 auto 24px; text-align: left; }
+#schema-table th, #schema-table td { padding: 4px 16px; font-size: 13px; }
+#schema-table th { color: var(--fg2); font-weight: 500; }
+#schema-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.erd-container { margin: 0 auto 24px; max-width: 900px; overflow-x: auto; }
+.starter-questions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 700px; margin: 0 auto; }
+.starter-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 8px 16px; color: var(--fg); font-size: 13px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.starter-btn:hover { border-color: var(--blue); background: var(--bg4); }
+
+/* Follow-ups */
+.followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.followup-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 16px; padding: 6px 14px; color: var(--fg); font-size: 12px; cursor: pointer; transition: border-color 0.15s; }
+.followup-btn:hover { border-color: var(--blue); }
+
+/* ── Execution Monitor ───────────────────────────────── */
+#monitor h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 12px; }
+.mon-idle { color: var(--fg3); font-size: 13px; font-style: italic; }
+.mon-phase { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mon-phase .label { font-weight: 600; font-size: 14px; }
+.mon-phase .mode-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--blue); color: var(--blue); }
+.mon-classify { font-size: 12px; color: var(--purple); font-style: italic; margin-bottom: 8px; }
+.mon-plan { font-size: 12px; color: var(--cyan); margin-bottom: 8px; }
+
+/* Progress bar */
+.progress-bar { height: 4px; background: var(--bg4); border-radius: 2px; margin-bottom: 10px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--blue); border-radius: 2px; transition: width 0.3s ease; }
+.progress-text { font-size: 11px; color: var(--fg3); margin-bottom: 10px; text-align: right; }
+
+/* Steps */
+.step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; padding: 6px 8px; border-radius: var(--radius); }
+.step .icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 14px; margin-top: 1px; }
+.step .info { flex: 1; min-width: 0; }
+.step .info .desc { font-size: 13px; }
+.step .info .timing { font-size: 11px; color: var(--fg3); }
+.step .info .error { font-size: 11px; color: var(--red); word-break: break-all; }
+.step.running { background: rgba(88, 166, 255, 0.06); }
+
+/* Spinner animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--fg3); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.6s linear infinite; }
+.spinner-sm { width: 10px; height: 10px; border-width: 1.5px; }
+
+/* Status indicators */
+.mon-debug, .mon-validate, .mon-replan { font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+.mon-elapsed { font-size: 11px; color: var(--fg3); margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+
+/* Activity log */
+.activity-log { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.activity-log summary { font-size: 12px; color: var(--fg2); cursor: pointer; user-select: none; }
+.activity-log .entry { font-size: 11px; color: var(--fg3); padding: 1px 0; }
+
+/* Mermaid */
+.mermaid svg { max-width: 100%; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--fg3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg2); }
+
+/* Responsive: collapse monitor on narrow screens */
+@media (max-width: 1100px) { #monitor { display: none; } }
+@media (max-width: 800px) { #sidebar { width: 220px; min-width: 220px; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ── Sidebar ────────────────────────────────────── -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <h1>MCPDB</h1>
+      <div class="version">v{{ version }}</div>
+    </div>
+
+    <div class="sidebar-section" id="sources-section">
+      <h3>Sources</h3>
+      <div id="sources-list"></div>
+      <details id="connect-details">
+        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:8px;">Add source</summary>
+        <div class="connect-form" style="margin-top:8px;">
+          <input type="text" id="conn-str" placeholder="mysql://user:pass@host/db">
+          <input type="text" id="conn-name" placeholder="Display name (optional)">
+          <button class="btn btn-primary btn-sm" onclick="connectDatabase()">Connect</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Query Mode</h3>
+      <select class="mode-select" id="mode-select" onchange="updateModeDesc()">
+        <option value="auto">auto</option>
+        <option value="quick">quick</option>
+        <option value="simple">simple</option>
+        <option value="optimization">optimization</option>
+        <option value="extended">extended</option>
+        <option value="deep">deep</option>
+      </select>
+      <div class="mode-desc" id="mode-desc">Automatically selects the best mode</div>
+    </div>
+
+    <div class="sidebar-section" style="border-bottom:none;">
+      <button class="btn btn-secondary" style="width:100%;" onclick="newConversation()">New conversation</button>
+    </div>
+  </div>
+
+  <!-- ── Chat ───────────────────────────────────────── -->
+  <div id="main">
+    <div id="messages">
+      <div id="welcome">
+        <h2>MCPDB</h2>
+        <p class="subtitle">Natural language database exploration</p>
+        <div id="welcome-content"></div>
+      </div>
+    </div>
+    <div id="input-bar">
+      <textarea id="question" rows="1" placeholder="Ask a question about your data..." onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
+      <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
+      <button class="btn" id="cancel-btn" onclick="cancelQuery()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── Execution Monitor ──────────────────────────── -->
+  <div id="monitor">
+    <h3>Execution Monitor</h3>
+    <div id="mon-content">
+      <div class="mon-idle">Waiting for a query...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+const MODE_DESC = {
+  auto: 'Automatically selects the best mode',
+  quick: 'Fast answer from schema context',
+  simple: 'Single-pass analysis',
+  optimization: 'With validation & replanning',
+  extended: 'Multi-revision deep analysis',
+  deep: 'Multi-investigation blueprint',
+};
+
+let ws = null;
+let sources = [];
+let messages = [];
+let isQuerying = false;
+
+// Execution monitor state
+let mon = {
+  phase: 'idle', mode: '', classifyReasoning: '', planStepCount: 0,
+  steps: [], debugAttempts: 0, validationStatus: '', validationReason: '',
+  replanCount: 0, log: [], startTime: 0, elapsed: 0,
+};
+let elapsedTimer = null;
+
+// ── WebSocket ──────────────────────────────────────────
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/query`);
+  ws.onopen = () => console.log('WS connected');
+  ws.onclose = () => { ws = null; setTimeout(connectWS, 2000); };
+  ws.onerror = () => {};
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'event') handleEvent(msg);
+    else if (msg.type === 'result') handleResult(msg);
+    else if (msg.type === 'error') handleError(msg.message);
+    else if (msg.type === 'cancelled') handleCancelled();
+  };
+}
+
+// ── Event handling (same events as NiceGUI's on_event) ─
+function handleEvent(msg) {
+  const et = msg.event_type;
+  const d = msg.data || {};
+
+  // Classification
+  if (et === 'classify/start') { setPhase('classifying'); addLog('Classifying question...'); }
+  else if (et === 'classify/complete') {
+    mon.mode = d.mode || '';
+    mon.classifyReasoning = d.reasoning || '';
+    setPhase('planning');
+    addLog(`Mode: ${mon.mode}` + (d.reasoning ? ` \u2014 ${d.reasoning}` : ''));
+  }
+  else if (et === 'classify/override') {
+    mon.mode = d.mode || '';
+    addLog(`Mode override: ${mon.mode}`);
+  }
+
+  // Planning
+  else if (et === 'plan/start') { addLog('Generating execution plan...'); }
+  else if (et === 'plan/ready') {
+    mon.planStepCount = d.step_count || 0;
+    setPhase('executing');
+    addLog(`Plan ready: ${mon.planStepCount} steps`);
+  }
+  else if (et === 'plan/retry') { addLog(`Plan retry (attempt ${d.attempt || 2})...`); }
+  else if (et === 'plan/error') { addLog(`Plan error: ${(d.error || '').slice(0, 100)}`); }
+
+  // Steps
+  else if (et === 'step/start') {
+    const step = { number: d.step_number, action: d.action || '', status: 'running', timeMs: 0, error: '' };
+    mon.steps.push(step);
+    addLog(`Executing step ${step.number} (${step.action})`);
+  }
+  else if (et === 'step/complete') {
+    const s = mon.steps.find(s => s.number === d.step_number);
+    if (s) { s.status = 'success'; s.timeMs = d.time_ms || 0; }
+    addLog(`Step ${d.step_number} completed (${d.time_ms || 0}ms)`);
+  }
+  else if (et === 'step/error') {
+    const s = mon.steps.find(s => s.number === d.step_number);
+    if (s) { s.status = 'error'; s.error = d.error || ''; }
+    addLog(`Step ${d.step_number} failed: ${(d.error || '').slice(0, 100)}`);
+  }
+
+  // Debug
+  else if (et === 'debug/start') { mon.debugAttempts++; addLog(`Debugging step (attempt ${d.attempt || mon.debugAttempts})...`); }
+  else if (et === 'debug/fixed') { addLog('Debug fix applied, retrying step'); }
+  else if (et === 'debug/give_up') { addLog('Debug gave up, skipping step'); }
+
+  // Validation
+  else if (et === 'validate/start') { addLog('Validating results...'); }
+  else if (et === 'validate/adequate') { mon.validationStatus = 'adequate'; addLog('Validation: adequate'); }
+  else if (et === 'validate/inadequate') {
+    mon.validationStatus = 'inadequate';
+    mon.validationReason = d.reason || '';
+    addLog(`Validation inadequate: ${(d.reason || '').slice(0, 100)}`);
+  }
+
+  // Replan
+  else if (et === 'replan/start') { mon.replanCount++; addLog('Replanning...'); }
+  else if (et === 'replan/ready') {
+    mon.planStepCount = d.step_count || 0;
+    mon.steps = [];
+    addLog(`Replan ready: ${mon.planStepCount} steps`);
+  }
+
+  // Quick mode
+  else if (et === 'quick/start') { setPhase('executing'); mon.mode = 'quick'; addLog('Quick mode: answering from context'); }
+  else if (et === 'quick/escalate') { addLog(`Quick \u2192 Simple escalation: ${d.reason || ''}`); }
+
+  // Extended
+  else if (et === 'checkpoint/start') { addLog('Reviewing progress (checkpoint)...'); }
+  else if (et === 'revise/start') { addLog('Revising plan...'); }
+  else if (et === 'revise/ready') { addLog(`Revised: ${d.new_step_count || 0} steps remaining`); }
+
+  // Synthesis
+  else if (et === 'synthesize/start') { setPhase('synthesizing'); addLog('Synthesizing final answer...'); }
+  else if (et === 'synthesize/complete') { addLog('Synthesis complete'); }
+
+  // Experience
+  else if (et === 'experience/cache_hit') { addLog('Cache hit \u2014 using previous result'); }
+
+  // Mode-level
+  else if (et === 'simple/start') { addLog('Simple mode started'); }
+  else if (et === 'extended/start') { addLog('Extended mode started'); }
+  else if (et === 'deep/start') { addLog('Deep analysis started'); }
+
+  // Agent done
+  else if (et === 'agent/complete') { addLog(`Agent complete (mode: ${d.mode || ''})`); }
+
+  renderMonitor();
+}
+
+function setPhase(phase) {
+  mon.phase = phase;
+  if (phase !== 'idle' && !mon.startTime) {
+    mon.startTime = Date.now();
+    elapsedTimer = setInterval(() => { mon.elapsed = (Date.now() - mon.startTime) / 1000; renderMonitorElapsed(); }, 500);
+  }
+}
+
+function addLog(text) { mon.log.push(text); }
+
+function resetMonitor() {
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  mon = { phase: 'idle', mode: '', classifyReasoning: '', planStepCount: 0, steps: [], debugAttempts: 0, validationStatus: '', validationReason: '', replanCount: 0, log: [], startTime: 0, elapsed: 0 };
+  renderMonitor();
+}
+
+// ── Result handling ────────────────────────────────────
+function handleResult(msg) {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog(`Done in ${mon.elapsed.toFixed(1)}s`);
+  renderMonitor();
+
+  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: msg.artifacts || [], executionLog: msg.execution_log || [] };
+  addMessage('assistant', msg.response, meta);
+  toggleInputState(false);
+}
+
+function handleError(message) {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog(`Error: ${message}`);
+  renderMonitor();
+  addMessage('assistant', `**Error:** ${message}`, { isError: true });
+  toggleInputState(false);
+}
+
+function handleCancelled() {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog('Cancelled');
+  renderMonitor();
+  addMessage('assistant', '*Query cancelled.*', {});
+  toggleInputState(false);
+}
+
+// ── Send query ─────────────────────────────────────────
+function sendQuestion(text) {
+  const q = text || document.getElementById('question').value.trim();
+  if (!q || isQuerying) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected to server'); return; }
+
+  document.getElementById('question').value = '';
+  autoGrow(document.getElementById('question'));
+  addMessage('user', q);
+
+  // Clear welcome
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+
+  isQuerying = true;
+  resetMonitor();
+  setPhase('classifying');
+  toggleInputState(true);
+
+  const mode = document.getElementById('mode-select').value;
+  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode }));
+}
+
+function cancelQuery() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'cancel' }));
+  }
+}
+
+function toggleInputState(querying) {
+  document.getElementById('send-btn').style.display = querying ? 'none' : '';
+  document.getElementById('cancel-btn').style.display = querying ? '' : 'none';
+  document.getElementById('question').disabled = querying;
+}
+
+// ── Messages ───────────────────────────────────────────
+function addMessage(role, content, meta = {}) {
+  messages.push({ role, content, meta });
+  renderMessage({ role, content, meta });
+  scrollToBottom();
+}
+
+function renderMessage(msg) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `message ${msg.role}`;
+
+  let html = `<div class="role">${msg.role === 'user' ? 'You' : 'MCPDB'}</div>`;
+  html += `<div class="bubble">${renderMarkdown(msg.content)}</div>`;
+
+  if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
+    // Metadata footer
+    const parts = [];
+    if (msg.meta.mode) parts.push(`Mode: ${msg.meta.mode}`);
+    if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
+    if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
+
+    // Follow-ups (extracted from response if present)
+    // Artifacts rendered inline are part of the markdown
+  }
+
+  div.innerHTML = html;
+  container.appendChild(div);
+
+  // Render mermaid blocks
+  div.querySelectorAll('.mermaid-pending').forEach(el => {
+    const code = el.textContent;
+    el.textContent = '';
+    el.classList.remove('mermaid-pending');
+    el.classList.add('mermaid');
+    el.textContent = code;
+  });
+  mermaid.run({ nodes: div.querySelectorAll('.mermaid') });
+
+  // Highlight code blocks
+  div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  // Use marked to render markdown
+  return marked.parse(text, { breaks: true, gfm: true });
+}
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function newConversation() {
+  messages = [];
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+
+  // Re-add welcome
+  const welcome = document.createElement('div');
+  welcome.id = 'welcome';
+  welcome.innerHTML = '<h2>MCPDB</h2><p class="subtitle">Natural language database exploration</p><div id="welcome-content"></div>';
+  container.appendChild(welcome);
+  renderWelcome();
+
+  resetMonitor();
+}
+
+// ── Execution Monitor rendering ────────────────────────
+function renderMonitor() {
+  const el = document.getElementById('mon-content');
+  if (mon.phase === 'idle' && !mon.log.length) {
+    el.innerHTML = '<div class="mon-idle">Waiting for a query...</div>';
+    return;
+  }
+
+  let h = '';
+  const PHASE_LABELS = { classifying: 'Classifying...', planning: 'Planning...', executing: 'Executing...', synthesizing: 'Synthesizing...' };
+
+  // Phase + mode badge
+  if (mon.phase !== 'idle') {
+    h += '<div class="mon-phase">';
+    h += '<span class="spinner"></span>';
+    h += `<span class="label">${PHASE_LABELS[mon.phase] || mon.phase}</span>`;
+    if (mon.mode) h += `<span class="mode-badge">${mon.mode}</span>`;
+    h += '</div>';
+  } else if (mon.mode) {
+    h += `<div class="mon-phase"><span class="label">Done</span><span class="mode-badge">${mon.mode}</span></div>`;
+  }
+
+  // Classification reasoning
+  if (mon.classifyReasoning) {
+    h += `<div class="mon-classify">${escHtml(mon.classifyReasoning)}</div>`;
+  }
+
+  // Plan info
+  if (mon.planStepCount > 0) {
+    h += `<div class="mon-plan">\u{1F4CB} Plan: ${mon.planStepCount} steps</div>`;
+  }
+
+  // Progress bar
+  if (mon.steps.length > 0) {
+    const done = mon.steps.filter(s => s.status === 'success' || s.status === 'error').length;
+    const total = Math.max(mon.steps.length, mon.planStepCount);
+    const pct = total > 0 ? (done / total * 100) : 0;
+    h += `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`;
+    h += `<div class="progress-text">${done}/${total} steps</div>`;
+  }
+
+  // Steps
+  for (const s of mon.steps) {
+    let icon = '<span class="spinner spinner-sm"></span>';
+    if (s.status === 'success') icon = '<span style="color:var(--green)">\u2713</span>';
+    else if (s.status === 'error') icon = '<span style="color:var(--red)">\u2717</span>';
+    else if (s.status === 'pending') icon = '<span style="color:var(--fg3)">\u25cb</span>';
+
+    h += `<div class="step ${s.status === 'running' ? 'running' : ''}">`;
+    h += `<div class="icon">${icon}</div>`;
+    h += '<div class="info">';
+    h += `<div class="desc">Step ${s.number}: ${escHtml(s.action)}</div>`;
+    if (s.timeMs > 0) h += `<div class="timing">${s.timeMs}ms</div>`;
+    if (s.error) h += `<div class="error">${escHtml(s.error.slice(0, 200))}</div>`;
+    h += '</div></div>';
+  }
+
+  // Debug attempts
+  if (mon.debugAttempts > 0) {
+    h += `<div class="mon-debug"><span style="color:var(--orange)">\u{1F41B}</span> Debug attempts: ${mon.debugAttempts}</div>`;
+  }
+
+  // Validation
+  if (mon.validationStatus) {
+    const color = mon.validationStatus === 'adequate' ? 'var(--green)' : 'var(--orange)';
+    const icon = mon.validationStatus === 'adequate' ? '\u2705' : '\u26a0\ufe0f';
+    let text = `Validation: ${mon.validationStatus}`;
+    if (mon.validationReason) text += ` \u2014 ${mon.validationReason.slice(0, 80)}`;
+    h += `<div class="mon-validate"><span>${icon}</span> <span style="color:${color}">${escHtml(text)}</span></div>`;
+  }
+
+  // Replan
+  if (mon.replanCount > 0) {
+    h += `<div class="mon-replan"><span>\u{1F504}</span> Replanned ${mon.replanCount} time(s)</div>`;
+  }
+
+  // Elapsed
+  h += `<div class="mon-elapsed" id="mon-elapsed">${mon.elapsed.toFixed(0)}s elapsed</div>`;
+
+  // Activity log
+  if (mon.log.length) {
+    h += '<details class="activity-log"><summary>Activity log (' + mon.log.length + ')</summary>';
+    for (const entry of mon.log) {
+      h += `<div class="entry">${escHtml(entry)}</div>`;
+    }
+    h += '</details>';
+  }
+
+  el.innerHTML = h;
+}
+
+function renderMonitorElapsed() {
+  const el = document.getElementById('mon-elapsed');
+  if (el) el.textContent = `${mon.elapsed.toFixed(0)}s elapsed`;
+}
+
+// ── Source management ──────────────────────────────────
+async function loadSources() {
+  try {
+    const res = await fetch('/api/sources');
+    sources = await res.json();
+    renderSources();
+    renderWelcome();
+  } catch (e) { console.error('Failed to load sources', e); }
+}
+
+function renderSources() {
+  const el = document.getElementById('sources-list');
+  if (!sources.length) {
+    el.innerHTML = '<div style="font-size:12px; color:var(--fg3); font-style:italic;">No sources connected</div>';
+    return;
+  }
+  el.innerHTML = sources.map(s => {
+    const tableCount = (s.tables || []).length;
+    return `<div class="source-card">
+      <div class="name">${escHtml(s.display_name || s.source_id)}</div>
+      <div class="meta">${s.source_type} \u00b7 ${tableCount} table${tableCount !== 1 ? 's' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function connectDatabase() {
+  const connStr = document.getElementById('conn-str').value.trim();
+  if (!connStr) return;
+  const name = document.getElementById('conn-name').value.trim();
+  try {
+    const res = await fetch('/api/sources/database', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_string: connStr, display_name: name || undefined }),
+    });
+    if (!res.ok) { const e = await res.json(); alert(e.detail); return; }
+    document.getElementById('conn-str').value = '';
+    document.getElementById('conn-name').value = '';
+    document.getElementById('connect-details').removeAttribute('open');
+    await loadSources();
+  } catch (e) { alert('Connection failed: ' + e); }
+}
+
+// ── Welcome screen ─────────────────────────────────────
+async function renderWelcome() {
+  const el = document.getElementById('welcome-content');
+  if (!el) return;
+  if (!sources.length) { el.innerHTML = '<p style="color:var(--fg2)">Connect a database to get started.</p>'; return; }
+
+  const s = sources[0];
+  const tables = s.table_summary || [];
+  let h = '';
+
+  // Schema table
+  if (tables.length) {
+    h += `<p style="margin-bottom:12px; color:var(--fg)">Connected to <strong>${escHtml(s.display_name || s.source_id)}</strong> \u00b7 ${tables.length} tables</p>`;
+    h += '<table id="schema-table"><thead><tr><th>Table</th><th>Columns</th><th>Rows</th></tr></thead><tbody>';
+    for (const t of tables) {
+      const rows = t.rows != null ? t.rows.toLocaleString() : '\u2014';
+      h += `<tr><td>${escHtml(t.name)}</td><td class="num">${t.columns}</td><td class="num">${rows}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+
+  // ERD
+  try {
+    const res = await fetch(`/api/sources/${s.source_id}/erd`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.mermaid) {
+        h += '<div class="erd-container"><div class="mermaid">' + escHtml(data.mermaid) + '</div></div>';
+      }
+    }
+  } catch (e) {}
+
+  // Starter questions
+  const starters = suggestStarters(tables);
+  if (starters.length) {
+    h += '<div class="starter-questions">';
+    for (const q of starters) {
+      h += `<button class="starter-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
+    }
+    h += '</div>';
+  }
+
+  el.innerHTML = h;
+  // Render mermaid in welcome
+  el.querySelectorAll('.mermaid').forEach(node => { mermaid.run({ nodes: [node] }); });
+}
+
+function suggestStarters(tables) {
+  if (!tables.length) return [];
+  const starters = [];
+  starters.push(`How many rows are in each table?`);
+  if (tables.length > 2) starters.push(`What are the relationships between tables?`);
+  if (tables.length > 0) starters.push(`Show me a sample from ${tables[0].name}`);
+  if (tables.length > 1) starters.push(`What columns do ${tables[0].name} and ${tables[1].name} have?`);
+  return starters;
+}
+
+// ── Mode selector ──────────────────────────────────────
+function updateModeDesc() {
+  const mode = document.getElementById('mode-select').value;
+  document.getElementById('mode-desc').textContent = MODE_DESC[mode] || '';
+}
+
+// ── Input handling ─────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+}
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Helpers ────────────────────────────────────────────
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/\n/g, ' '); }
+
+// ── Configure libraries ────────────────────────────────
+marked.setOptions({
+  renderer: new marked.Renderer(),
+  highlight: function(code, lang) {
+    if (lang === 'mermaid') return null;  // handled separately
+    try { return hljs.highlight(code, { language: lang || 'plaintext' }).value; } catch { return code; }
+  },
+  gfm: true, breaks: true,
+});
+
+// Override mermaid code blocks in marked
+const origCodeRenderer = new marked.Renderer().code;
+const customRenderer = new marked.Renderer();
+customRenderer.code = function({ text, lang }) {
+  if (lang === 'mermaid') {
+    return `<div class="mermaid-pending">${escHtml(text)}</div>`;
+  }
+  return `<pre><code class="language-${lang || 'plaintext'}">${text}</code></pre>`;
+};
+marked.setOptions({ renderer: customRenderer });
+
+mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+
+// ── Init ───────────────────────────────────────────────
+connectWS();
+loadSources();
+</script>
+</body>
+</html>

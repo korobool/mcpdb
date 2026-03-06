@@ -27,6 +27,8 @@ Usage:
   mcpdb ui --port 8080           Start UI on custom port
   mcpdb webchat                  Start Streamlit MCP webchat
   mcpdb webchat --port 8501      Webchat on custom port
+  mcpdb web                      Start web client (recommended)
+  mcpdb web --port 8080          Web client on custom port
   mcpdb playground               Start Playground (auto-selects free port)
   mcpdb playground --port 9000   Playground on a specific port
   mcpdb query <conn> <question>  One-shot query mode
@@ -140,6 +142,33 @@ def main() -> None:
         except ImportError:
             print("Webchat requires Streamlit. Install with: pip install mcpdb[streamlit]")
             sys.exit(1)
+
+    elif command == "web":
+        port = None
+        no_browser = False
+
+        i = 1
+        while i < len(args):
+            if args[i] == "--port" and i + 1 < len(args):
+                port = int(args[i + 1])
+                i += 2
+            elif args[i] == "--no-browser":
+                no_browser = True
+                i += 1
+            else:
+                i += 1
+
+        try:
+            from mcpdb.web.app import run_web, find_available_port
+        except ImportError:
+            print("Web client requires FastAPI + Uvicorn. Install with: pip install mcpdb[web]")
+            sys.exit(1)
+
+        if port is None:
+            port = find_available_port()
+
+        logger.info("mcpdb v%s web client starting on port %d", __version__, port)
+        run_web(config=config, port=port, open_browser=not no_browser)
 
     elif command == "playground":
         port = None  # None means auto-select

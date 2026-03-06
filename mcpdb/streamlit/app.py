@@ -42,30 +42,35 @@ def _create_mcp_client() -> McpdbClient:
 
 
 def _ensure_connected() -> McpdbClient:
-    """Ensure the MCP client is connected, auto-connecting from env if possible."""
+    """Start MCP server, auto-connect database from env if available.
+
+    All heavy work (spawn subprocess, connect DB, refresh sources) happens
+    once — guarded by ``client.connected`` and ``st.session_state.initialized``.
+    """
     client = _create_mcp_client()
     set_client(client)
 
     if not client.connected:
         db_url = os.environ.get("MCPDB_DATABASE_URL")
+        try:
+            client.connect(db_url=db_url)
+            logger.info("MCP server started")
+        except McpClientError as exc:
+            st.error(f"Failed to start MCP server: {exc}")
+            return client
+
+    # One-time auto-connect: if env var is set and we haven't initialized yet
+    if not st.session_state.get("initialized") and client.connected:
+        db_url = os.environ.get("MCPDB_DATABASE_URL")
         if db_url:
             try:
-                client.connect(db_url=db_url)
-                logger.info("Auto-connected via MCPDB_DATABASE_URL")
-                # Auto-connect the database on the server side too
-                try:
-                    client.connect_database(db_url)
-                except McpClientError:
-                    logger.debug("connect_database call failed (may already be connected)")
-            except McpClientError as exc:
-                logger.error("Auto-connect failed: %s", exc)
-                st.error(f"Failed to start MCP server: {exc}")
-        else:
-            try:
-                client.connect()
-                logger.info("MCP server started (no database pre-configured)")
-            except McpClientError as exc:
-                st.error(f"Failed to start MCP server: {exc}")
+                client.connect_database(db_url)
+                logger.info("Auto-connected database from MCPDB_DATABASE_URL")
+            except McpClientError:
+                pass  # may already be connected
+            from mcpdb.streamlit.components.sidebar import _refresh_sources
+            _refresh_sources(client)
+        st.session_state["initialized"] = True
 
     return client
 

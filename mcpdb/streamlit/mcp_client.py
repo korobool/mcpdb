@@ -30,6 +30,29 @@ class McpClientError(Exception):
     """Raised when an MCP operation fails."""
 
 
+class ProgressLog:
+    """Thread-safe collector for MCP log notifications."""
+
+    def __init__(self) -> None:
+        self._messages: list[str] = []
+        self._lock = threading.Lock()
+
+    def append(self, message: str) -> None:
+        with self._lock:
+            self._messages.append(message)
+
+    def drain(self) -> list[str]:
+        """Return and clear all collected messages."""
+        with self._lock:
+            msgs = list(self._messages)
+            self._messages.clear()
+            return msgs
+
+    def clear(self) -> None:
+        with self._lock:
+            self._messages.clear()
+
+
 class McpdbClient:
     """MCP client that spawns MCPDB server and provides sync wrappers.
 
@@ -50,6 +73,7 @@ class McpdbClient:
         self._session_cm: Any = None  # context manager from ClientSession
         self._connected = False
         self._server_env: dict[str, str] = {}
+        self.progress = ProgressLog()
 
     def _run_loop(self) -> None:
         """Run the dedicated event loop in background thread."""
@@ -94,8 +118,21 @@ class McpdbClient:
         self._stdio_cm = stdio_client(server_params)
         read_stream, write_stream = await self._stdio_cm.__aenter__()
 
-        # Enter ClientSession context manager
-        self._session_cm = ClientSession(read_stream, write_stream)
+        # Enter ClientSession context manager (with logging callback for progress)
+        progress_ref = self.progress
+
+        async def _on_log(params) -> None:
+            """Receive MCP log notifications from the server."""
+            data = params.data if hasattr(params, "data") else str(params)
+            if isinstance(data, str):
+                progress_ref.append(data)
+            else:
+                progress_ref.append(str(data))
+
+        self._session_cm = ClientSession(
+            read_stream, write_stream,
+            logging_callback=_on_log,
+        )
         self._session = await self._session_cm.__aenter__()
 
         # Initialize the MCP protocol handshake
@@ -203,6 +240,31 @@ class McpdbClient:
             args["mode"] = mode
         return self.call_tool("ask_question", args, timeout=timeout)
 
+    def ask_async(
+        self, question: str, mode: str = "auto", timeout: float = 600,
+    ) -> threading.Event:
+        """Start ask_question in background; poll ``progress`` for updates.
+
+        Returns a ``threading.Event`` that is set when the call completes.
+        The result is stored in ``self._ask_result`` / ``self._ask_error``.
+        """
+        self.progress.clear()
+        self._ask_result: ToolResult | None = None
+        self._ask_error: Exception | None = None
+        done_event = threading.Event()
+
+        def _run() -> None:
+            try:
+                self._ask_result = self.ask(question, mode=mode, timeout=timeout)
+            except Exception as exc:
+                self._ask_error = exc
+            finally:
+                done_event.set()
+
+        t = threading.Thread(target=_run, daemon=True, name="ask-question")
+        t.start()
+        return done_event
+
     def list_sources(self) -> ToolResult:
         return self.call_tool("list_sources", timeout=30)
 
@@ -226,10 +288,10 @@ class McpdbClient:
             args["source_id"] = source_id
         return self.call_tool("describe_table", args, timeout=30)
 
-    def suggest_followups(self, question: str | None = None) -> ToolResult:
+    def suggest_followups(self, context: str | None = None) -> ToolResult:
         args: dict[str, Any] = {}
-        if question:
-            args["question"] = question
+        if context:
+            args["context"] = context
         return self.call_tool("suggest_followups", args, timeout=30)
 
     def run_query(self, query: str, source_id: str | None = None) -> ToolResult:
