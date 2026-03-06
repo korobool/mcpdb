@@ -206,17 +206,26 @@ async def _try_plan(
     prompt: str,
     callbacks: CallbackManager,
     attempt: int = 1,
+    max_retries: int = 2,
 ) -> dict | None:
-    """Try to generate a plan via LLM. Returns parsed dict or None on failure."""
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a data analysis planner. Respond with JSON only.",
-        )
-        return result
-    except Exception as e:
-        logger.warning("Planning attempt %d failed: %s", attempt, e)
-        callbacks.emit("plan/error", error=str(e), attempt=attempt)
+    """Try to generate a plan via LLM. Retries on transient errors."""
+    import asyncio
+    for retry in range(max_retries):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a data analysis planner. Respond with JSON only.",
+            )
+            return result
+        except Exception as e:
+            if retry < max_retries - 1:
+                delay = [2, 5][min(retry, 1)]
+                logger.warning("Planning attempt %d retry %d failed, retrying in %ds: %s",
+                               attempt, retry + 1, delay, e)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Planning attempt %d failed: %s", attempt, e)
+                callbacks.emit("plan/error", error=str(e), attempt=attempt)
         return None
 
 
@@ -608,16 +617,23 @@ async def synthesize(
         results=results_text,
     )
 
-    try:
-        text, usage = await llm.generate(
-            [Message(role="user", content=prompt)],
-            system="You are a data analyst. Provide clear, insightful answers.",
-        )
-        state["response"] = text
-
-    except Exception as e:
-        logger.warning("Synthesis failed: %s", e)
-        state["response"] = f"Analysis completed but synthesis failed: {e}"
+    import asyncio
+    for retry in range(3):
+        try:
+            text, usage = await llm.generate(
+                [Message(role="user", content=prompt)],
+                system="You are a data analyst. Provide clear, insightful answers.",
+            )
+            state["response"] = text
+            break
+        except Exception as e:
+            if retry < 2:
+                delay = [2, 5][min(retry, 1)]
+                logger.warning("Synthesis failed (retry %d), retrying in %ds: %s", retry + 1, delay, e)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Synthesis failed after 3 attempts: %s", e)
+                state["response"] = f"Analysis completed but synthesis failed: {e}"
 
     callbacks.emit("synthesize/complete")
     return state

@@ -5,6 +5,7 @@ Flow: create_blueprint → (investigate → reason)* → synthesize report
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -15,6 +16,10 @@ from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.agent.deep")
+
+# Retry config for transient LLM errors (503, rate-limit, timeouts)
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 
 BLUEPRINT_PROMPT = """\
 You are a senior data analyst creating a research blueprint.
@@ -212,21 +217,29 @@ async def _create_blueprint(
     llm: LLMProvider,
     callbacks: CallbackManager,
 ) -> dict[str, Any] | None:
-    """Create a research blueprint via LLM."""
+    """Create a research blueprint via LLM (with retries)."""
     prompt = BLUEPRINT_PROMPT.format(
         source_context=state.get("source_context", "No sources"),
         question=state["question"],
     )
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a senior data analyst. Respond with JSON only.",
-        )
-        return result
-    except Exception as e:
-        logger.error("Blueprint creation failed: %s", e)
-        return None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a senior data analyst. Respond with JSON only.",
+            )
+            return result
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Blueprint creation failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="blueprint", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.error("Blueprint creation failed after %d attempts: %s", _MAX_RETRIES, e)
+    return None
 
 
 async def _run_investigation(
@@ -283,7 +296,7 @@ async def _reason_about_results(
     llm: LLMProvider,
     callbacks: CallbackManager,
 ) -> dict[str, Any] | None:
-    """LLM reviews completed investigations and decides next steps."""
+    """LLM reviews completed investigations and decides next steps (with retries)."""
     completed_text = "\n\n".join(
         f"Investigation {c['id']}: {c['question']}\n"
         f"Result: {c['result']}"
@@ -301,15 +314,23 @@ async def _reason_about_results(
         remaining=remaining_text,
     )
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a research advisor. Respond with JSON only.",
-        )
-        return result
-    except Exception as e:
-        logger.warning("Reasoning failed: %s", e)
-        return None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a research advisor. Respond with JSON only.",
+            )
+            return result
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Reasoning failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="reasoning", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Reasoning failed after %d attempts: %s", _MAX_RETRIES, e)
+    return None
 
 
 async def _deep_synthesize(
@@ -334,18 +355,28 @@ async def _deep_synthesize(
         reasoning=reasoning_text,
     )
 
-    try:
-        text, usage = await llm.generate(
-            [Message(role="user", content=prompt)],
-            system="You are a senior data analyst writing a research report.",
-        )
-        state["response"] = text
-    except Exception as e:
-        logger.warning("Deep synthesis failed: %s", e)
-        # Fallback: concatenate investigation results
-        parts = [f"# Research Report: {goal}\n"]
-        for c in completed:
-            parts.append(f"## Investigation: {c['question']}\n{c['result']}\n")
-        state["response"] = "\n".join(parts)
+    for attempt in range(_MAX_RETRIES):
+        try:
+            text, usage = await llm.generate(
+                [Message(role="user", content=prompt)],
+                system="You are a senior data analyst writing a research report.",
+            )
+            state["response"] = text
+            return state
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Deep synthesis failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="synthesis", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Deep synthesis failed after %d attempts: %s", _MAX_RETRIES, e)
+
+    # Fallback: concatenate investigation results
+    parts = [f"# Research Report: {goal}\n"]
+    for c in completed:
+        parts.append(f"## Investigation: {c['question']}\n{c['result']}\n")
+    state["response"] = "\n".join(parts)
 
     return state

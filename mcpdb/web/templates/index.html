@@ -473,6 +473,7 @@ function handleEvent(msg) {
     addLog(`Reasoning: ${text}`);
   }
   else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
+  else if (et === 'deep/retry') { addLog(`Retrying ${d.component || 'LLM call'} (attempt ${d.attempt || '?'}, waiting ${d.delay || '?'}s)...`); }
 
   // Strategy gate, cost check, optimize
   else if (et === 'strategy_gate/pass') { addLog('Strategy gate: pass'); }

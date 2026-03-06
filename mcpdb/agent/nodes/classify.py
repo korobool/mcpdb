@@ -78,33 +78,41 @@ async def classify(
         question=question,
     )
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a query classifier. Respond with JSON only.",
-        )
+    import asyncio
+    for retry in range(3):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a query classifier. Respond with JSON only.",
+            )
 
-        mode = result.get("mode", "simple")
-        if mode not in ("quick", "simple", "extended", "optimization_required", "deep"):
-            mode = "simple"
+            mode = result.get("mode", "simple")
+            if mode not in ("quick", "simple", "extended", "optimization_required", "deep"):
+                mode = "simple"
 
-        state["query_mode"] = mode
-        state["target_sources"] = result.get("target_sources", state.get("active_source_ids", []))
-        state["requires_cross_source"] = result.get("requires_cross_source", False)
-        state["key_entities"] = result.get("key_entities", [])
+            state["query_mode"] = mode
+            state["target_sources"] = result.get("target_sources", state.get("active_source_ids", []))
+            state["requires_cross_source"] = result.get("requires_cross_source", False)
+            state["key_entities"] = result.get("key_entities", [])
 
-        callbacks.emit(
-            "classify/complete",
-            mode=mode,
-            reasoning=result.get("reasoning", ""),
-        )
+            callbacks.emit(
+                "classify/complete",
+                mode=mode,
+                reasoning=result.get("reasoning", ""),
+            )
+            return state
 
-    except Exception as e:
-        logger.warning("Classification failed, defaulting to simple: %s", e)
-        state["query_mode"] = "simple"
-        state["target_sources"] = state.get("active_source_ids", [])
-        state["requires_cross_source"] = False
-        state["key_entities"] = []
-        callbacks.emit("classify/complete", mode="simple", reasoning="fallback")
+        except Exception as e:
+            if retry < 2:
+                delay = [2, 5][min(retry, 1)]
+                logger.warning("Classification failed (retry %d), retrying in %ds: %s", retry + 1, delay, e)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Classification failed, defaulting to simple: %s", e)
+                state["query_mode"] = "simple"
+                state["target_sources"] = state.get("active_source_ids", [])
+                state["requires_cross_source"] = False
+                state["key_entities"] = []
+                callbacks.emit("classify/complete", mode="simple", reasoning="fallback")
 
     return state
