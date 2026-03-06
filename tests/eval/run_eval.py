@@ -740,9 +740,11 @@ def evaluate_response(question: dict, ground_truth: dict, agent_result: dict) ->
         result["reason"] = "Empty response"
         return result
 
-    # Check for failure responses — but only if it's the main message, not just mention
+    # Check for failure responses — only if "could not" appears near the start
+    # (not buried in a long substantive answer as a passing remark)
     lower_resp = response.lower()
-    if ("could not" in lower_resp and ("calculate" in lower_resp or "determine" in lower_resp or "plan" in lower_resp)):
+    first_200 = lower_resp[:200]
+    if ("could not" in first_200 and ("calculate" in first_200 or "determine" in first_200 or "plan" in first_200)):
         result["score"] = 0
         result["reason"] = f"Error response: {response[:100]}"
         return result

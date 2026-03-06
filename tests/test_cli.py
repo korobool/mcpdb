@@ -37,7 +37,7 @@ class TestCLI:
         assert result.returncode == 0
         assert "Usage:" in result.stdout
         assert "serve" in result.stdout
-        assert "ui" in result.stdout
+        assert "web" in result.stdout
         assert "query" in result.stdout
 
     def test_unknown_command(self):

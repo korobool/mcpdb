@@ -72,6 +72,23 @@ _WRAPPER_SCRIPT = textwrap.dedent('''\
                 buf.close()
             plt.close("all")
         plt.show = _capture_show
+
+        # Monkey-patch plt.savefig to also capture (LLM may use savefig instead of show)
+        _original_savefig = plt.savefig
+        def _capture_savefig(*args, **kwargs):
+            # Capture to our buffer first
+            fig = plt.gcf()
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+            buf.seek(0)
+            _mcpdb_charts.append(base64.b64encode(buf.read()).decode("ascii"))
+            buf.close()
+            # Still save to the requested path (code may reference it)
+            try:
+                _original_savefig(*args, **kwargs)
+            except Exception:
+                pass
+        plt.savefig = _capture_savefig
     except ImportError:
         plt = None
         sns = None

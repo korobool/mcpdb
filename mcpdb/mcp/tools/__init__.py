@@ -1,7 +1,14 @@
-"""MCP tool registrations — centralized dispatcher."""
+"""MCP tool registrations — centralized dispatcher.
+
+All handlers are called with ``await`` from the async ``call_tool`` dispatcher.
+Sync handlers are wrapped automatically. Handlers that need async (e.g. LLM calls,
+agent pipeline) should be declared ``async def`` directly.
+"""
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import Any, Callable
 
@@ -80,7 +87,11 @@ def register_all_tools(
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
         try:
             arguments["_name"] = name
-            return handler(arguments)
+            result = handler(arguments)
+            # Await if the handler returned a coroutine (async handler)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
         except Exception as e:
             logger.error("Tool %s failed: %s", name, e, exc_info=True)
             return [TextContent(type="text", text=f"Error: {e}")]

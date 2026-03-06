@@ -152,21 +152,104 @@ def _read_erd_resource(source_id: str, registry: SourceRegistry) -> str:
 
 
 def _build_mermaid_erd(tables: list, relationships: list[dict]) -> str:
-    """Build a Mermaid ER diagram string."""
+    """Build a Mermaid ER diagram with explicit FKs + inferred relationships.
+
+    Combines declared foreign keys with heuristic-inferred relationships
+    (from column naming patterns like ``order_id`` → ``orders.id``).
+    Marks FK columns in table definitions and labels relationship lines
+    with the joining column name.
+    """
+    from mcpdb.mcp.tools.relationships import _infer_relationships
+
+    # --- Merge explicit + inferred, deduplicate --------------------------
+    all_rels = list(relationships)
+    for rel in all_rels:
+        rel.setdefault("type", "foreign_key")
+
+    inferred = _infer_relationships(tables)
+
+    explicit_keys: set[tuple[str, str, str, str]] = set()
+    for rel in all_rels:
+        src_cols = rel.get("source_columns", [])
+        tgt_cols = rel.get("target_columns", [])
+        if src_cols and tgt_cols:
+            explicit_keys.add((
+                rel["source_table"], src_cols[0],
+                rel["target_table"], tgt_cols[0],
+            ))
+
+    for rel in inferred:
+        key = (
+            rel["source_table"], rel["source_columns"][0],
+            rel["target_table"], rel["target_columns"][0],
+        )
+        if key not in explicit_keys:
+            all_rels.append(rel)
+            explicit_keys.add(key)
+
+    # --- Build FK column index (table.col → target info) -----------------
+    fk_columns: dict[tuple[str, str], str] = {}  # (table, col) → target_table
+    for rel in all_rels:
+        src_tbl = rel["source_table"]
+        for col_name in rel.get("source_columns", []):
+            fk_columns[(src_tbl, col_name)] = rel["target_table"]
+
+    # --- Table names present in the schema -------------------------------
+    table_names = {t.name for t in tables}
+
+    # --- Render tables with PK/FK markers --------------------------------
     lines = ["erDiagram"]
     for table in tables:
         lines.append(f"    {table.name} {{")
         for i, col in enumerate(table.columns):
-            pk = "PK" if col.name in table.primary_keys else ""
-            lines.append(f"        {col.dtype} {col.name} {pk}".rstrip())
+            is_pk = col.name in table.primary_keys
+            is_fk = (table.name, col.name) in fk_columns
+            marker = "PK" if is_pk else ("FK" if is_fk else "")
+            dtype = _sanitize_mermaid_type(col.dtype)
+            lines.append(f"        {dtype} {col.name} {marker}".rstrip())
             if i >= 9:
-                lines.append(f"        ... {len(table.columns) - 10}_more_columns")
+                remaining = len(table.columns) - 10
+                lines.append(f"        string _{remaining}_more_columns_ \"\"")
                 break
         lines.append("    }")
 
-    for rel in relationships:
+    # --- Render relationships with labels --------------------------------
+    seen_edges: set[tuple[str, str]] = set()
+    for rel in all_rels:
         src = rel["source_table"]
         tgt = rel["target_table"]
-        lines.append(f'    {tgt} ||--o{{ {src} : ""')
+        # Only render if both tables exist in the schema
+        if src not in table_names or tgt not in table_names:
+            continue
+        # Deduplicate edges (keep first per table pair direction)
+        edge_key = (src, tgt)
+        if edge_key in seen_edges:
+            continue
+        seen_edges.add(edge_key)
+
+        # Label: the FK column name
+        src_cols = rel.get("source_columns", [])
+        label = src_cols[0] if src_cols else ""
+
+        # Cardinality: parent ||--o{ child (one-to-many)
+        # Use dotted line for inferred relationships
+        rel_type = rel.get("type", "foreign_key")
+        connector = "||..o{" if rel_type == "inferred" else "||--o{"
+        lines.append(f'    {tgt} {connector} {src} : "{label}"')
 
     return "\n".join(lines)
+
+
+def _sanitize_mermaid_type(dtype: str) -> str:
+    """Sanitize a SQL type for mermaid ER diagram compatibility.
+
+    Mermaid attribute types cannot contain parentheses, commas, or spaces.
+    E.g. ``VARCHAR(255)`` → ``VARCHAR``, ``NUMERIC(10, 2)`` → ``NUMERIC``.
+    """
+    # Strip parenthesized suffixes: VARCHAR(255) → VARCHAR
+    paren = dtype.find("(")
+    if paren != -1:
+        dtype = dtype[:paren]
+    # Replace spaces with underscores: DOUBLE PRECISION → DOUBLE_PRECISION
+    dtype = dtype.strip().replace(" ", "_")
+    return dtype or "unknown"
