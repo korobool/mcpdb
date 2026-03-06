@@ -5,6 +5,7 @@ Flow: create_blueprint → (investigate → reason)* → synthesize report
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -15,6 +16,10 @@ from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.agent.deep")
+
+# Retry config for transient LLM errors (503, rate-limit, timeouts)
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 
 BLUEPRINT_PROMPT = """\
 You are a senior data analyst creating a research blueprint.
@@ -28,13 +33,16 @@ Create a research blueprint with:
 1. A clear research goal
 2. 2-5 investigation questions that together will comprehensively answer the main question
 3. For each investigation, specify what kind of analysis is needed
+4. At least one investigation MUST include data visualization (charts, plots, distributions)
 
-IMPORTANT: Keep investigations focused and non-overlapping. Prefer fewer, targeted investigations over many broad ones.
-
-Each investigation should be independent enough to run as a separate analysis.
+IMPORTANT:
+- Keep investigations focused and non-overlapping
+- Prefer fewer, targeted investigations over many broad ones
+- Each investigation should be independent enough to run as a separate analysis
+- Include visualization-focused investigations (e.g., "What does the distribution of X look like?", "How does Y trend over time?") — these produce charts that make the report more insightful
 
 Respond with JSON:
-{{"research_goal": "Overall goal", "investigations": [{{"id": 1, "question": "Sub-question", "approach": "How to investigate", "priority": "high|medium|low"}}]}}
+{{"research_goal": "Overall goal", "investigations": [{{"id": 1, "question": "Sub-question", "approach": "How to investigate", "priority": "high|medium|low", "needs_visualization": true}}]}}
 """
 
 REASONING_PROMPT = """\
@@ -71,11 +79,11 @@ REASONING NOTES:
 Format as a structured report with:
 - Executive Summary
 - Methodology
-- Key Findings (numbered)
+- Key Findings (numbered, with specific data values and statistics)
 - Limitations
 - Recommendations
 
-Use markdown formatting.
+Use markdown formatting. Reference specific numbers, percentages, and data points from the investigation results. The individual investigation results have already been shown to the user, so focus on synthesis and cross-cutting insights rather than repeating raw data. Charts and visualizations from investigations have been captured and displayed as images to the user.
 """
 
 
@@ -107,6 +115,7 @@ async def run_deep(
 
     # 2. Investigation + reasoning loop
     completed: list[dict[str, Any]] = []
+    all_artifacts: list[dict[str, Any]] = []
     reasoning_log: list[str] = []
     iteration = 0
 
@@ -117,29 +126,40 @@ async def run_deep(
         inv = investigations.pop(0)
         inv_id = inv.get("id", iteration)
         inv_question = inv["question"]
+        needs_viz = inv.get("needs_visualization", False)
 
         callbacks.emit(
             "deep/investigation_start",
             investigation_id=inv_id,
             question=inv_question,
+            approach=inv.get("approach", ""),
         )
 
         # Run investigation as a Simple mode sub-agent
         inv_result = await _run_investigation(
             inv_question, state, llm, callbacks, registry,
+            needs_visualization=needs_viz,
         )
+
+        inv_response = inv_result.get("response", "No results.")
+        inv_artifacts = inv_result.get("artifacts", [])
+        all_artifacts.extend(inv_artifacts)
 
         completed.append({
             "id": inv_id,
             "question": inv_question,
             "approach": inv.get("approach", ""),
-            "result": inv_result,
+            "result": inv_response,
         })
 
         callbacks.emit(
             "deep/investigation_complete",
             investigation_id=inv_id,
-            success=bool(inv_result),
+            success=bool(inv_response),
+            response=inv_response,
+            has_artifacts=bool(inv_artifacts),
+            artifact_count=len(inv_artifacts),
+            artifacts=inv_artifacts,
         )
 
         # Reasoning checkpoint (after every 2 investigations or at end)
@@ -186,6 +206,9 @@ async def run_deep(
         state, goal, completed, reasoning_log, llm, callbacks,
     )
 
+    # Attach all investigation artifacts to the final state
+    state["artifacts"] = state.get("artifacts", []) + all_artifacts
+
     callbacks.emit("deep/complete", investigations=len(completed))
     return state
 
@@ -195,21 +218,29 @@ async def _create_blueprint(
     llm: LLMProvider,
     callbacks: CallbackManager,
 ) -> dict[str, Any] | None:
-    """Create a research blueprint via LLM."""
+    """Create a research blueprint via LLM (with retries)."""
     prompt = BLUEPRINT_PROMPT.format(
         source_context=state.get("source_context", "No sources"),
         question=state["question"],
     )
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a senior data analyst. Respond with JSON only.",
-        )
-        return result
-    except Exception as e:
-        logger.error("Blueprint creation failed: %s", e)
-        return None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a senior data analyst. Respond with JSON only.",
+            )
+            return result
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Blueprint creation failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="blueprint", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.error("Blueprint creation failed after %d attempts: %s", _MAX_RETRIES, e)
+    return None
 
 
 async def _run_investigation(
@@ -218,10 +249,22 @@ async def _run_investigation(
     llm: LLMProvider,
     callbacks: CallbackManager,
     registry: SourceRegistry,
-) -> str:
-    """Run a single investigation using Simple mode."""
+    needs_visualization: bool = False,
+) -> dict[str, Any]:
+    """Run a single investigation using Simple mode.
+
+    Returns dict with 'response' text and 'artifacts' list.
+    """
+    # Append visualization hint to the question if needed
+    inv_question = question
+    if needs_visualization:
+        inv_question += (
+            " — Include a Python visualization step (matplotlib/seaborn) "
+            "with plt.show() to create an informative chart."
+        )
+
     inv_state: AgentState = {
-        "question": question,
+        "question": inv_question,
         "source_context": parent_state.get("source_context", ""),
         "active_source_ids": parent_state.get("active_source_ids", []),
         "query_mode": "simple",
@@ -238,10 +281,13 @@ async def _run_investigation(
 
     try:
         inv_state = await run_simple(inv_state, llm, callbacks, registry)
-        return inv_state.get("response", "No results.")
+        return {
+            "response": inv_state.get("response", "No results."),
+            "artifacts": inv_state.get("artifacts", []),
+        }
     except Exception as e:
         logger.warning("Investigation failed: %s", e)
-        return f"Investigation failed: {e}"
+        return {"response": f"Investigation failed: {e}", "artifacts": []}
 
 
 async def _reason_about_results(
@@ -251,7 +297,7 @@ async def _reason_about_results(
     llm: LLMProvider,
     callbacks: CallbackManager,
 ) -> dict[str, Any] | None:
-    """LLM reviews completed investigations and decides next steps."""
+    """LLM reviews completed investigations and decides next steps (with retries)."""
     completed_text = "\n\n".join(
         f"Investigation {c['id']}: {c['question']}\n"
         f"Result: {c['result']}"
@@ -269,15 +315,23 @@ async def _reason_about_results(
         remaining=remaining_text,
     )
 
-    try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a research advisor. Respond with JSON only.",
-        )
-        return result
-    except Exception as e:
-        logger.warning("Reasoning failed: %s", e)
-        return None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            result, usage = await llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a research advisor. Respond with JSON only.",
+            )
+            return result
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Reasoning failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="reasoning", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Reasoning failed after %d attempts: %s", _MAX_RETRIES, e)
+    return None
 
 
 async def _deep_synthesize(
@@ -302,18 +356,28 @@ async def _deep_synthesize(
         reasoning=reasoning_text,
     )
 
-    try:
-        text, usage = await llm.generate(
-            [Message(role="user", content=prompt)],
-            system="You are a senior data analyst writing a research report.",
-        )
-        state["response"] = text
-    except Exception as e:
-        logger.warning("Deep synthesis failed: %s", e)
-        # Fallback: concatenate investigation results
-        parts = [f"# Research Report: {goal}\n"]
-        for c in completed:
-            parts.append(f"## Investigation: {c['question']}\n{c['result']}\n")
-        state["response"] = "\n".join(parts)
+    for attempt in range(_MAX_RETRIES):
+        try:
+            text, usage = await llm.generate(
+                [Message(role="user", content=prompt)],
+                system="You are a senior data analyst writing a research report.",
+            )
+            state["response"] = text
+            return state
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                logger.warning("Deep synthesis failed (attempt %d/%d), retrying in %ds: %s",
+                               attempt + 1, _MAX_RETRIES, delay, e)
+                callbacks.emit("deep/retry", component="synthesis", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("Deep synthesis failed after %d attempts: %s", _MAX_RETRIES, e)
+
+    # Fallback: concatenate investigation results
+    parts = [f"# Research Report: {goal}\n"]
+    for c in completed:
+        parts.append(f"## Investigation: {c['question']}\n{c['result']}\n")
+    state["response"] = "\n".join(parts)
 
     return state

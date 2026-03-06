@@ -1,0 +1,5 @@
+WARNING:eval:SQL error for Q85: (pymysql.err.ProgrammingError) (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '(SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2' at line 1")
+[SQL: SELECT total_cost FROM ins_damages WHERE total_cost > 0 ORDER BY total_cost LIMIT 1 OFFSET (SELECT COUNT(*) FROM ins_damages WHERE total_cost > 0) / 2]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+/home/olek/workspace/mcpdb/.venv/lib/python3.10/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.0.1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(

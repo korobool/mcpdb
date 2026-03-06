@@ -9,7 +9,7 @@ from mcpdb.config import McpdbConfig, load_config
 
 
 def test_version_exists():
-    assert __version__ == "4.0.0"
+    assert __version__ == "5.0.0"
 
 
 def test_python_m_mcpdb_prints_version():

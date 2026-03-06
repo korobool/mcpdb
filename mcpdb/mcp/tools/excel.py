@@ -113,7 +113,7 @@ def get_excel_tools() -> list[Tool]:
     return list(_TOOLS)
 
 
-def handle_excel_tool(
+async def handle_excel_tool(
     name: str, args: dict[str, Any], registry: SourceRegistry, llm: Any = None,
 ) -> list[TextContent]:
     if name == "load_excel":
@@ -125,7 +125,7 @@ def handle_excel_tool(
     elif name == "extract_excel_table":
         return _extract_excel_table(registry, args)
     elif name == "explain_formula":
-        return _explain_formula(registry, args, llm)
+        return await _explain_formula(registry, args, llm)
     return [TextContent(type="text", text=f"Unknown excel tool: {name}")]
 
 
@@ -232,7 +232,7 @@ def _extract_excel_table(
         return [TextContent(type="text", text=f"Error: {e}")]
 
 
-def _explain_formula(
+async def _explain_formula(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
 ) -> list[TextContent]:
     try:
@@ -246,7 +246,7 @@ def _explain_formula(
             if match is None:
                 return [TextContent(type="text", text=f"No formula found in cell {cell}.")]
 
-            explanation = _explain_single_formula(match["formula"], llm)
+            explanation = await _explain_single_formula(match["formula"], llm)
             return [TextContent(
                 type="text",
                 text=f"Cell {match['cell']}: `{match['formula']}`\n\n{explanation}",
@@ -269,11 +269,10 @@ def _explain_formula(
         return [TextContent(type="text", text=f"Error: {e}")]
 
 
-def _explain_single_formula(formula: str, llm: Any) -> str:
+async def _explain_single_formula(formula: str, llm: Any) -> str:
     """Use LLM to explain a formula, or fall back to basic parsing."""
     if llm is not None:
         try:
-            import asyncio
             from mcpdb.llm.provider import Message
 
             prompt = (
@@ -281,17 +280,11 @@ def _explain_single_formula(formula: str, llm: Any) -> str:
                 f"`{formula}`\n\n"
                 f"Be concise. Just explain what it does."
             )
-            loop = asyncio.new_event_loop()
-            try:
-                text, _usage = loop.run_until_complete(
-                    llm.generate(
-                        [Message(role="user", content=prompt)],
-                        temperature=0.0,
-                    )
-                )
-                return text
-            finally:
-                loop.close()
+            text, _usage = await llm.generate(
+                [Message(role="user", content=prompt)],
+                temperature=0.0,
+            )
+            return text
         except Exception:
             pass
 

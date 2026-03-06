@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCPDB</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<style>
+/* ── Reset & Base ────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --bg2: #161b22; --bg3: #1c2128; --bg4: #21262d;
+  --fg: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
+  --blue: #58a6ff; --green: #3fb950; --red: #f85149;
+  --orange: #d29922; --purple: #bc8cff; --cyan: #39d2c0;
+  --border: #30363d; --radius: 8px;
+}
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); font-size: 14px; }
+a { color: var(--blue); }
+code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+
+/* ── Layout: 3-column ────────────────────────────────── */
+#app { display: flex; height: 100vh; }
+#sidebar { width: 280px; min-width: 280px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#monitor { width: 340px; min-width: 340px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+.sidebar-header h1 { font-size: 18px; font-weight: 700; }
+.sidebar-header .version { font-size: 12px; color: var(--fg2); }
+.sidebar-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 8px; }
+
+/* Source cards */
+.source-card { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; }
+.source-card .name { font-weight: 600; font-size: 13px; }
+.source-card .meta { font-size: 11px; color: var(--fg2); margin-top: 2px; }
+
+/* Mode selector */
+.mode-select { width: 100%; padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 13px; }
+.mode-desc { font-size: 11px; color: var(--fg2); margin-top: 4px; }
+
+/* Connect form */
+.connect-form { display: flex; flex-direction: column; gap: 6px; }
+.connect-form input { padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 13px; }
+.connect-form input::placeholder { color: var(--fg3); }
+.btn { padding: 6px 12px; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity 0.15s; }
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: var(--blue); color: #000; }
+.btn-secondary { background: var(--bg4); color: var(--fg); border: 1px solid var(--border); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ── Chat area ───────────────────────────────────────── */
+#messages { flex: 1; overflow-y: auto; padding: 16px 24px; }
+#input-bar { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg2); display: flex; gap: 8px; align-items: flex-end; }
+#input-bar textarea { flex: 1; resize: none; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 14px; font-family: inherit; max-height: 120px; line-height: 1.4; }
+#input-bar textarea::placeholder { color: var(--fg3); }
+#input-bar textarea:focus { outline: none; border-color: var(--blue); }
+#send-btn { padding: 10px 18px; }
+#cancel-btn { padding: 10px 14px; background: var(--red); color: #fff; display: none; }
+
+/* Messages */
+.message { margin-bottom: 20px; max-width: 100%; }
+.message.user .bubble { background: var(--bg3); border-radius: var(--radius); padding: 10px 14px; display: inline-block; max-width: 80%; }
+.message.assistant .bubble { line-height: 1.6; }
+.message.assistant .bubble p { margin-bottom: 8px; }
+.message.assistant .bubble h1, .message.assistant .bubble h2, .message.assistant .bubble h3,
+.message.assistant .bubble h4, .message.assistant .bubble h5, .message.assistant .bubble h6 { margin: 16px 0 8px; }
+.message.assistant .bubble ul, .message.assistant .bubble ol { margin: 4px 0 8px 20px; }
+.message.assistant .bubble table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+.message.assistant .bubble th, .message.assistant .bubble td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 13px; }
+.message.assistant .bubble th { background: var(--bg3); font-weight: 600; }
+.message.assistant .bubble pre { background: var(--bg3); border-radius: var(--radius); padding: 12px; overflow-x: auto; margin: 8px 0; }
+.message.assistant .bubble code { font-size: 13px; }
+.message.assistant .bubble p code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
+.message.assistant .role { color: var(--green); }
+.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
+.message.intermediate { opacity: 0.85; border-left: 3px solid var(--purple); padding-left: 12px; }
+.message.intermediate .role { color: var(--purple); }
+.message.intermediate .bubble h3 { font-size: 14px; margin-bottom: 8px; }
+
+/* Welcome message */
+.welcome-content { line-height: 1.6; }
+.welcome-content h2 { font-size: 20px; margin-bottom: 4px; }
+.welcome-content .subtitle { color: var(--fg2); margin-bottom: 16px; font-size: 13px; }
+.schema-table { text-align: left; margin-bottom: 16px; }
+.schema-table th, .schema-table td { padding: 4px 16px; font-size: 13px; }
+.schema-table th { color: var(--fg2); font-weight: 500; }
+.schema-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.erd-container { margin-bottom: 16px; max-width: 900px; overflow-x: auto; }
+.starter-questions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 700px; margin-top: 8px; }
+.starter-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 8px 16px; color: var(--fg); font-size: 13px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.starter-btn:hover { border-color: var(--blue); background: var(--bg4); }
+
+/* Follow-ups */
+.followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.followup-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 16px; padding: 6px 14px; color: var(--fg); font-size: 12px; cursor: pointer; transition: border-color 0.15s; }
+.followup-btn:hover { border-color: var(--blue); }
+
+/* ── Execution Monitor ───────────────────────────────── */
+#monitor h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 12px; }
+.mon-idle { color: var(--fg3); font-size: 13px; font-style: italic; }
+
+/* Phase pipeline */
+.mon-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mon-header .spinner { flex-shrink: 0; }
+.mon-header .label { font-weight: 600; font-size: 15px; }
+.mode-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.mode-badge.quick { border: 1px solid var(--green); color: var(--green); }
+.mode-badge.simple { border: 1px solid var(--blue); color: var(--blue); }
+.mode-badge.optimization { border: 1px solid var(--orange); color: var(--orange); }
+.mode-badge.extended { border: 1px solid var(--purple); color: var(--purple); }
+.mode-badge.deep { border: 1px solid var(--red); color: var(--red); }
+.mode-badge.unknown { border: 1px solid var(--fg3); color: var(--fg3); }
+
+/* Phase pipeline steps */
+.mon-pipeline { display: flex; align-items: center; gap: 4px; margin-bottom: 14px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.pipe-step { font-size: 11px; padding: 3px 8px; border-radius: 10px; background: var(--bg4); color: var(--fg3); white-space: nowrap; }
+.pipe-step.active { background: var(--blue); color: #000; font-weight: 600; }
+.pipe-step.done { background: var(--bg4); color: var(--green); }
+.pipe-arrow { color: var(--fg3); font-size: 10px; }
+
+/* Classify section */
+.mon-section { margin-bottom: 12px; }
+.mon-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg3); margin-bottom: 4px; }
+.mon-classify-text { font-size: 12px; color: var(--purple); font-style: italic; line-height: 1.4; }
+
+/* Plan section */
+.mon-plan-box { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; border-left: 3px solid var(--cyan); }
+.mon-plan-analysis { font-size: 12px; color: var(--fg); line-height: 1.4; margin-bottom: 8px; }
+.mon-plan-approach { font-size: 11px; color: var(--cyan); margin-bottom: 6px; }
+.mon-plan-steps { list-style: none; padding: 0; margin: 0; }
+.mon-plan-steps li { font-size: 12px; color: var(--fg2); padding: 3px 0; display: flex; align-items: flex-start; gap: 6px; }
+.mon-plan-steps .step-num { color: var(--fg3); font-size: 11px; min-width: 18px; text-align: right; flex-shrink: 0; }
+.mon-plan-steps .step-action { font-size: 10px; color: var(--cyan); background: var(--bg4); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+
+/* Progress bar */
+.progress-bar { height: 6px; background: var(--bg4); border-radius: 3px; margin-bottom: 4px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.progress-fill.running { background: var(--blue); }
+.progress-fill.done { background: var(--green); }
+.progress-text { font-size: 11px; color: var(--fg3); margin-bottom: 12px; text-align: right; }
+
+/* Steps (execution) */
+.step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 2px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid transparent; }
+.step .icon { flex-shrink: 0; width: 18px; text-align: center; font-size: 14px; margin-top: 1px; }
+.step .info { flex: 1; min-width: 0; }
+.step .info .desc { font-size: 13px; font-weight: 500; }
+.step .info .step-detail { font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.step .info .code-preview { font-size: 11px; color: var(--fg3); font-family: 'SFMono-Regular', Consolas, monospace; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.step .info .result-preview { font-size: 11px; color: var(--green); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.step .info .timing { font-size: 11px; color: var(--fg3); }
+.step .info .error { font-size: 11px; color: var(--red); word-break: break-all; margin-top: 2px; }
+.step.running { background: rgba(88, 166, 255, 0.06); border-color: rgba(88, 166, 255, 0.15); }
+.step.success { opacity: 0.8; }
+
+/* Spinner animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--fg3); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.6s linear infinite; }
+.spinner-sm { width: 10px; height: 10px; border-width: 1.5px; }
+
+/* LLM activity */
+@keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+.mon-llm { font-size: 11px; color: var(--fg3); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 4px 8px; background: var(--bg3); border-radius: var(--radius); }
+.mon-llm .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+
+/* Status indicators */
+.mon-status-row { font-size: 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius); }
+.mon-status-row.debug { background: rgba(210, 153, 34, 0.08); color: var(--orange); }
+.mon-status-row.validate-ok { background: rgba(63, 185, 80, 0.08); color: var(--green); }
+.mon-status-row.validate-fail { background: rgba(210, 153, 34, 0.08); color: var(--orange); }
+.mon-status-row.replan { background: rgba(188, 140, 255, 0.08); color: var(--purple); }
+
+/* Deep mode */
+.mon-deep-box { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; border-left: 3px solid var(--red); }
+.mon-deep-goal { font-size: 12px; color: var(--fg); margin-bottom: 6px; }
+.mon-investigation { font-size: 12px; padding: 4px 0; display: flex; align-items: flex-start; gap: 6px; }
+.mon-investigation .inv-icon { flex-shrink: 0; font-size: 13px; }
+.mon-investigation .inv-text { color: var(--fg2); }
+
+/* Elapsed & footer */
+.mon-elapsed { font-size: 12px; color: var(--fg2); margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; display: flex; align-items: center; gap: 6px; }
+.mon-elapsed .time { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Activity log */
+.activity-log { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.activity-log summary { font-size: 11px; color: var(--fg3); cursor: pointer; user-select: none; }
+.activity-log .entry { font-size: 11px; color: var(--fg3); padding: 2px 0; font-family: 'SFMono-Regular', Consolas, monospace; }
+
+/* Chart artifacts */
+.chart-artifact { margin: 12px 0; }
+.chart-artifact img { max-width: 100%; border-radius: var(--radius); border: 1px solid var(--border); background: #fff; }
+.chart-artifact .chart-title { font-size: 12px; color: var(--fg2); margin-bottom: 4px; }
+
+/* Mermaid */
+.mermaid svg { max-width: 100%; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--fg3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg2); }
+
+/* Responsive: collapse monitor on narrow screens */
+@media (max-width: 1100px) { #monitor { display: none; } }
+@media (max-width: 800px) { #sidebar { width: 220px; min-width: 220px; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ── Sidebar ────────────────────────────────────── -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <h1>MCPDB</h1>
+      <div class="version">v{{ version }}</div>
+    </div>
+
+    <div class="sidebar-section" id="sources-section">
+      <h3>Sources</h3>
+      <div id="sources-list"></div>
+      <details id="connect-details">
+        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:8px;">Add source</summary>
+        <div class="connect-form" style="margin-top:8px;">
+          <input type="text" id="conn-str" placeholder="mysql://user:pass@host/db">
+          <input type="text" id="conn-name" placeholder="Display name (optional)">
+          <button class="btn btn-primary btn-sm" onclick="connectDatabase()">Connect</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Query Mode</h3>
+      <select class="mode-select" id="mode-select" onchange="updateModeDesc()">
+        <option value="auto">auto</option>
+        <option value="quick">quick</option>
+        <option value="simple">simple</option>
+        <option value="optimization">optimization</option>
+        <option value="extended">extended</option>
+        <option value="deep">deep</option>
+      </select>
+      <div class="mode-desc" id="mode-desc">Automatically selects the best mode</div>
+    </div>
+
+    <div class="sidebar-section" style="border-bottom:none;">
+      <button class="btn btn-secondary" style="width:100%;" onclick="newConversation()">New conversation</button>
+    </div>
+  </div>
+
+  <!-- ── Chat ───────────────────────────────────────── -->
+  <div id="main">
+    <div id="messages"></div>
+    <div id="input-bar">
+      <textarea id="question" rows="1" placeholder="Ask a question about your data..." onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
+      <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
+      <button class="btn" id="cancel-btn" onclick="cancelQuery()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── Execution Monitor ──────────────────────────── -->
+  <div id="monitor">
+    <h3>Execution Monitor</h3>
+    <div id="mon-content">
+      <div class="mon-idle">Waiting for a query...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+const MODE_DESC = {
+  auto: 'Automatically selects the best mode',
+  quick: 'Fast answer from schema context',
+  simple: 'Single-pass analysis',
+  optimization: 'With validation & replanning',
+  extended: 'Multi-revision deep analysis',
+  deep: 'Multi-investigation blueprint',
+};
+
+let ws = null;
+let sources = [];
+let messages = [];
+let isQuerying = false;
+
+// Execution monitor state
+let mon = {
+  phase: 'idle', mode: '', classifyReasoning: '',
+  // Plan
+  planAnalysis: '', planApproach: '', planSteps: [], planStepCount: 0,
+  // Execution
+  steps: [], debugAttempts: 0,
+  validationStatus: '', validationReason: '',
+  replanCount: 0,
+  // LLM
+  llmActive: false, llmLabel: '',
+  // Deep mode
+  deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+  deepReasoningStatus: '',
+  // Log & timing
+  log: [], startTime: 0, elapsed: 0,
+};
+let elapsedTimer = null;
+
+// ── WebSocket ──────────────────────────────────────────
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/query`);
+  ws.onopen = () => console.log('WS connected');
+  ws.onclose = () => { ws = null; setTimeout(connectWS, 2000); };
+  ws.onerror = () => {};
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'event') handleEvent(msg);
+    else if (msg.type === 'result') handleResult(msg);
+    else if (msg.type === 'error') handleError(msg.message);
+    else if (msg.type === 'cancelled') handleCancelled();
+  };
+}
+
+// ── Event handling (same events as NiceGUI's on_event) ─
+function handleEvent(msg) {
+  const et = msg.event_type;
+  const d = msg.data || {};
+
+  // Classification
+  if (et === 'classify/start') { setPhase('classifying'); addLog('Classifying question...'); }
+  else if (et === 'classify/complete') {
+    mon.mode = d.mode || '';
+    mon.classifyReasoning = d.reasoning || '';
+    setPhase('planning');
+    addLog(`Mode: ${mon.mode}` + (d.reasoning ? ` — ${d.reasoning}` : ''));
+  }
+  else if (et === 'classify/override') {
+    mon.mode = d.mode || '';
+    setPhase('planning');
+    addLog(`Mode override: ${mon.mode}`);
+  }
+
+  // Planning
+  else if (et === 'plan/start') { setPhase('planning'); addLog('Generating execution plan...'); }
+  else if (et === 'plan/ready') {
+    mon.planStepCount = d.step_count || 0;
+    mon.planAnalysis = d.analysis || '';
+    mon.planApproach = d.approach || '';
+    mon.planSteps = d.steps || [];
+    setPhase('executing');
+    addLog(`Plan ready: ${mon.planStepCount} steps`);
+  }
+  else if (et === 'plan/retry') { addLog(`Plan retry (attempt ${d.attempt || 2})...`); }
+  else if (et === 'plan/error') { addLog(`Plan error: ${(d.error || '').slice(0, 100)}`); }
+
+  // Steps
+  else if (et === 'step/start') {
+    const step = {
+      number: d.step_number, action: d.action || '', status: 'running',
+      description: d.description || '', codePreview: d.code_preview || '',
+      timeMs: 0, error: '', resultPreview: '', rows: 0,
+    };
+    mon.steps.push(step);
+    addLog(`Step ${step.number}: ${step.description || step.action}`);
+  }
+  else if (et === 'step/complete') {
+    const s = mon.steps.find(s => s.number === d.step_number);
+    if (s) {
+      s.status = 'success'; s.timeMs = d.time_ms || 0;
+      s.resultPreview = d.result_preview || '';
+      s.rows = d.rows || 0;
+    }
+    addLog(`Step ${d.step_number} ✓ (${d.time_ms || 0}ms)`);
+  }
+  else if (et === 'step/error') {
+    const s = mon.steps.find(s => s.number === d.step_number);
+    if (s) { s.status = 'error'; s.error = d.error || ''; }
+    addLog(`Step ${d.step_number} ✗ ${(d.error || '').slice(0, 80)}`);
+  }
+
+  // Debug
+  else if (et === 'debug/start') { mon.debugAttempts++; addLog(`Debug attempt ${d.attempt || mon.debugAttempts}...`); }
+  else if (et === 'debug/fixed') { addLog('Debug: fix applied, retrying'); }
+  else if (et === 'debug/give_up') { addLog('Debug: gave up, skipping step'); }
+
+  // Validation
+  else if (et === 'validate/start') { setPhase('validating'); addLog('Validating results...'); }
+  else if (et === 'validate/adequate') { mon.validationStatus = 'adequate'; addLog('Validation: adequate ✓'); }
+  else if (et === 'validate/inadequate') {
+    mon.validationStatus = 'inadequate';
+    mon.validationReason = d.reason || '';
+    addLog(`Validation: inadequate — ${(d.reason || '').slice(0, 80)}`);
+  }
+
+  // Replan
+  else if (et === 'replan/start') { mon.replanCount++; setPhase('replanning'); addLog('Replanning...'); }
+  else if (et === 'replan/ready') {
+    mon.planStepCount = d.step_count || 0;
+    mon.steps = [];
+    setPhase('executing');
+    addLog(`Replan: ${mon.planStepCount} new steps`);
+  }
+
+  // Quick mode
+  else if (et === 'quick/start') { setPhase('executing'); mon.mode = 'quick'; addLog('Quick mode: answering from context'); }
+  else if (et === 'quick/escalate') { addLog(`Quick → Simple escalation: ${d.reason || ''}`); }
+
+  // Extended
+  else if (et === 'checkpoint/start') { addLog('Checkpoint: reviewing progress...'); }
+  else if (et === 'checkpoint/complete') { addLog(`Checkpoint: ${d.action || 'continue'} — ${(d.reason || '').slice(0, 60)}`); }
+  else if (et === 'revise/start') { addLog('Revising plan...'); }
+  else if (et === 'revise/ready') { addLog(`Revised: ${d.new_step_count || 0} steps remaining`); }
+  else if (et === 'reflect/start') { addLog('Reflecting on results...'); }
+  else if (et === 'reflect/ready') { addLog('Reflection complete'); }
+
+  // Synthesis
+  else if (et === 'synthesize/start') { setPhase('synthesizing'); addLog('Synthesizing final answer...'); }
+  else if (et === 'synthesize/complete') { addLog('Synthesis complete'); }
+
+  // Experience
+  else if (et === 'experience/cache_hit') { setPhase('executing'); addLog('Cache hit — replaying previous result'); }
+  else if (et === 'experience/rethink') { addLog('Force rethink — ignoring cache'); }
+
+  // LLM streaming
+  else if (et === 'llm/start') { mon.llmActive = true; mon.llmLabel = d.label || 'llm'; }
+  else if (et === 'llm/complete' || et === 'llm/cancelled') { mon.llmActive = false; mon.llmLabel = ''; }
+
+  // Mode-level
+  else if (et === 'simple/start') { addLog('Simple mode started'); }
+  else if (et === 'optimization/start') { addLog('Optimization mode started'); }
+  else if (et === 'extended/start') { addLog('Extended mode started'); }
+  else if (et === 'deep/start') { addLog('Deep analysis started'); }
+
+  // Deep mode specifics
+  else if (et === 'deep/blueprint') {
+    mon.deepGoal = d.goal || '';
+    mon.deepInvestigationCount = d.investigation_count || 0;
+    addLog(`Blueprint: ${mon.deepInvestigationCount} investigations`);
+  }
+  else if (et === 'deep/investigation_start') {
+    mon.deepInvestigations.push({
+      id: d.investigation_id,
+      question: d.question || '',
+      approach: d.approach || '',
+      status: 'running',
+    });
+    // Reset step-level state for the new sub-investigation
+    mon.steps = [];
+    mon.planSteps = [];
+    mon.planAnalysis = '';
+    mon.planApproach = '';
+    mon.planStepCount = 0;
+    mon.debugAttempts = 0;
+    mon.validationStatus = '';
+    mon.validationReason = '';
+    setPhase('planning');
+    addLog(`Investigation ${d.investigation_id}: ${(d.question || '').slice(0, 80)}`);
+  }
+  else if (et === 'deep/investigation_complete') {
+    const inv = mon.deepInvestigations.find(i => i.id === d.investigation_id);
+    if (inv) {
+      inv.status = d.success ? 'success' : 'error';
+      inv.response = d.response || '';
+    }
+    addLog(`Investigation ${d.investigation_id} ${d.success ? '✓' : '✗'}`);
+    // Stream the intermediate result as a chat message
+    if (d.response) {
+      const invObj = mon.deepInvestigations.find(i => i.id === d.investigation_id);
+      const invTitle = invObj ? invObj.question : `Investigation ${d.investigation_id}`;
+      const content = `### Investigation ${d.investigation_id}: ${invTitle}\n\n${d.response}`;
+      addMessage('assistant', content, { isIntermediate: true, investigationId: d.investigation_id, artifacts: d.artifacts || [] });
+    }
+  }
+  else if (et === 'deep/reasoning') {
+    const text = d.sufficient ? 'Sufficient evidence gathered' : 'Need more data, continuing...';
+    mon.deepReasoningStatus = text;
+    addLog(`Reasoning: ${text}`);
+  }
+  else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
+  else if (et === 'deep/retry') { addLog(`Retrying ${d.component || 'LLM call'} (attempt ${d.attempt || '?'}, waiting ${d.delay || '?'}s)...`); }
+
+  // Strategy gate, cost check, optimize
+  else if (et === 'strategy_gate/pass') { addLog('Strategy gate: pass'); }
+  else if (et === 'strategy_gate/escalate') { addLog(`Strategy gate: escalate → ${d.to_mode || ''}`); }
+  else if (et === 'cost_check/start') { addLog('Cost check...'); }
+  else if (et === 'cost_check/complete') { addLog(`Cost check: ${d.decision || ''}`); }
+  else if (et === 'optimize/start') { addLog(`Optimizing: ${d.strategy || ''}`); }
+
+  // Agent done
+  else if (et === 'agent/complete') { addLog(`Done (mode: ${d.mode || ''})`); }
+
+  renderMonitor();
+}
+
+function setPhase(phase) {
+  mon.phase = phase;
+  if (phase !== 'idle' && !mon.startTime) {
+    mon.startTime = Date.now();
+    elapsedTimer = setInterval(() => { mon.elapsed = (Date.now() - mon.startTime) / 1000; renderMonitorElapsed(); }, 500);
+  }
+}
+
+function addLog(text) { mon.log.push(text); }
+
+function resetMonitor() {
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  mon = {
+    phase: 'idle', mode: '', classifyReasoning: '',
+    planAnalysis: '', planApproach: '', planSteps: [], planStepCount: 0,
+    steps: [], debugAttempts: 0,
+    validationStatus: '', validationReason: '',
+    replanCount: 0,
+    llmActive: false, llmLabel: '',
+    deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
+    deepReasoningStatus: '',
+    log: [], startTime: 0, elapsed: 0,
+  };
+  renderMonitor();
+}
+
+// ── Result handling ────────────────────────────────────
+function handleResult(msg) {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog(`Done in ${mon.elapsed.toFixed(1)}s`);
+  renderMonitor();
+
+  // For deep mode, charts were already shown in intermediate investigation messages — skip them in the final result
+  let resultArtifacts = msg.artifacts || [];
+  if (msg.query_mode === 'deep' && mon.deepInvestigations.length > 0) {
+    resultArtifacts = resultArtifacts.filter(a => a.type !== 'chart');
+  }
+  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [] };
+  addMessage('assistant', msg.response, meta);
+  toggleInputState(false);
+}
+
+function handleError(message) {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog(`Error: ${message}`);
+  renderMonitor();
+  addMessage('assistant', `**Error:** ${message}`, { isError: true });
+  toggleInputState(false);
+}
+
+function handleCancelled() {
+  isQuerying = false;
+  setPhase('idle');
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+  addLog('Cancelled');
+  renderMonitor();
+  addMessage('assistant', '*Query cancelled.*', {});
+  toggleInputState(false);
+}
+
+// ── Send query ─────────────────────────────────────────
+function sendQuestion(text) {
+  const q = text || document.getElementById('question').value.trim();
+  if (!q || isQuerying) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected to server'); return; }
+
+  document.getElementById('question').value = '';
+  autoGrow(document.getElementById('question'));
+  addMessage('user', q);
+
+  isQuerying = true;
+  resetMonitor();
+  setPhase('classifying');
+  toggleInputState(true);
+
+  const mode = document.getElementById('mode-select').value;
+  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode }));
+}
+
+function cancelQuery() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'cancel' }));
+  }
+}
+
+function toggleInputState(querying) {
+  document.getElementById('send-btn').style.display = querying ? 'none' : '';
+  document.getElementById('cancel-btn').style.display = querying ? '' : 'none';
+  document.getElementById('question').disabled = querying;
+}
+
+// ── Messages ───────────────────────────────────────────
+function addMessage(role, content, meta = {}) {
+  messages.push({ role, content, meta });
+  renderMessage({ role, content, meta });
+  scrollToBottom();
+}
+
+function renderMessage(msg) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  const isIntermediate = msg.meta && msg.meta.isIntermediate;
+  div.className = `message ${msg.role}${isIntermediate ? ' intermediate' : ''}`;
+
+  const roleLabel = isIntermediate ? 'Investigation Result' : (msg.role === 'user' ? 'You' : 'MCPDB');
+  let html = `<div class="role">${roleLabel}</div>`;
+  html += `<div class="bubble">${renderMarkdown(msg.content)}</div>`;
+
+  // Render chart artifacts as images
+  const artifacts = (msg.meta && msg.meta.artifacts) || [];
+  for (const art of artifacts) {
+    if (art.type === 'chart' && art.data && art.data.image_base64) {
+      html += '<div class="chart-artifact">';
+      if (art.title) html += `<div class="chart-title">${escHtml(art.title)}</div>`;
+      html += `<img src="data:image/${art.data.format || 'png'};base64,${art.data.image_base64}" alt="${escHtml(art.title || 'Chart')}" />`;
+      html += '</div>';
+    }
+  }
+
+  if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
+    // Metadata footer
+    const parts = [];
+    if (msg.meta.mode) parts.push(`Mode: ${msg.meta.mode}`);
+    if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
+    if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
+
+    // Follow-up suggestions
+    const followups = msg.meta.followups || [];
+    if (followups.length) {
+      html += '<div class="followups">';
+      for (const q of followups) {
+        html += `<button class="followup-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
+      }
+      html += '</div>';
+    }
+  }
+
+  div.innerHTML = html;
+  container.appendChild(div);
+
+  // Render mermaid blocks
+  div.querySelectorAll('.mermaid-pending').forEach(el => {
+    const code = el.textContent;
+    el.textContent = '';
+    el.classList.remove('mermaid-pending');
+    el.classList.add('mermaid');
+    el.textContent = code;
+  });
+  mermaid.run({ nodes: div.querySelectorAll('.mermaid') });
+
+  // Highlight code blocks
+  div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  // Strip inline base64 image references (charts are rendered from artifacts instead)
+  text = text.replace(/!\[[^\]]*\]\(data:image\/[^)]+\)/g, '*[chart displayed below]*');
+  // Use marked to render markdown
+  return marked.parse(text, { breaks: true, gfm: true });
+}
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function newConversation() {
+  messages = [];
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+  resetMonitor();
+  renderWelcome();
+}
+
+// ── Execution Monitor rendering ────────────────────────
+const PHASES = ['classifying', 'planning', 'executing', 'validating', 'synthesizing'];
+const PHASE_LABELS = {
+  classifying: 'Classify', planning: 'Plan', executing: 'Execute',
+  validating: 'Validate', replanning: 'Replan', synthesizing: 'Synthesize',
+};
+
+function renderMonitor() {
+  const el = document.getElementById('mon-content');
+  if (mon.phase === 'idle' && !mon.log.length) {
+    el.innerHTML = '<div class="mon-idle">Waiting for a query...</div>';
+    return;
+  }
+
+  let h = '';
+
+  // ── Header: spinner/done + phase label + mode badge ──
+  const isDone = mon.phase === 'idle' && mon.log.length > 0;
+  const modeClass = mon.mode || 'unknown';
+  h += '<div class="mon-header">';
+  if (!isDone) h += '<span class="spinner"></span>';
+  else h += '<span style="color:var(--green);font-size:16px">✓</span>';
+  h += `<span class="label">${isDone ? 'Complete' : (PHASE_LABELS[mon.phase] || mon.phase) + '...'}</span>`;
+  if (mon.mode) h += `<span class="mode-badge ${modeClass}">${mon.mode}</span>`;
+  h += '</div>';
+
+  // ── Phase pipeline ──
+  const curPhaseIdx = PHASES.indexOf(mon.phase);
+  h += '<div class="mon-pipeline">';
+  for (let i = 0; i < PHASES.length; i++) {
+    if (i > 0) h += '<span class="pipe-arrow">›</span>';
+    let cls = '';
+    if (isDone) cls = 'done';
+    else if (i < curPhaseIdx) cls = 'done';
+    else if (i === curPhaseIdx) cls = 'active';
+    h += `<span class="pipe-step ${cls}">${PHASE_LABELS[PHASES[i]]}</span>`;
+  }
+  h += '</div>';
+
+  // ── Classification reasoning ──
+  if (mon.classifyReasoning) {
+    h += '<div class="mon-section">';
+    h += '<div class="mon-section-label">Classification</div>';
+    h += `<div class="mon-classify-text">${escHtml(mon.classifyReasoning)}</div>`;
+    h += '</div>';
+  }
+
+  // ── Plan details ──
+  if (mon.planSteps.length > 0 || mon.planAnalysis) {
+    h += '<div class="mon-plan-box">';
+    if (mon.planAnalysis) {
+      h += `<div class="mon-plan-analysis">${escHtml(mon.planAnalysis)}</div>`;
+    }
+    if (mon.planApproach) {
+      h += `<div class="mon-plan-approach">Approach: ${escHtml(mon.planApproach)}</div>`;
+    }
+    if (mon.planSteps.length) {
+      h += '<ul class="mon-plan-steps">';
+      for (const ps of mon.planSteps) {
+        const executed = mon.steps.find(s => s.number === ps.step_number);
+        let statusIcon = '<span style="color:var(--fg3)">○</span>';
+        if (executed) {
+          if (executed.status === 'error') statusIcon = '<span style="color:var(--red)">✗</span>';
+          else if (executed.status === 'success') statusIcon = '<span style="color:var(--green)">✓</span>';
+          else if (executed.status === 'running') statusIcon = isDone
+            ? '<span style="color:var(--green)">✓</span>'
+            : '<span class="spinner spinner-sm"></span>';
+        }
+        h += `<li>${statusIcon} <span class="step-action">${escHtml(ps.action)}</span> ${escHtml(ps.description)}</li>`;
+      }
+      h += '</ul>';
+    }
+    h += '</div>';
+  }
+
+  // ── Deep mode blueprint ──
+  if (mon.deepGoal) {
+    h += '<div class="mon-deep-box">';
+    h += '<div class="mon-section-label">Research Blueprint</div>';
+    h += `<div class="mon-deep-goal">${escHtml(mon.deepGoal)}</div>`;
+
+    const doneInv = isDone ? mon.deepInvestigations.length : mon.deepInvestigations.filter(i => i.status !== 'running').length;
+    const totalInv = Math.max(mon.deepInvestigationCount, mon.deepInvestigations.length);
+    if (totalInv > 0) {
+      const pct = isDone ? 100 : (doneInv / totalInv * 100);
+      h += `<div style="margin:8px 0 6px"><div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'done' : 'running'}" style="width:${pct}%;background:var(--purple)"></div></div>`;
+      h += `<div class="progress-text">${doneInv}/${totalInv} investigations</div></div>`;
+    }
+
+    for (const inv of mon.deepInvestigations) {
+      let icon = isDone
+        ? '<span style="color:var(--green)">✓</span>'
+        : '<span class="spinner spinner-sm"></span>';
+      if (inv.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
+      else if (inv.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+      h += '<div class="mon-investigation">';
+      h += `<span class="inv-icon">${icon}</span>`;
+      h += `<span class="inv-text">${escHtml(inv.question)}`;
+      if (inv.approach) h += `<br><span style="font-size:11px;color:var(--fg3)">${escHtml(inv.approach)}</span>`;
+      h += '</span></div>';
+    }
+    if (mon.deepInvestigationCount > mon.deepInvestigations.length) {
+      const remaining = mon.deepInvestigationCount - mon.deepInvestigations.length;
+      h += `<div class="mon-investigation"><span class="inv-icon" style="color:var(--fg3)">○</span><span class="inv-text" style="color:var(--fg3)">${remaining} more pending</span></div>`;
+    }
+
+    // Reasoning status
+    if (mon.deepReasoningStatus) {
+      h += `<div style="font-size:11px;color:var(--purple);margin-top:6px;font-style:italic">💭 ${escHtml(mon.deepReasoningStatus)}</div>`;
+    }
+
+    h += '</div>';
+  }
+
+  // ── Progress bar ──
+  if (mon.steps.length > 0) {
+    const done = isDone ? mon.steps.length : mon.steps.filter(s => s.status === 'success' || s.status === 'error').length;
+    const total = Math.max(mon.steps.length, mon.planStepCount);
+    const pct = total > 0 ? (done / total * 100) : 0;
+    const barClass = isDone ? 'done' : 'running';
+    h += `<div class="progress-bar"><div class="progress-fill ${barClass}" style="width:${pct}%"></div></div>`;
+    h += `<div class="progress-text">${done}/${total} steps completed</div>`;
+  }
+
+  // ── LLM activity indicator ──
+  if (mon.llmActive && !isDone) {
+    const labelMap = { plan: 'Planning', synthesize: 'Synthesizing', classify: 'Classifying', debug: 'Debugging', validate: 'Validating', checkpoint: 'Reviewing' };
+    const displayLabel = labelMap[mon.llmLabel] || mon.llmLabel || 'Thinking';
+    h += `<div class="mon-llm"><span class="dot"></span> LLM: ${escHtml(displayLabel)}</div>`;
+  }
+
+  // ── Execution steps ──
+  for (const s of mon.steps) {
+    // Resolve effective status: treat 'running' as 'success' when done
+    const effectiveStatus = (isDone && s.status === 'running') ? 'success' : s.status;
+    let icon = '<span class="spinner spinner-sm"></span>';
+    if (effectiveStatus === 'success') icon = '<span style="color:var(--green)">✓</span>';
+    else if (effectiveStatus === 'error') icon = '<span style="color:var(--red)">✗</span>';
+
+    h += `<div class="step ${effectiveStatus}">`;
+    h += `<div class="icon">${icon}</div>`;
+    h += '<div class="info">';
+    // Step title: description or action
+    const title = s.description || s.action;
+    h += `<div class="desc">Step ${s.number}: ${escHtml(title)}</div>`;
+    // Action badge + detail
+    if (s.description && s.action) {
+      h += `<div class="step-detail"><span style="color:var(--cyan)">${escHtml(s.action)}</span></div>`;
+    }
+    // Code preview (while running)
+    if (effectiveStatus === 'running' && s.codePreview) {
+      h += `<div class="code-preview">${escHtml(s.codePreview)}</div>`;
+    }
+    // Result preview (after success)
+    if (effectiveStatus === 'success' && s.resultPreview) {
+      let preview = s.resultPreview.slice(0, 120);
+      if (s.rows > 0) preview = `${s.rows} rows — ${preview}`;
+      h += `<div class="result-preview">${escHtml(preview)}</div>`;
+    }
+    if (s.timeMs > 0) h += `<div class="timing">${fmtMs(s.timeMs)}</div>`;
+    if (s.error) h += `<div class="error">${escHtml(s.error.slice(0, 200))}</div>`;
+    h += '</div></div>';
+  }
+
+  // ── Status indicators ──
+  if (mon.debugAttempts > 0) {
+    h += `<div class="mon-status-row debug">🐛 Debug attempts: ${mon.debugAttempts}</div>`;
+  }
+  if (mon.validationStatus) {
+    const ok = mon.validationStatus === 'adequate';
+    const cls = ok ? 'validate-ok' : 'validate-fail';
+    const icon = ok ? '✓' : '⚠';
+    let text = `Validation: ${mon.validationStatus}`;
+    if (mon.validationReason) text += ` — ${mon.validationReason.slice(0, 80)}`;
+    h += `<div class="mon-status-row ${cls}">${icon} ${escHtml(text)}</div>`;
+  }
+  if (mon.replanCount > 0) {
+    h += `<div class="mon-status-row replan">↻ Replanned ${mon.replanCount} time(s)</div>`;
+  }
+
+  // ── Elapsed ──
+  h += `<div class="mon-elapsed" id="mon-elapsed"><span class="time">${fmtElapsed(mon.elapsed)}</span> elapsed</div>`;
+
+  // ── Activity log ──
+  if (mon.log.length) {
+    h += '<details class="activity-log"><summary>Activity log (' + mon.log.length + ')</summary>';
+    for (const entry of mon.log) {
+      h += `<div class="entry">${escHtml(entry)}</div>`;
+    }
+    h += '</details>';
+  }
+
+  el.innerHTML = h;
+}
+
+function renderMonitorElapsed() {
+  const el = document.getElementById('mon-elapsed');
+  if (el) {
+    const time = el.querySelector('.time');
+    if (time) time.textContent = fmtElapsed(mon.elapsed);
+  }
+}
+
+function fmtMs(ms) {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function fmtElapsed(s) {
+  if (s < 60) return `${s.toFixed(0)}s`;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}m ${sec}s`;
+}
+
+// ── Source management ──────────────────────────────────
+async function loadSources() {
+  try {
+    const res = await fetch('/api/sources');
+    sources = await res.json();
+    renderSources();
+    renderWelcome();
+  } catch (e) { console.error('Failed to load sources', e); }
+}
+
+function renderSources() {
+  const el = document.getElementById('sources-list');
+  if (!sources.length) {
+    el.innerHTML = '<div style="font-size:12px; color:var(--fg3); font-style:italic;">No sources connected</div>';
+    return;
+  }
+  el.innerHTML = sources.map(s => {
+    const tableCount = (s.tables || []).length;
+    return `<div class="source-card">
+      <div class="name">${escHtml(s.display_name || s.source_id)}</div>
+      <div class="meta">${s.source_type} \u00b7 ${tableCount} table${tableCount !== 1 ? 's' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function connectDatabase() {
+  const connStr = document.getElementById('conn-str').value.trim();
+  if (!connStr) return;
+  const name = document.getElementById('conn-name').value.trim();
+  try {
+    const res = await fetch('/api/sources/database', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_string: connStr, display_name: name || undefined }),
+    });
+    if (!res.ok) { const e = await res.json(); alert(e.detail); return; }
+    document.getElementById('conn-str').value = '';
+    document.getElementById('conn-name').value = '';
+    document.getElementById('connect-details').removeAttribute('open');
+    await loadSources();
+  } catch (e) { alert('Connection failed: ' + e); }
+}
+
+// ── Welcome / discovery message ─────────────────────────
+async function renderWelcome() {
+  if (!sources.length) {
+    addMessage('assistant', 'Welcome to **MCPDB**. Connect a database to get started.', { isWelcome: true });
+    return;
+  }
+
+  const s = sources[0];
+  const tables = s.table_summary || [];
+  let parts = [];
+
+  parts.push(`## Connected: ${escHtml(s.display_name || s.source_id)}`);
+  parts.push(`*${s.source_type} · ${tables.length} tables*`);
+
+  // Schema table as markdown
+  if (tables.length) {
+    parts.push('');
+    parts.push('| Table | Columns | Rows |');
+    parts.push('|-------|--------:|-----:|');
+    for (const t of tables) {
+      const rows = t.rows != null ? t.rows.toLocaleString() : '—';
+      parts.push(`| ${t.name} | ${t.columns} | ${rows} |`);
+    }
+  }
+
+  const content = parts.join('\n');
+
+  // Fetch ERD
+  let erdMermaid = '';
+  try {
+    const res = await fetch(`/api/sources/${s.source_id}/erd`);
+    if (res.ok) {
+      const data = await res.json();
+      erdMermaid = data.mermaid || '';
+    }
+  } catch (e) {}
+
+  // Starter questions
+  const starters = suggestStarters(tables);
+
+  // Render as assistant message with custom HTML for ERD + starters
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'message assistant';
+
+  let html = '<div class="role">MCPDB</div>';
+  html += `<div class="bubble"><div class="welcome-content">${renderMarkdown(content)}`;
+
+  if (erdMermaid) {
+    html += '<div class="erd-container"><div class="mermaid">' + escHtml(erdMermaid) + '</div></div>';
+  }
+
+  html += '</div></div>';
+
+  if (starters.length) {
+    html += '<div class="starter-questions">';
+    for (const q of starters) {
+      html += `<button class="starter-btn" onclick="sendQuestion('${escAttr(q)}')">${escHtml(q)}</button>`;
+    }
+    html += '</div>';
+  }
+
+  div.innerHTML = html;
+  container.appendChild(div);
+
+  // Store in messages array so it persists conceptually
+  messages.push({ role: 'assistant', content, meta: { isWelcome: true } });
+
+  // Render mermaid
+  div.querySelectorAll('.mermaid').forEach(node => { mermaid.run({ nodes: [node] }); });
+  // Highlight code
+  div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+
+  scrollToBottom();
+}
+
+function suggestStarters(tables) {
+  if (!tables.length) return [];
+  const starters = [];
+  starters.push(`How many rows are in each table?`);
+  if (tables.length > 2) starters.push(`What are the relationships between tables?`);
+  if (tables.length > 0) starters.push(`Show me a sample from ${tables[0].name}`);
+  if (tables.length > 1) starters.push(`What columns do ${tables[0].name} and ${tables[1].name} have?`);
+  return starters;
+}
+
+// ── Mode selector ──────────────────────────────────────
+function updateModeDesc() {
+  const mode = document.getElementById('mode-select').value;
+  document.getElementById('mode-desc').textContent = MODE_DESC[mode] || '';
+}
+
+// ── Input handling ─────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+}
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Helpers ────────────────────────────────────────────
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/\n/g, ' '); }
+
+// ── Configure libraries ────────────────────────────────
+marked.setOptions({
+  renderer: new marked.Renderer(),
+  highlight: function(code, lang) {
+    if (lang === 'mermaid') return null;  // handled separately
+    try { return hljs.highlight(code, { language: lang || 'plaintext' }).value; } catch { return code; }
+  },
+  gfm: true, breaks: true,
+});
+
+// Override mermaid code blocks in marked
+const origCodeRenderer = new marked.Renderer().code;
+const customRenderer = new marked.Renderer();
+customRenderer.code = function({ text, lang }) {
+  if (lang === 'mermaid') {
+    return `<div class="mermaid-pending">${escHtml(text)}</div>`;
+  }
+  return `<pre><code class="language-${lang || 'plaintext'}">${text}</code></pre>`;
+};
+// Skip relative image paths (e.g. chart.png) — actual charts are rendered from artifacts
+customRenderer.image = function({ href, title, text }) {
+  if (href && !href.startsWith('http') && !href.startsWith('data:')) {
+    return `<em>[chart: ${escHtml(text || title || href)}]</em>`;
+  }
+  return `<img src="${href}" alt="${escHtml(text || '')}" title="${escHtml(title || '')}" />`;
+};
+marked.setOptions({ renderer: customRenderer });
+
+mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+
+// ── Init ───────────────────────────────────────────────
+connectWS();
+loadSources();
+</script>
+</body>
+</html>

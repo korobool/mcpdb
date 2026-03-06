@@ -78,7 +78,9 @@ def _infer_relationships(tables: list[TableInfo]) -> list[dict[str, Any]]:
 
     Heuristics:
     1. Column named `{other_table}_id` or `{other_table}id` → likely FK
-    2. Column with _id suffix matching a PK in another table
+    2. Column with ``_id`` suffix matching a table name
+    3. Column name exactly matches a single-column PK of another table
+       (handles prefixed tables, e.g. ``opis_id`` → ``ins_opis.opis_id``)
     """
     table_map = {t.name: t for t in tables}
     # Build index of table PKs
@@ -87,86 +89,89 @@ def _infer_relationships(tables: list[TableInfo]) -> list[dict[str, Any]]:
         if t.primary_keys:
             pk_map[t.name] = set(t.primary_keys)
 
+    # Reverse index: PK column name → tables that have it as sole PK
+    pk_col_to_tables: dict[str, list[str]] = {}
+    for tname, pks in pk_map.items():
+        if len(pks) == 1:
+            pk_col = next(iter(pks))
+            pk_col_to_tables.setdefault(pk_col, []).append(tname)
+
     inferred: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str]] = set()
+
+    def _add(src_table: str, src_col: str, tgt_table: str, tgt_col: str,
+             confidence: str = "high") -> None:
+        key = (src_table, src_col, tgt_table, tgt_col)
+        if key not in seen:
+            seen.add(key)
+            inferred.append({
+                "source_table": src_table,
+                "source_columns": [src_col],
+                "target_table": tgt_table,
+                "target_columns": [tgt_col],
+                "type": "inferred",
+                "confidence": confidence,
+            })
+
+    def _resolve_pk(other_name: str) -> str | None:
+        """Return the single PK column for a table, or 'id' fallback."""
+        if other_name in pk_map and len(pk_map[other_name]) == 1:
+            return next(iter(pk_map[other_name]))
+        other_table = table_map[other_name]
+        for tc in other_table.columns:
+            if tc.name.lower() == "id":
+                return tc.name
+        return None
 
     for table in tables:
         for col in table.columns:
             col_lower = col.name.lower()
 
             # Pattern 1: column named <table>_id or <table>id
-            for other_name, other_table in table_map.items():
+            for other_name in table_map:
                 if other_name == table.name:
                     continue
                 other_lower = other_name.lower()
 
-                # Check: col is like "orders_id", "order_id", "orderid"
                 patterns = [
                     f"{other_lower}_id",
                     f"{other_lower}id",
                     f"{other_lower}_fk",
                 ]
-                # Also singular form if table name ends with 's'
                 if other_lower.endswith("s"):
                     singular = other_lower[:-1]
                     patterns.extend([f"{singular}_id", f"{singular}id"])
 
                 if col_lower in patterns:
-                    # Match to PK of target table
-                    target_col = None
-                    if other_name in pk_map and len(pk_map[other_name]) == 1:
-                        target_col = next(iter(pk_map[other_name]))
-                    else:
-                        # Try "id" column
-                        for tc in other_table.columns:
-                            if tc.name.lower() == "id":
-                                target_col = tc.name
-                                break
-
+                    target_col = _resolve_pk(other_name)
                     if target_col:
-                        key = (table.name, col.name, other_name, target_col)
-                        if key not in seen:
-                            seen.add(key)
-                            inferred.append({
-                                "source_table": table.name,
-                                "source_columns": [col.name],
-                                "target_table": other_name,
-                                "target_columns": [target_col],
-                                "type": "inferred",
-                                "confidence": "high",
-                            })
+                        _add(table.name, col.name, other_name, target_col)
 
             # Pattern 2: column ends with _id and matches a table name
             if col_lower.endswith("_id"):
                 prefix = col_lower[:-3]  # strip "_id"
-                for other_name, other_table in table_map.items():
+                for other_name in table_map:
                     if other_name == table.name:
                         continue
                     other_lower = other_name.lower()
-                    # Check if prefix matches table name or singular
                     if prefix == other_lower or (
                         other_lower.endswith("s") and prefix == other_lower[:-1]
                     ):
-                        target_col = None
-                        if other_name in pk_map and len(pk_map[other_name]) == 1:
-                            target_col = next(iter(pk_map[other_name]))
-                        else:
-                            for tc in other_table.columns:
-                                if tc.name.lower() == "id":
-                                    target_col = tc.name
-                                    break
+                        target_col = _resolve_pk(other_name)
                         if target_col:
-                            key = (table.name, col.name, other_name, target_col)
-                            if key not in seen:
-                                seen.add(key)
-                                inferred.append({
-                                    "source_table": table.name,
-                                    "source_columns": [col.name],
-                                    "target_table": other_name,
-                                    "target_columns": [target_col],
-                                    "type": "inferred",
-                                    "confidence": "high",
-                                })
+                            _add(table.name, col.name, other_name, target_col)
+
+            # Pattern 3: column name matches a single-column PK of another table
+            # e.g. ins_opis_rows.opis_id → ins_opis.opis_id (PK)
+            if col.name in pk_col_to_tables:
+                for owner_table in pk_col_to_tables[col.name]:
+                    if owner_table == table.name:
+                        continue
+                    # Skip if this column IS the PK of the current table
+                    if table.name in pk_map and col.name in pk_map[table.name]:
+                        continue
+                    _add(table.name, col.name, owner_table, col.name,
+                         confidence="medium")
 
     return inferred
 
