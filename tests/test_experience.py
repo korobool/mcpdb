@@ -607,3 +607,667 @@ class TestAgentIntegration:
 
         # Should have run normally (no error)
         assert state.get("query_mode") is not None
+
+    @pytest.mark.asyncio
+    async def test_no_cache_flag_skips_lookup(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """no_cache=True skips cache lookup but agent still runs."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        # Pre-populate cache
+        cache.store(
+            question="What tables exist?",
+            source_metadata=source_metadata,
+            query_mode="quick",
+            steps=[],
+            response="Cached answer.",
+        )
+
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="What tables exist?",
+            registry=mock_registry,
+            llm=mock_llm,
+            callbacks=callbacks,
+            experience_cache=cache,
+            no_cache=True,
+        )
+
+        # Should NOT be a cache hit
+        assert state.get("cache_hit") is not True
+        # Should have run normally (classified)
+        assert state.get("query_mode") is not None
+
+    @pytest.mark.asyncio
+    async def test_no_cache_flag_does_not_invalidate(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """no_cache=True does not invalidate existing cache entries."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        # Pre-populate cache
+        cache.store(
+            question="What tables exist?",
+            source_metadata=source_metadata,
+            query_mode="quick",
+            steps=[],
+            response="Cached answer.",
+        )
+
+        # Run with no_cache — should skip but not invalidate
+        await run_agent(
+            question="What tables exist?",
+            registry=mock_registry,
+            llm=mock_llm,
+            callbacks=CallbackManager(),
+            experience_cache=cache,
+            no_cache=True,
+        )
+
+        # Cache entry should still be there
+        result = cache.lookup("What tables exist?", source_metadata)
+        assert result is not None
+        assert result.response == "Cached answer."
+
+
+# ---------------------------------------------------------------------------
+# Mode-aware cache tests
+# ---------------------------------------------------------------------------
+
+class TestModeAwareCache:
+    def test_accepts_same_mode(self, cache, source_metadata):
+        cache.store(
+            question="Analyze trends",
+            source_metadata=source_metadata,
+            query_mode="extended",
+            steps=[CodeStep(action_type="sql", code="SELECT 1")],
+            response="Extended analysis.",
+        )
+
+        result = cache.lookup("Analyze trends", source_metadata, mode_override="extended")
+        assert result is not None
+
+    def test_accepts_higher_mode(self, cache, source_metadata):
+        cache.store(
+            question="Analyze trends",
+            source_metadata=source_metadata,
+            query_mode="extended",
+            steps=[CodeStep(action_type="sql", code="SELECT 1")],
+            response="Extended analysis.",
+        )
+
+        # Requesting simple, cached is extended — should accept (higher is fine)
+        result = cache.lookup("Analyze trends", source_metadata, mode_override="simple")
+        assert result is not None
+
+    def test_rejects_lower_mode(self, cache, source_metadata):
+        cache.store(
+            question="Analyze trends",
+            source_metadata=source_metadata,
+            query_mode="simple",
+            steps=[CodeStep(action_type="sql", code="SELECT 1")],
+            response="Simple analysis.",
+        )
+
+        # Requesting extended, cached is simple — should reject
+        result = cache.lookup("Analyze trends", source_metadata, mode_override="extended")
+        assert result is None
+
+    def test_no_mode_override_accepts_any(self, cache, source_metadata):
+        cache.store(
+            question="Analyze trends",
+            source_metadata=source_metadata,
+            query_mode="quick",
+            steps=[],
+            response="Quick answer.",
+        )
+
+        # No mode_override (auto-classified) — should accept any cached mode
+        result = cache.lookup("Analyze trends", source_metadata, mode_override=None)
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# Plan metadata caching tests
+# ---------------------------------------------------------------------------
+
+class TestPlanMetadataCache:
+    def test_plan_metadata_stored(self, cache, source_metadata):
+        cache.store(
+            question="Show customer stats",
+            source_metadata=source_metadata,
+            query_mode="simple",
+            steps=[CodeStep(action_type="sql", code="SELECT COUNT(*) FROM customers")],
+            response="Stats here.",
+            plan_metadata={
+                "analysis": "Customer statistics",
+                "approach": "Count and aggregate",
+                "step_descriptions": [
+                    {"step_number": 1, "action": "sql", "description": "Count customers"},
+                ],
+            },
+        )
+
+        result = cache.lookup("Show customer stats", source_metadata)
+        assert result is not None
+        assert result.plan_metadata["analysis"] == "Customer statistics"
+        assert len(result.plan_metadata["step_descriptions"]) == 1
+
+    def test_plan_metadata_roundtrip(self):
+        """plan_metadata survives to_dict → from_dict."""
+        record = SuccessRecord(
+            intent_hash="h",
+            question="q",
+            source_fingerprint="fp",
+            schema_hash="sh",
+            query_mode="extended",
+            steps=[],
+            response="r",
+            plan_metadata={
+                "analysis": "Test analysis",
+                "approach": "Test approach",
+                "step_descriptions": [{"step_number": 1, "action": "sql", "description": "Step 1"}],
+            },
+        )
+        d = record.to_dict()
+        assert "plan_metadata" in d
+        restored = SuccessRecord.from_dict(d)
+        assert restored.plan_metadata["analysis"] == "Test analysis"
+
+    def test_blueprint_metadata_roundtrip(self):
+        """Deep mode blueprint metadata survives to_dict → from_dict."""
+        record = SuccessRecord(
+            intent_hash="h",
+            question="q",
+            source_fingerprint="fp",
+            schema_hash="sh",
+            query_mode="deep",
+            steps=[],
+            response="r",
+            plan_metadata={
+                "blueprint": {
+                    "research_goal": "Investigate data quality",
+                    "investigations": [
+                        {"id": 1, "question": "Missing values?", "approach": "Count NULLs", "priority": "high"},
+                    ],
+                },
+            },
+        )
+        d = record.to_dict()
+        restored = SuccessRecord.from_dict(d)
+        assert restored.plan_metadata["blueprint"]["research_goal"] == "Investigate data quality"
+        assert len(restored.plan_metadata["blueprint"]["investigations"]) == 1
+
+    def test_staged_record_plan_metadata_roundtrip(self):
+        """StagedRecord plan_metadata survives to_dict → from_dict → to_success_record."""
+        from mcpdb.experience.records import StagedRecord
+        staged = StagedRecord(
+            intent_hash="h",
+            question="q",
+            source_fingerprint="fp",
+            schema_hash="sh",
+            query_mode="simple",
+            steps=[],
+            response="r",
+            plan_metadata={"analysis": "My analysis", "approach": "My approach"},
+        )
+        d = staged.to_dict()
+        assert d["plan_metadata"]["analysis"] == "My analysis"
+
+        restored = StagedRecord.from_dict(d)
+        assert restored.plan_metadata["approach"] == "My approach"
+
+        success = restored.to_success_record()
+        assert success.plan_metadata["analysis"] == "My analysis"
+
+    def test_empty_plan_metadata_not_serialized(self):
+        """Empty plan_metadata should not be included in to_dict."""
+        record = SuccessRecord(
+            intent_hash="h", question="q", source_fingerprint="fp",
+            schema_hash="sh", query_mode="simple", steps=[], response="r",
+        )
+        d = record.to_dict()
+        assert "plan_metadata" not in d
+
+
+# ---------------------------------------------------------------------------
+# Cache clear_all / clear_source_by_fingerprint tests
+# ---------------------------------------------------------------------------
+
+class TestCacheClearOperations:
+    def test_clear_all(self, cache, source_metadata):
+        """clear_all removes all entries from memory and disk."""
+        cache.store(
+            question="Q1", source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="R1",
+        )
+        cache.store(
+            question="Q2", source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="R2",
+        )
+        assert cache.get_stats()["memory_entries"] >= 2
+
+        cache.clear_all()
+
+        assert cache.get_stats()["memory_entries"] == 0
+        assert cache.get_stats()["disk_total_successes"] == 0
+        assert cache.lookup("Q1", source_metadata) is None
+        assert cache.lookup("Q2", source_metadata) is None
+
+    def test_clear_source_by_fingerprint(self, cache, source_metadata):
+        """clear_source_by_fingerprint removes entries for one fingerprint."""
+        from mcpdb.experience.fingerprint import fingerprint_source
+
+        cache.store(
+            question="Q1", source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="R1",
+        )
+        fp = fingerprint_source(source_metadata)
+        cache.clear_source_by_fingerprint(fp)
+
+        assert cache.lookup("Q1", source_metadata) is None
+
+    def test_clear_all_clears_semantic_index(self, cache, source_metadata):
+        """clear_all also wipes the semantic index."""
+        cache.store(
+            question="Show top customers", source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="R",
+        )
+        assert len(cache._semantic_index) > 0
+
+        cache.clear_all()
+        assert len(cache._semantic_index) == 0
+
+    def test_clear_all_then_repopulate(self, cache, source_metadata):
+        """After clear_all, new entries can be stored and retrieved."""
+        cache.store(
+            question="Q1", source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="Old",
+        )
+        cache.clear_all()
+
+        cache.store(
+            question="Q1", source_metadata=source_metadata,
+            query_mode="extended", steps=[], response="New",
+        )
+        result = cache.lookup("Q1", source_metadata)
+        assert result is not None
+        assert result.response == "New"
+        assert result.query_mode == "extended"
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive caching behaviour tests
+# ---------------------------------------------------------------------------
+
+class TestCachingBehaviour:
+    """Tests for cache population, replay, and quality gate."""
+
+    @pytest.fixture
+    def mock_registry(self, source_metadata):
+        from unittest.mock import MagicMock
+        registry = MagicMock()
+        registry.list_sources.return_value = [source_metadata]
+        registry.get_combined_context.return_value = "Test context"
+        return registry
+
+    @pytest.fixture
+    def mock_llm(self):
+        from unittest.mock import AsyncMock, MagicMock
+        llm = MagicMock()
+        llm.generate = AsyncMock(return_value=("mocked response", {"input_tokens": 10, "output_tokens": 5}))
+        llm.generate_json = AsyncMock(return_value=(
+            {"query_mode": "quick", "target_sources": [], "requires_cross_source": False, "key_entities": []},
+            {"input_tokens": 10, "output_tokens": 5},
+        ))
+        return llm
+
+    def test_is_cacheable_rejects_short_response(self):
+        """Responses under 20 chars are not cacheable."""
+        from mcpdb.agent.graph import _is_cacheable
+        assert _is_cacheable({"response": "short"}) is False
+        assert _is_cacheable({"response": ""}) is False
+        assert _is_cacheable({}) is False
+
+    def test_is_cacheable_rejects_error_phrases(self):
+        """Responses containing error-like phrases are not cacheable."""
+        from mcpdb.agent.graph import _is_cacheable
+        assert _is_cacheable({"response": "Could not determine the answer because the data is incomplete."}) is False
+        assert _is_cacheable({"response": "Unable to process this request right now."}) is False
+        assert _is_cacheable({"response": "Error: something went terribly wrong here."}) is False
+
+    def test_is_cacheable_rejects_inadequate_validation(self):
+        """Results marked as inadequate by validation are not cacheable."""
+        from mcpdb.agent.graph import _is_cacheable
+        state = {
+            "response": "This is a long enough response to pass the length check.",
+            "validation_result": "inadequate",
+        }
+        assert _is_cacheable(state) is False
+
+    def test_is_cacheable_rejects_majority_failures(self):
+        """When more than half of execution steps failed, not cacheable."""
+        from mcpdb.agent.graph import _is_cacheable
+        state = {
+            "response": "This is a long enough response to pass the length check.",
+            "execution_log": [
+                {"status": "error"},
+                {"status": "error"},
+                {"status": "success"},
+            ],
+        }
+        assert _is_cacheable(state) is False
+
+    def test_is_cacheable_accepts_good_state(self):
+        """A healthy state with sufficient response is cacheable."""
+        from mcpdb.agent.graph import _is_cacheable
+        state = {
+            "response": "Here are the top 10 customers by total order value with details.",
+            "execution_log": [
+                {"status": "success"},
+                {"status": "success"},
+            ],
+        }
+        assert _is_cacheable(state) is True
+
+    def test_build_code_steps_from_execution_log(self):
+        """_build_code_steps extracts steps from execution_log."""
+        from mcpdb.agent.graph import _build_code_steps
+        state = {
+            "execution_log": [
+                {"action": "sql", "code": "SELECT 1", "result_preview": "1 row", "time_ms": 10.0},
+                {"action": "python", "code": "print(df)", "result_preview": "ok", "time_ms": 5.0},
+            ],
+        }
+        steps = _build_code_steps(state)
+        assert len(steps) == 2
+        assert steps[0].action_type == "sql"
+        assert steps[0].code == "SELECT 1"
+        assert steps[1].action_type == "python"
+
+    def test_extract_plan_metadata_from_plan(self):
+        """_extract_plan_metadata extracts plan analysis/approach/steps."""
+        from mcpdb.agent.graph import _extract_plan_metadata
+        state = {
+            "plan": {
+                "analysis": "Count customers",
+                "approach": "SQL aggregate",
+                "steps": [
+                    {"step_number": 1, "action": "sql", "description": "Count rows"},
+                    {"step_number": 2, "action": "python", "description": "Format output"},
+                ],
+            },
+        }
+        pm = _extract_plan_metadata(state)
+        assert pm["analysis"] == "Count customers"
+        assert pm["approach"] == "SQL aggregate"
+        assert len(pm["step_descriptions"]) == 2
+        assert pm["step_descriptions"][0]["description"] == "Count rows"
+
+    def test_extract_plan_metadata_from_blueprint(self):
+        """_extract_plan_metadata extracts deep mode blueprint."""
+        from mcpdb.agent.graph import _extract_plan_metadata
+        state = {
+            "blueprint": {
+                "research_goal": "Analyze data quality",
+                "investigations": [
+                    {"id": 1, "question": "Missing values?", "approach": "Count NULLs", "priority": "high"},
+                    {"id": 2, "question": "Outliers?", "approach": "IQR method", "priority": "medium"},
+                ],
+            },
+        }
+        pm = _extract_plan_metadata(state)
+        assert "blueprint" in pm
+        assert pm["blueprint"]["research_goal"] == "Analyze data quality"
+        assert len(pm["blueprint"]["investigations"]) == 2
+
+    def test_extract_plan_metadata_empty_state(self):
+        """_extract_plan_metadata returns empty dict for empty state."""
+        from mcpdb.agent.graph import _extract_plan_metadata
+        assert _extract_plan_metadata({}) == {}
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_emits_event(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """Cache hit should emit experience/cache_hit event."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="2 tables.",
+        )
+
+        callbacks = CallbackManager()
+        await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache,
+        )
+
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "experience/cache_hit" in event_types
+
+    @pytest.mark.asyncio
+    async def test_no_cache_hit_event_when_miss(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """Cache miss should not emit experience/cache_hit."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        callbacks = CallbackManager()
+        await run_agent(
+            question="Something new?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache,
+        )
+
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "experience/cache_hit" not in event_types
+
+    @pytest.mark.asyncio
+    async def test_force_rethink_invalidates_and_skips(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """force_rethink skips cache AND invalidates existing entry."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="Cached.",
+        )
+
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache, force_rethink=True,
+        )
+
+        # Should not be a cache hit
+        assert state.get("cache_hit") is not True
+        # Should have emitted rethink event
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "experience/rethink" in event_types
+
+    @pytest.mark.asyncio
+    async def test_no_cache_flag_no_rethink_event(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """no_cache does NOT emit rethink or invalidate."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="Cached.",
+        )
+
+        callbacks = CallbackManager()
+        await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache, no_cache=True,
+        )
+
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "experience/rethink" not in event_types
+        assert "experience/cache_hit" not in event_types
+
+    @pytest.mark.asyncio
+    async def test_mode_override_passed_to_cache_lookup(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """When mode_override is set, cache should respect mode hierarchy."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        # Cache a simple-mode answer
+        cache.store(
+            question="Analyze data",
+            source_metadata=source_metadata,
+            query_mode="simple",
+            steps=[CodeStep(action_type="sql", code="SELECT 1")],
+            response="Simple result with enough characters to pass.",
+        )
+
+        # Request extended — should NOT get the simple cache hit
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="Analyze data",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache, mode_override="extended",
+        )
+        assert state.get("cache_hit") is not True
+
+
+# ---------------------------------------------------------------------------
+# No-cache mode comprehensive tests
+# ---------------------------------------------------------------------------
+
+class TestNoCacheMode:
+    """Comprehensive tests for no_cache behaviour across agent integration."""
+
+    @pytest.fixture
+    def mock_registry(self, source_metadata):
+        from unittest.mock import MagicMock
+        registry = MagicMock()
+        registry.list_sources.return_value = [source_metadata]
+        registry.get_combined_context.return_value = "Test context"
+        return registry
+
+    @pytest.fixture
+    def mock_llm(self):
+        from unittest.mock import AsyncMock, MagicMock
+        llm = MagicMock()
+        llm.generate = AsyncMock(return_value=("mocked response", {"input_tokens": 10, "output_tokens": 5}))
+        llm.generate_json = AsyncMock(return_value=(
+            {"query_mode": "quick", "target_sources": [], "requires_cross_source": False, "key_entities": []},
+            {"input_tokens": 10, "output_tokens": 5},
+        ))
+        return llm
+
+    @pytest.mark.asyncio
+    async def test_no_cache_still_classifies(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """With no_cache, the question should still be classified normally."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="Cached.",
+        )
+
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache, no_cache=True,
+        )
+
+        assert state.get("query_mode") is not None
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "classify/start" in event_types or "classify/override" in event_types
+
+    @pytest.mark.asyncio
+    async def test_no_cache_with_mode_override(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """no_cache + mode_override should use the override and skip cache."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="Cached.",
+        )
+
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache, no_cache=True, mode_override="simple",
+        )
+
+        assert state.get("cache_hit") is not True
+        event_types = [e.type for e in callbacks.get_events()]
+        assert "classify/override" in event_types
+
+    @pytest.mark.asyncio
+    async def test_no_cache_preserves_cache_for_subsequent_runs(
+        self, cache, source_metadata, mock_registry, mock_llm
+    ):
+        """After a no_cache run, a normal run should still find the old cache."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        cache.store(
+            question="What tables?",
+            source_metadata=source_metadata,
+            query_mode="quick", steps=[], response="Original cached answer.",
+        )
+
+        # no_cache run
+        await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=CallbackManager(),
+            experience_cache=cache, no_cache=True,
+        )
+
+        # Normal run — should get cache hit
+        callbacks = CallbackManager()
+        state = await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=callbacks,
+            experience_cache=cache,
+        )
+        assert state.get("cache_hit") is True
+        assert state.get("response") == "Original cached answer."
+
+    @pytest.mark.asyncio
+    async def test_no_cache_without_experience_cache(
+        self, mock_registry, mock_llm
+    ):
+        """no_cache=True with no experience_cache should not error."""
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state = await run_agent(
+            question="What tables?",
+            registry=mock_registry, llm=mock_llm, callbacks=CallbackManager(),
+            experience_cache=None, no_cache=True,
+        )
+        assert state.get("query_mode") is not None

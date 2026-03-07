@@ -62,11 +62,13 @@ _config: McpdbConfig | None = None
 _llm: Any = None
 _experience_service: Any = None
 _active_task: asyncio.Task | None = None
+_no_cache: bool = False
 
 
-def create_app(config: McpdbConfig | None = None) -> FastAPI:
+def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> FastAPI:
     """Create and configure the FastAPI app."""
-    global _registry, _config, _llm, _experience_service
+    global _registry, _config, _llm, _experience_service, _no_cache
+    _no_cache = no_cache
 
     from mcpdb.config import load_config
     _config = config or load_config()
@@ -329,6 +331,8 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
         if mode_override == "auto":
             mode_override = None
         force_rethink = msg.get("rethink", False)
+        # Per-query no_cache override or server-level default
+        query_no_cache = msg.get("noCache", _no_cache)
 
         # Async queue bridges sync agent callbacks → async WebSocket
         event_queue: asyncio.Queue = asyncio.Queue()
@@ -359,6 +363,7 @@ def create_app(config: McpdbConfig | None = None) -> FastAPI:
                     experience_cache=exp_cache,
                     force_rethink=force_rethink,
                     staging_store=exp_staging,
+                    no_cache=query_no_cache,
                 )
                 # Generate follow-up suggestions (best-effort, non-blocking)
                 followups = await _safe_generate_followups(
@@ -486,11 +491,11 @@ def find_available_port(start: int = 8080, end: int = 8180) -> int:
     raise RuntimeError(f"No available port in range {start}-{end}")
 
 
-def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True) -> None:
+def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True, no_cache: bool = False) -> None:
     """Start the MCPDB web client."""
     import uvicorn
 
-    app = create_app(config)
+    app = create_app(config, no_cache=no_cache)
 
     if open_browser:
         import threading

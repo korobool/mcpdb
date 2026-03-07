@@ -31,6 +31,7 @@ class SuccessRecord:
     timestamp: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
     semantic_hash: str = ""  # normalized intent hash for fuzzy matching
+    plan_metadata: dict[str, Any] = field(default_factory=dict)  # cached plan/blueprint
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -55,6 +56,8 @@ class SuccessRecord:
         }
         if self.semantic_hash:
             d["semantic_hash"] = self.semantic_hash
+        if self.plan_metadata:
+            d["plan_metadata"] = self.plan_metadata
         return d
 
     @classmethod
@@ -79,6 +82,7 @@ class SuccessRecord:
             timestamp=d.get("timestamp", 0.0),
             metadata=d.get("metadata", {}),
             semantic_hash=d.get("semantic_hash", ""),
+            plan_metadata=d.get("plan_metadata", {}),
         )
 
 
@@ -131,6 +135,7 @@ class StagedRecord:
     evaluated: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
     semantic_hash: str = ""
+    plan_metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -156,6 +161,8 @@ class StagedRecord:
         }
         if self.semantic_hash:
             d["semantic_hash"] = self.semantic_hash
+        if self.plan_metadata:
+            d["plan_metadata"] = self.plan_metadata
         return d
 
     @classmethod
@@ -181,6 +188,7 @@ class StagedRecord:
             evaluated=d.get("evaluated", False),
             metadata=d.get("metadata", {}),
             semantic_hash=d.get("semantic_hash", ""),
+            plan_metadata=d.get("plan_metadata", {}),
         )
 
     def to_success_record(self) -> SuccessRecord:
@@ -196,6 +204,7 @@ class StagedRecord:
             timestamp=self.staged_at,
             metadata=self.metadata,
             semantic_hash=self.semantic_hash,
+            plan_metadata=self.plan_metadata,
         )
 
 
