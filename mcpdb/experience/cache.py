@@ -45,14 +45,25 @@ class ExperienceCache:
         self._semantic_index: dict[str, str] = {}
         self._max_memory = 200
 
+    # Mode hierarchy for mode-aware cache filtering
+    _MODE_RANK = {
+        "quick": 0,
+        "simple": 1,
+        "optimization_required": 2,
+        "extended": 3,
+        "deep": 4,
+    }
+
     def lookup(
         self,
         question: str,
         source_metadata: SourceMetadata,
+        mode_override: str | None = None,
     ) -> SuccessRecord | None:
         """Look up a cached response — exact match first, then semantic.
 
         Returns SuccessRecord if found and schema is still valid, else None.
+        If mode_override is set, reject cached entries from a lower-tier mode.
         """
         fp = fingerprint_source(source_metadata)
         ih = intent_hash(question, fp)
@@ -60,28 +71,43 @@ class ExperienceCache:
         # --- Tier 1: exact match ---
         record = self._lookup_by_key(ih, fp, source_metadata)
         if record is not None:
-            logger.debug("Cache hit (exact): %s", ih)
-            return record
+            if self._mode_acceptable(record, mode_override):
+                logger.debug("Cache hit (exact): %s", ih)
+                return record
+            logger.debug("Cache skip (mode too low): cached=%s, requested=%s",
+                         record.query_mode, mode_override)
 
         # --- Tier 2: semantic match ---
         sh = semantic_hash(question, fp)
         mapped_ih = self._semantic_index.get(sh)
         if mapped_ih and mapped_ih != ih:
             record = self._lookup_by_key(mapped_ih, fp, source_metadata)
-            if record is not None:
+            if record is not None and self._mode_acceptable(record, mode_override):
                 logger.info("Cache hit (semantic): %r → %s", question[:60], mapped_ih)
                 return record
 
         # Check disk for semantic match
         record = self._store.find_by_semantic(fp, sh)
         if record is not None and self._is_valid(record, source_metadata):
-            self._memory[record.intent_hash] = record
-            self._semantic_index[sh] = record.intent_hash
-            self._evict_memory_if_needed()
-            logger.info("Cache hit (semantic/disk): %r → %s", question[:60], record.intent_hash)
-            return record
+            if self._mode_acceptable(record, mode_override):
+                self._memory[record.intent_hash] = record
+                self._semantic_index[sh] = record.intent_hash
+                self._evict_memory_if_needed()
+                logger.info("Cache hit (semantic/disk): %r → %s", question[:60], record.intent_hash)
+                return record
 
         return None
+
+    def _mode_acceptable(self, record: SuccessRecord, mode_override: str | None) -> bool:
+        """Check if a cached record's mode is acceptable for the requested mode.
+
+        When a specific mode is requested, reject cached entries from a lower-tier mode.
+        """
+        if mode_override is None:
+            return True
+        cached_rank = self._MODE_RANK.get(record.query_mode, 1)
+        requested_rank = self._MODE_RANK.get(mode_override, 1)
+        return cached_rank >= requested_rank
 
     def _lookup_by_key(
         self,
@@ -120,6 +146,7 @@ class ExperienceCache:
         steps: list[CodeStep],
         response: str,
         metadata: dict[str, Any] | None = None,
+        plan_metadata: dict[str, Any] | None = None,
     ) -> None:
         """Store a successful response in the cache."""
         fp = fingerprint_source(source_metadata)
@@ -137,6 +164,7 @@ class ExperienceCache:
             response=response,
             metadata=metadata or {},
             semantic_hash=sh,
+            plan_metadata=plan_metadata or {},
         )
 
         self._store.store_success(record)
@@ -153,8 +181,12 @@ class ExperienceCache:
         self._memory.pop(ih, None)
 
     def clear_source(self, source_metadata: SourceMetadata) -> None:
-        """Clear all cache entries for a source."""
+        """Clear all cache entries for a source (by metadata)."""
         fp = fingerprint_source(source_metadata)
+        self.clear_source_by_fingerprint(fp)
+
+    def clear_source_by_fingerprint(self, fp: str) -> None:
+        """Clear all cache entries for a source fingerprint."""
         self._store.clear(fp)
 
         # Remove from memory
@@ -164,6 +196,13 @@ class ExperienceCache:
         ]
         for k in to_remove:
             del self._memory[k]
+
+    def clear_all(self) -> None:
+        """Clear all cache entries (memory + disk)."""
+        for fp in self._store.list_fingerprints():
+            self._store.clear(fp)
+        self._memory.clear()
+        self._semantic_index.clear()
 
     def get_stats(self) -> dict[str, Any]:
         """Return cache statistics."""

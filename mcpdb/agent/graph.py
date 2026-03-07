@@ -36,6 +36,7 @@ async def run_agent(
     experience_cache: ExperienceCache | None = None,
     force_rethink: bool = False,
     staging_store: StagingStore | None = None,
+    no_cache: bool = False,
 ) -> AgentState:
     """Run the full agent pipeline for a question.
 
@@ -48,6 +49,9 @@ async def run_agent(
 
     If force_rethink is True, skip the cache entirely, run the full pipeline,
     and replace any existing cached entry with the new result.
+
+    If no_cache is True, skip cache lookup but still populate the cache on
+    success. Unlike force_rethink, this does not invalidate existing entries.
     """
     if callbacks is None:
         callbacks = CallbackManager()
@@ -88,9 +92,9 @@ async def run_agent(
             logger.debug("Failed to build anti-pattern context: %s", e)
 
     # Check experience cache before doing any LLM work
-    if experience_cache is not None and not force_rethink:
+    if experience_cache is not None and not force_rethink and not no_cache:
         for meta in registry.list_sources():
-            cached = experience_cache.lookup(question, meta)
+            cached = experience_cache.lookup(question, meta, mode_override=mode_override)
             if cached is not None:
                 result = await _replay_cached(
                     cached, state, llm, callbacks, registry,
@@ -216,21 +220,28 @@ async def _replay_cached(
     state["query_mode"] = cached.query_mode
 
     # Build a plan from cached steps so execute_step() can process them
+    # Use cached plan metadata for richer descriptions when available
+    cached_step_descs = (cached.plan_metadata.get("step_descriptions") or []) if cached.plan_metadata else []
+
     plan_steps = []
     for i, cs in enumerate(executable_steps):
+        desc = f"Cached {cs.action_type} step"
+        if i < len(cached_step_descs):
+            desc = cached_step_descs[i].get("description", desc)
+
         plan_steps.append({
             "step_number": i + 1,
             "action": cs.action_type,
             "code": cs.code,
             "source_id": state["active_source_ids"][0] if state["active_source_ids"] else "",
-            "description": f"Cached {cs.action_type} step",
+            "description": desc,
             "status": "pending",
             "attempts": 0,
         })
 
     state["plan"] = {
-        "analysis": cached.question,
-        "approach": "cached_replay",
+        "analysis": cached.plan_metadata.get("analysis", cached.question) if cached.plan_metadata else cached.question,
+        "approach": cached.plan_metadata.get("approach", "cached_replay") if cached.plan_metadata else "cached_replay",
         "current_step_index": 0,
         "steps": plan_steps,
     }
@@ -318,6 +329,7 @@ def _store_experience(
         return
 
     steps = _build_code_steps(state)
+    plan_meta = _extract_plan_metadata(state)
 
     # Store for each active source
     for meta in registry.list_sources():
@@ -328,6 +340,7 @@ def _store_experience(
                 query_mode=mode,
                 steps=steps,
                 response=response,
+                plan_metadata=plan_meta,
             )
         except Exception as e:
             logger.warning("Failed to store experience: %s", e)
@@ -348,6 +361,7 @@ def _stage_experience(
 
     # Build CodeStep list from execution log
     steps = _build_code_steps(state)
+    plan_meta = _extract_plan_metadata(state)
 
     # Stage for each active source
     for meta in registry.list_sources():
@@ -366,6 +380,7 @@ def _stage_experience(
                 steps=steps,
                 response=response,
                 semantic_hash=sh,
+                plan_metadata=plan_meta,
             )
             staging.stage(record)
         except Exception as e:
@@ -383,3 +398,40 @@ def _build_code_steps(state: AgentState) -> list[CodeStep]:
             time_ms=entry.get("time_ms", 0.0),
         ))
     return steps
+
+
+def _extract_plan_metadata(state: AgentState) -> dict[str, Any]:
+    """Extract plan/blueprint metadata from state for caching."""
+    pm: dict[str, Any] = {}
+
+    # Standard plan metadata (simple, extended, optimization modes)
+    plan = state.get("plan")
+    if plan:
+        pm["analysis"] = plan.get("analysis", "")
+        pm["approach"] = plan.get("approach", "")
+        pm["step_descriptions"] = [
+            {
+                "step_number": s.get("step_number", i + 1),
+                "action": s.get("action", ""),
+                "description": s.get("description", ""),
+            }
+            for i, s in enumerate(plan.get("steps", []))
+        ]
+
+    # Deep mode blueprint
+    blueprint = state.get("blueprint")
+    if blueprint:
+        pm["blueprint"] = {
+            "research_goal": blueprint.get("research_goal", ""),
+            "investigations": [
+                {
+                    "id": inv.get("id"),
+                    "question": inv.get("question", ""),
+                    "approach": inv.get("approach", ""),
+                    "priority": inv.get("priority", "medium"),
+                }
+                for inv in blueprint.get("investigations", [])
+            ],
+        }
+
+    return pm

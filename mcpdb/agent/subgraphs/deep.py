@@ -111,6 +111,9 @@ async def run_deep(
     goal = blueprint["research_goal"]
     investigations = blueprint["investigations"]
 
+    # Store blueprint in state for experience caching
+    state["blueprint"] = blueprint
+
     callbacks.emit("deep/blueprint", goal=goal, investigation_count=len(investigations))
 
     # 2. Investigation + reasoning loop

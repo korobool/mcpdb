@@ -26,7 +26,12 @@ Usage:
   mcpdb web                      Start web client (recommended)
   mcpdb web --port 8080          Web client on custom port
   mcpdb web --no-browser         Start without opening browser
+  mcpdb web --no-cache           Skip cache lookup, still populate
   mcpdb query <conn> <question>  One-shot query mode
+  mcpdb query <conn> <question> --no-cache  Skip cache, still populate
+  mcpdb clean_cache              Clear all experience cache data
+  mcpdb clean_cache --source <fp>  Clear cache for one source
+  mcpdb clean_cache --stats      Show cache stats without clearing
   mcpdb experience eval          Evaluate pending staged results
   mcpdb experience stats         Show cache & staging statistics
   mcpdb experience clear [--all] Clear all experience data
@@ -99,6 +104,7 @@ def main() -> None:
     elif command == "web":
         port = None
         no_browser = False
+        no_cache = False
 
         i = 1
         while i < len(args):
@@ -107,6 +113,9 @@ def main() -> None:
                 i += 2
             elif args[i] == "--no-browser":
                 no_browser = True
+                i += 1
+            elif args[i] == "--no-cache":
+                no_cache = True
                 i += 1
             else:
                 i += 1
@@ -121,15 +130,18 @@ def main() -> None:
             port = find_available_port()
 
         logger.info("mcpdb v%s web client starting on port %d", __version__, port)
-        run_web(config=config, port=port, open_browser=not no_browser)
+        run_web(config=config, port=port, open_browser=not no_browser, no_cache=no_cache)
 
     elif command in ("ui", "webchat", "playground"):
         print(f"The '{command}' command has been removed. Use 'mcpdb web' instead.")
         sys.exit(1)
 
+    elif command == "clean_cache":
+        _clean_cache(config, args[1:])
+
     elif command == "query":
         if len(args) < 3:
-            print("Usage: mcpdb query <connection_string> <question>")
+            print("Usage: mcpdb query <connection_string> <question> [--no-cache]")
             sys.exit(1)
 
         # Suppress INFO logs in query mode — spinner handles status display
@@ -140,9 +152,12 @@ def main() -> None:
         # Also suppress google SDK info messages
         _logging.getLogger("google_genai").setLevel(_logging.WARNING)
 
-        connection_string = args[1]
-        question = " ".join(args[2:])
-        _oneshot_query(connection_string, question, config, logger)
+        # Parse --no-cache flag from remaining args
+        no_cache = "--no-cache" in args
+        remaining = [a for a in args[1:] if a != "--no-cache"]
+        connection_string = remaining[0]
+        question = " ".join(remaining[1:])
+        _oneshot_query(connection_string, question, config, logger, no_cache=no_cache)
 
     elif command == "experience":
         if len(args) < 2:
@@ -300,7 +315,7 @@ class _ConsoleProgress:
         sys.stderr.flush()
 
 
-def _oneshot_query(connection_string: str, question: str, config, logger) -> None:
+def _oneshot_query(connection_string: str, question: str, config, logger, no_cache: bool = False) -> None:
     """Run a one-shot query and print the result."""
     import asyncio
 
@@ -335,6 +350,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger) -> Non
                 question, registry, llm, callbacks,
                 experience_cache=service.cache,
                 staging_store=service.staging,
+                no_cache=no_cache,
             )
             response = state.get("response") or "No response generated."
             progress.finish()
@@ -604,6 +620,76 @@ def _experience_antipatterns(config, sub_args: list[str]) -> None:
         for key, count in below:
             example = pattern_examples[key]
             print(f"  [{example.error_type}] {_simplify_error(example.error_message)} ({count}x)")
+
+
+def _clean_cache(config, sub_args: list[str]) -> None:
+    """Clear experience cache, staging, and store data."""
+    from mcpdb.experience.service import ExperienceService
+
+    service = ExperienceService(config.experience)
+    store = service.store
+    staging = service.staging
+    cache = service.cache
+
+    source_fp = None
+    stats_only = False
+
+    i = 0
+    while i < len(sub_args):
+        if sub_args[i] == "--source" and i + 1 < len(sub_args):
+            source_fp = sub_args[i + 1]
+            i += 2
+        elif sub_args[i] == "--stats":
+            stats_only = True
+            i += 1
+        else:
+            i += 1
+
+    if stats_only:
+        _print_cache_stats(store, staging, cache)
+        return
+
+    if source_fp:
+        # Clear one source
+        store.clear(source_fp)
+        for record in staging.get_all(source_fp):
+            staging.remove(source_fp, record.intent_hash)
+        cache.clear_source_by_fingerprint(source_fp)
+        print(f"Cleared cache for source: {source_fp}")
+    else:
+        # Clear everything
+        cleared_sources = 0
+        for fp in store.list_fingerprints():
+            store.clear(fp)
+            cleared_sources += 1
+        cleared_staging = 0
+        for fp in staging.list_fingerprints():
+            for record in staging.get_all(fp):
+                staging.remove(fp, record.intent_hash)
+                cleared_staging += 1
+        cache.clear_all()
+        print(f"Cache cleared: {cleared_sources} source(s), {cleared_staging} staged record(s) removed.")
+
+
+def _print_cache_stats(store, staging, cache) -> None:
+    """Print cache statistics."""
+    fingerprints = store.list_fingerprints()
+    cache_stats = cache.get_stats()
+
+    if not fingerprints:
+        print("No cached experience data.")
+    else:
+        total_success = 0
+        total_failure = 0
+        for fp in fingerprints:
+            stats = store.get_stats(fp)
+            total_success += stats["successes"]
+            total_failure += stats["failures"]
+        print(f"Cache: {total_success} cached solution(s), {total_failure} failure record(s) across {len(fingerprints)} source(s)")
+
+    pending = staging.get_all_pending()
+    print(f"Staging: {len(pending)} pending record(s)")
+    print(f"Memory: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries loaded")
 
 
 if __name__ == "__main__":
