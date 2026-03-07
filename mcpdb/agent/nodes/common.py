@@ -618,24 +618,38 @@ Write Python code that formats a clear, insightful answer to the user's question
 
 USER QUESTION: {question}
 
-EXECUTION SUMMARY:
+EXECUTION SUMMARY (metadata only — actual data is in the `artifacts` variable):
 {results}
 
-The code has access to these variables:
-- `artifacts`: list of dicts, each with "type" ("table" or "chart"), "title", and "data"
-  - table artifacts: data["columns"] = list of column names, data["rows"] = list of row lists, data["total_rows"] = int
-  - chart artifacts: data["image_base64"] = base64 string (just note charts exist, don't decode)
-- `execution_log`: list of step dicts with "step_number", "action", "code", "status", "result_summary"
+AVAILABLE VARIABLES (already defined, do NOT create them):
+- `artifacts`: list of dicts. Each has "type" ("table" or "chart"), "title", and "data".
+  - table artifact: data["columns"] = list of column names, data["rows"] = list of row lists, data["total_rows"] = int
+  - chart artifact: data["image_base64"] = base64 string (just mention charts, don't decode)
+- `execution_log`: list of step dicts
+
+CRITICAL: All actual data values are in artifacts[i]["data"]["rows"]. You MUST read from
+artifacts to get real numbers. Do NOT invent variable names or use placeholders.
+
+EXAMPLE — how to read table data:
+```
+tables = [a for a in artifacts if a["type"] == "table"]
+if tables:
+    t = tables[0]
+    cols = t["data"]["columns"]
+    rows = t["data"]["rows"]
+    # cols might be ["category", "total"], rows might be [["A", 100], ["B", 200]]
+    for row in rows:
+        print(f"- {{row[0]}}: {{row[1]}}")
+```
 
 RULES:
-- print() your formatted answer as markdown text
+- print() your formatted answer as markdown text — every number must come from artifacts
 - Include ALL items when listing results — never truncate or say "and N more"
-- Interpret data, don't just dump numbers — compute gaps, percentages, insights
+- Interpret data, compute gaps, percentages, insights from the actual numbers
 - Use markdown: headers (##), bold (**), bullet points, tables (| col | col |)
 - If charts were generated, mention them: "See the chart below for the visualization."
 - If some steps failed, note what worked and what didn't
 - Do NOT import external libraries — use only builtins and what's already available
-- The answer should be comprehensive yet concise
 
 Respond with JSON:
 {{"code": "python code here"}}
