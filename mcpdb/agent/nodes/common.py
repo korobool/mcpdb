@@ -347,6 +347,8 @@ async def execute_step(
     step = steps[idx]
     action = step.get("action", "sql")
     code = step.get("code", "")
+    if not isinstance(code, str):
+        code = str(code)
     source_id = step.get("source_id")
 
     callbacks.emit(
