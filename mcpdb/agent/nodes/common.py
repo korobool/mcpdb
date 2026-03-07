@@ -277,6 +277,54 @@ def _generate_fallback_plan(state: AgentState, registry: SourceRegistry) -> list
     return steps
 
 
+# --- Result Summary (metadata only, no data values) ---
+
+
+def _summarize_result(result: dict[str, Any]) -> str:
+    """Build a metadata-only summary of an execution result.
+
+    Never includes actual data values — only shape, types, and statistics.
+    This summary is safe to send to the LLM.
+    """
+    parts = []
+
+    df = result.get("dataframe")
+    if df is not None:
+        import pandas as pd
+        rows, cols = df.shape
+        parts.append(f"{rows} rows x {cols} columns")
+        # Column names and types
+        col_info = ", ".join(f"{c} ({df[c].dtype})" for c in df.columns)
+        parts.append(f"Columns: {col_info}")
+        # Numeric stats (no actual values — just aggregates)
+        numeric_cols = df.select_dtypes(include="number").columns
+        if len(numeric_cols) > 0:
+            stats = []
+            for c in numeric_cols:
+                non_null = df[c].notna().sum()
+                if non_null > 0:
+                    stats.append(f"{c}: min={df[c].min():.4g}, max={df[c].max():.4g}, mean={df[c].mean():.4g}")
+            if stats:
+                parts.append("Stats: " + "; ".join(stats))
+        # Null info
+        null_counts = df.isnull().sum()
+        nulls = {c: int(n) for c, n in null_counts.items() if n > 0}
+        if nulls:
+            parts.append(f"Nulls: {nulls}")
+    elif result.get("output"):
+        # For non-DataFrame results (schema, plain text), include the output
+        # since it's metadata (schema descriptions), not data values
+        output = str(result["output"])
+        if len(output) > 500:
+            output = output[:500] + "..."
+        parts.append(output)
+
+    if result.get("charts"):
+        parts.append(f"[{len(result['charts'])} chart(s) generated]")
+
+    return " | ".join(parts) if parts else "(no output)"
+
+
 # --- Execute Node ---
 
 
@@ -325,10 +373,8 @@ async def execute_step(
 
         # Record success
         step["status"] = "success"
-        preview = str(result.get("output", ""))
-        if result.get("charts"):
-            preview += f"\n[{len(result['charts'])} chart(s) captured and will be displayed]"
-        step["result_preview"] = preview
+        summary = _summarize_result(result)
+        step["result_summary"] = summary
         step["time_ms"] = elapsed_ms
         step["attempts"] = step.get("attempts", 0) + 1
 
@@ -338,7 +384,7 @@ async def execute_step(
             "action": action,
             "code": code,
             "status": "success",
-            "result_preview": step["result_preview"],
+            "result_summary": summary,
             "time_ms": elapsed_ms,
         }]
 
@@ -370,7 +416,7 @@ async def execute_step(
             "step/complete",
             step_number=step.get("step_number", idx + 1),
             time_ms=elapsed_ms,
-            result_preview=step["result_preview"][:200] if step.get("result_preview") else "",
+            result_preview=summary[:200],
             rows=result.get("dataframe", None) is not None and len(result["dataframe"]) or 0,
         )
 
@@ -567,22 +613,32 @@ async def debug_step(
 
 # --- Synthesize Node ---
 
-SYNTHESIZE_PROMPT = """\
-Synthesize a clear, complete answer to the user's question based on the execution results below.
+SYNTHESIZE_CODE_PROMPT = """\
+Write Python code that formats a clear, insightful answer to the user's question.
 
 USER QUESTION: {question}
 
-EXECUTION RESULTS:
+EXECUTION SUMMARY:
 {results}
 
-Guidelines:
-- Directly answer the question
-- When the user asks to LIST items, include EVERY item from the results. Never truncate, summarize, or say "and N more".
-- Highlight key findings
-- Use markdown formatting
-- Interpret data, don't just repeat raw numbers
+The code has access to these variables:
+- `artifacts`: list of dicts, each with "type" ("table" or "chart"), "title", and "data"
+  - table artifacts: data["columns"] = list of column names, data["rows"] = list of row lists, data["total_rows"] = int
+  - chart artifacts: data["image_base64"] = base64 string (just note charts exist, don't decode)
+- `execution_log`: list of step dicts with "step_number", "action", "code", "status", "result_summary"
+
+RULES:
+- print() your formatted answer as markdown text
+- Include ALL items when listing results — never truncate or say "and N more"
+- Interpret data, don't just dump numbers — compute gaps, percentages, insights
+- Use markdown: headers (##), bold (**), bullet points, tables (| col | col |)
+- If charts were generated, mention them: "See the chart below for the visualization."
 - If some steps failed, note what worked and what didn't
-- Charts and visualizations have been captured from Python execution and will be displayed as images alongside your answer. Reference what the chart shows in your narrative.
+- Do NOT import external libraries — use only builtins and what's already available
+- The answer should be comprehensive yet concise
+
+Respond with JSON:
+{{"code": "python code here"}}
 """
 
 
@@ -591,37 +647,40 @@ async def synthesize(
     llm: LLMProvider,
     callbacks: CallbackManager,
 ) -> AgentState:
-    """Generate the final user-facing response."""
+    """Generate the final response by running LLM-generated formatting code in sandbox.
+
+    The LLM never sees actual data values — only result metadata (shapes, types, stats).
+    It generates Python code that reads the artifacts and formats the answer.
+    The sandbox executes this code with access to the real data.
+    """
     callbacks.emit("synthesize/start")
 
-    # Build results summary
+    # Build metadata-only summary for the LLM
     results_parts = []
     for log_entry in state.get("execution_log", []):
         status = log_entry.get("status", "unknown")
-        preview = log_entry.get("result_preview", log_entry.get("error", ""))
+        summary = log_entry.get("result_summary", log_entry.get("error", ""))
         results_parts.append(
             f"Step {log_entry.get('step_number', '?')} ({log_entry.get('action', '?')}): "
-            f"{status}\n{preview}"
+            f"{status} | {summary}"
         )
 
-    # Include artifact data
     for artifact in state.get("artifacts", []):
         if artifact["type"] == "table":
             data = artifact["data"]
             results_parts.append(
-                f"\nTable: {artifact.get('title', 'Result')}\n"
-                f"Columns: {data.get('columns', [])}\n"
+                f"Table: {artifact.get('title', 'Result')} | "
+                f"Columns: {data.get('columns', [])} | "
                 f"Rows: {data.get('total_rows', 0)}"
             )
         elif artifact["type"] == "chart":
             results_parts.append(
-                f"\nChart: {artifact.get('title', 'Visualization')} "
-                f"[image captured and will be displayed to user]"
+                f"Chart: {artifact.get('title', 'Visualization')} [generated]"
             )
 
-    results_text = "\n\n".join(results_parts) if results_parts else "No execution results."
+    results_text = "\n".join(results_parts) if results_parts else "No execution results."
 
-    prompt = SYNTHESIZE_PROMPT.format(
+    prompt = SYNTHESIZE_CODE_PROMPT.format(
         question=state["question"],
         results=results_text,
     )
@@ -629,12 +688,20 @@ async def synthesize(
     import asyncio
     for retry in range(3):
         try:
-            text, usage = await llm.generate(
+            result, usage = await llm.generate_json(
                 [Message(role="user", content=prompt)],
-                system="You are a data analyst. Provide clear, insightful answers.",
+                system="You are a data formatting expert. Generate Python code that formats analysis results into a clear answer. Respond with JSON only.",
             )
-            state["response"] = text
+
+            format_code = result.get("code", "")
+            if not format_code:
+                raise ValueError("LLM returned empty formatting code")
+
+            # Execute the formatting code in sandbox with access to artifacts
+            response = _run_synthesize_code(format_code, state)
+            state["response"] = response
             break
+
         except Exception as e:
             if retry < 2:
                 delay = [2, 5][min(retry, 1)]
@@ -642,7 +709,66 @@ async def synthesize(
                 await asyncio.sleep(delay)
             else:
                 logger.warning("Synthesis failed after 3 attempts: %s", e)
-                state["response"] = f"Analysis completed but synthesis failed: {e}"
+                # Fallback: build a basic response from result summaries
+                state["response"] = _fallback_synthesize(state)
 
     callbacks.emit("synthesize/complete")
     return state
+
+
+def _run_synthesize_code(code: str, state: AgentState) -> str:
+    """Run LLM-generated formatting code in sandbox with artifact data."""
+    # Build the wrapper that provides artifacts and execution_log to the code
+    artifacts = state.get("artifacts", [])
+    execution_log = state.get("execution_log", [])
+
+    # Serialize artifacts for injection (tables include real data rows)
+    import json as _json
+    artifacts_json = _json.dumps(artifacts, default=str)
+    log_json = _json.dumps(execution_log, default=str)
+
+    wrapper = (
+        "import json as _json\n"
+        f"artifacts = _json.loads({_artifacts_literal(artifacts_json)})\n"
+        f"execution_log = _json.loads({_artifacts_literal(log_json)})\n"
+        "\n"
+        f"{code}\n"
+    )
+
+    sandbox_result = execute_python(wrapper, timeout=15)
+
+    if not sandbox_result.success:
+        raise RuntimeError(f"Synthesis code failed: {sandbox_result.error}")
+
+    output = (sandbox_result.stdout or "").strip()
+    if not output:
+        raise ValueError("Synthesis code produced no output")
+
+    return output
+
+
+def _artifacts_literal(json_str: str) -> str:
+    """Safely embed a JSON string as a Python string literal."""
+    return "'''" + json_str.replace("\\", "\\\\").replace("'''", "\\'\\'\\'") + "'''"
+
+
+def _fallback_synthesize(state: AgentState) -> str:
+    """Build a basic response from result summaries when code synthesis fails."""
+    parts = ["## Analysis Results\n"]
+
+    for entry in state.get("execution_log", []):
+        status = entry.get("status", "unknown")
+        summary = entry.get("result_summary", entry.get("error", ""))
+        step_num = entry.get("step_number", "?")
+        if status == "success":
+            parts.append(f"**Step {step_num}**: {summary}")
+        elif status == "error":
+            parts.append(f"**Step {step_num}** (failed): {entry.get('error', 'Unknown error')}")
+
+    has_charts = any(
+        a["type"] == "chart" for a in state.get("artifacts", [])
+    )
+    if has_charts:
+        parts.append("\nSee the charts below for visual results.")
+
+    return "\n\n".join(parts)

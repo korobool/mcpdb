@@ -38,7 +38,7 @@ async def validate_result(
     callbacks.emit("validate/start")
 
     results_text = "\n".join(
-        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_preview', '')}"
+        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_summary', e.get('error', ''))}"
         for e in state.get("execution_log", [])
     )
 
@@ -95,7 +95,7 @@ async def replan(
     callbacks.emit("replan/start")
 
     results_text = "\n".join(
-        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_preview', '')}"
+        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_summary', e.get('error', ''))}"
         for e in state.get("execution_log", [])
     )
 

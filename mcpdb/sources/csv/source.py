@@ -17,7 +17,7 @@ from mcpdb.sources.base import (
     TableInfo,
 )
 from mcpdb.sources.csv.duckdb_backend import DuckDBBackend
-from mcpdb.sources.csv.loader import CsvLoadResult, load_csv, load_multiple_csvs
+from mcpdb.sources.csv.loader import CsvLoadResult, detect_csv, detect_multiple_csvs
 
 logger = logging.getLogger("mcpdb.csv")
 
@@ -63,32 +63,43 @@ class CsvSource(QueryableSource):
         # Create DuckDB backend
         self._backend = DuckDBBackend(memory_limit=memory_limit)
 
-        # Load CSV files
+        # Detect CSV properties (encoding, delimiter, header)
         self._load_results: list[CsvLoadResult] = []
         self._tables: list[TableInfo] = []
 
         if len(file_paths) == 1:
             name_override = table_names[0] if table_names else None
-            result = load_csv(file_paths[0], table_name=name_override)
+            result = detect_csv(file_paths[0], table_name=name_override)
             self._load_results = [result]
         else:
-            self._load_results = load_multiple_csvs(file_paths, table_names)
+            self._load_results = detect_multiple_csvs(file_paths, table_names)
 
-        # Register all DataFrames in DuckDB and build table info
+        # Load CSVs directly into DuckDB (no pandas intermediary)
         for result in self._load_results:
-            self._backend.register_dataframe(result.table_name, result.df)
+            row_count, col_count, col_names = self._backend.load_csv(
+                result.table_name,
+                result.file_path,
+                delimiter=result.delimiter,
+                has_header=result.has_header,
+            )
+            result.row_count = row_count
+            result.column_count = col_count
+            result.columns = col_names
+
+            # Get column type info from DuckDB
+            col_info = self._backend.get_table_info(result.table_name)
             columns = [
                 ColumnInfo(
-                    name=str(col),
-                    dtype=str(result.df[col].dtype),
-                    nullable=bool(result.df[col].isnull().any()),
+                    name=ci["name"],
+                    dtype=ci["type"],
+                    nullable=ci.get("null", "YES") == "YES",
                 )
-                for col in result.df.columns
+                for ci in col_info
             ]
             self._tables.append(TableInfo(
                 name=result.table_name,
                 columns=columns,
-                row_count=result.row_count,
+                row_count=row_count,
                 source_file=result.file_path,
             ))
 

@@ -162,6 +162,38 @@ class TestDuckDBBackend:
         assert result.iloc[0]["total"] == 150
         backend.close()
 
+    def test_load_csv_directly(self, simple_csv):
+        backend = DuckDBBackend()
+        row_count, col_count, col_names = backend.load_csv(
+            "sales", str(simple_csv), delimiter=",", has_header=True,
+        )
+        assert row_count == 5
+        assert col_count == 4
+        assert "id" in col_names
+        assert "product" in col_names
+        result = backend.execute_query("SELECT COUNT(*) as cnt FROM sales")
+        assert result.iloc[0]["cnt"] == 5
+        backend.close()
+
+    def test_load_csv_no_header(self, no_header_csv):
+        backend = DuckDBBackend()
+        row_count, col_count, col_names = backend.load_csv(
+            "data", str(no_header_csv), delimiter=",", has_header=False,
+        )
+        assert row_count == 3
+        assert col_count == 3
+        assert "col_0" in col_names
+        backend.close()
+
+    def test_load_csv_semicolon(self, semicolon_csv):
+        backend = DuckDBBackend()
+        row_count, col_count, col_names = backend.load_csv(
+            "data", str(semicolon_csv), delimiter=";", has_header=True,
+        )
+        assert row_count == 3
+        assert "name" in col_names
+        backend.close()
+
 
 class TestSanitizeName:
     def test_basic(self):
@@ -183,7 +215,9 @@ class TestSanitizeName:
 class TestDetectEncoding:
     def test_utf8(self, simple_csv):
         enc = detect_encoding(simple_csv)
-        assert enc.lower().startswith("ascii") or enc.lower().startswith("utf")
+        # chardet may report ascii, utf-8, or windows-1252 for ASCII-only content
+        ascii_compatible = {"ascii", "utf-8", "windows-1252", "iso-8859-1"}
+        assert enc.lower() in ascii_compatible, f"Unexpected encoding: {enc}"
 
     def test_latin1(self, tmp_path):
         p = tmp_path / "latin1.csv"
@@ -213,27 +247,20 @@ class TestDetectHeader:
         assert detect_header(no_header_csv) is False
 
 
-class TestLoadCsv:
-    def test_simple_load(self, simple_csv):
+class TestDetectCsv:
+    def test_simple_detect(self, simple_csv):
         result = load_csv(simple_csv)
-        assert result.row_count == 5
-        assert result.column_count == 4
         assert result.delimiter == ","
         assert result.has_header is True
-        assert "id" in result.df.columns
+        assert result.file_path == str(simple_csv)
 
-    def test_semicolon_load(self, semicolon_csv):
+    def test_semicolon_detect(self, semicolon_csv):
         result = load_csv(semicolon_csv)
-        assert result.row_count == 3
         assert result.delimiter == ";"
-        assert "name" in result.df.columns
 
-    def test_no_header_load(self, no_header_csv):
+    def test_no_header_detect(self, no_header_csv):
         result = load_csv(no_header_csv)
-        assert result.row_count == 3
         assert result.has_header is False
-        # Columns should be generated
-        assert "col_0" in result.df.columns
 
     def test_custom_table_name(self, simple_csv):
         result = load_csv(simple_csv, table_name="my_sales")

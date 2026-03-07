@@ -451,7 +451,7 @@ class TestSynthesizeNode:
     @pytest.mark.asyncio
     async def test_synthesize_produces_response(self):
         llm = MockLLM()
-        llm.queue("The top customer is Diana with $3,100 in revenue.")
+        llm.queue({"code": "for row in artifacts[0]['data']['rows']:\n    print(f'{row[0]}: ${row[1]:,.2f}')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -460,7 +460,7 @@ class TestSynthesizeNode:
                 "step_number": 1,
                 "action": "sql",
                 "status": "success",
-                "result_preview": "Diana  3100.0",
+                "result_summary": "1 rows x 2 columns",
             }],
             "artifacts": [{
                 "type": "table",
@@ -479,7 +479,7 @@ class TestSynthesizeNode:
     @pytest.mark.asyncio
     async def test_synthesize_handles_no_results(self):
         llm = MockLLM()
-        llm.queue("No data was available to answer this question.")
+        llm.queue({"code": "print('No data was available to answer this question.')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -504,7 +504,7 @@ class TestValidateNode:
         cb = CallbackManager()
         state: AgentState = {
             "question": "Top customers?",
-            "execution_log": [{"step_number": 1, "status": "success", "result_preview": "Diana 3100"}],
+            "execution_log": [{"step_number": 1, "status": "success", "result_summary": "Diana 3100"}],
             "replan_count": 0,
         }
 
@@ -519,7 +519,7 @@ class TestValidateNode:
         cb = CallbackManager()
         state: AgentState = {
             "question": "Revenue breakdown by month?",
-            "execution_log": [{"step_number": 1, "status": "success", "result_preview": "total: 8900"}],
+            "execution_log": [{"step_number": 1, "status": "success", "result_summary": "total: 8900"}],
             "replan_count": 0,
         }
 
@@ -567,7 +567,7 @@ class TestReplanNode:
         state: AgentState = {
             "question": "Revenue by month?",
             "source_context": "orders table",
-            "execution_log": [{"step_number": 1, "status": "success", "result_preview": "total: 8900"}],
+            "execution_log": [{"step_number": 1, "status": "success", "result_summary": "total: 8900"}],
             "validation_reason": "Missing monthly breakdown",
             "replan_count": 0,
         }
@@ -607,8 +607,8 @@ class TestSimpleSubgraph:
         })
         # 2. Validate (adequate)
         llm.queue({"result": "adequate"})
-        # 3. Synthesize
-        llm.queue("The top 3 customers by revenue are Diana ($3,100), Bob ($2,300), and Alice ($1,500).")
+        # 3. Synthesize (now expects JSON with code that formats the answer)
+        llm.queue({"code": "for row in artifacts[0]['data']['rows']:\n    print(f\"{row[0]}: ${row[1]:,.2f}\")"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -661,7 +661,7 @@ class TestSimpleSubgraph:
         # 3. Validate
         llm.queue({"result": "adequate"})
         # 4. Synthesize
-        llm.queue("There are 5 customers in the database.")
+        llm.queue({"code": "print('There are 5 customers in the database.')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -714,7 +714,7 @@ class TestSimpleSubgraph:
             }],
         })
         # 4. Synthesize (validation skipped after replan)
-        llm.queue("Here are the customers with revenue: Diana ($3,100), Bob ($2,300), ...")
+        llm.queue({"code": "print('Here are the customers with revenue: Diana ($3,100), Bob ($2,300), ...')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -783,7 +783,7 @@ class TestSimpleSubgraph:
         # Validate
         llm.queue({"result": "adequate"})
         # Synthesize
-        llm.queue("Total revenue is $8,900 with an average of $1,780 per customer.")
+        llm.queue({"code": "print('Total revenue is $8,900 with an average of $1,780 per customer.')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -825,7 +825,7 @@ class TestOrchestratorSimpleMode:
         # Validate
         llm.queue({"result": "adequate"})
         # Synthesize
-        llm.queue("There are 5 customers.")
+        llm.queue({"code": "print('There are 5 customers.')"})
 
         cb = CallbackManager()
         result = await run_agent(
@@ -872,7 +872,7 @@ class TestOrchestratorSimpleMode:
         # Simple: Validate
         llm.queue({"result": "adequate"})
         # Simple: Synthesize
-        llm.queue("Top 3 customers: Diana, Bob, Alice.")
+        llm.queue({"code": "print('Top 3 customers: Diana, Bob, Alice.')"})
 
         cb = CallbackManager()
         result = await run_agent(

@@ -37,6 +37,11 @@ class TestHealth:
         assert "MCPDB" in resp.text
         assert "WebSocket" in resp.text
 
+    def test_no_auto_connect_from_env(self, client):
+        """MCPDB_DATABASE_URL should NOT auto-connect, only prefill."""
+        resp = client.get("/api/sources")
+        assert resp.json() == []  # nothing auto-connected
+
     def test_favicon(self, client):
         resp = client.get("/favicon.ico")
         assert resp.status_code == 200
@@ -143,6 +148,115 @@ class TestWebSocket:
             resp = ws.receive_json()
             assert resp["type"] == "error"
             assert "No active" in resp["message"]
+
+
+class TestCSVUpload:
+    def test_upload_single_csv(self, client, tmp_path):
+        csv_path = tmp_path / "sales.csv"
+        csv_path.write_text("id,product,amount\n1,Widget,100\n2,Gadget,200\n")
+
+        with open(csv_path, "rb") as f:
+            resp = client.post(
+                "/api/sources/csv",
+                files=[("files", ("sales.csv", f, "text/csv"))],
+                data={"display_name": "test-csv"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "source_id" in data
+        assert "metadata" in data
+
+        # Verify it shows up in list
+        sources = client.get("/api/sources").json()
+        assert len(sources) == 1
+        assert sources[0]["display_name"] == "test-csv"
+        assert sources[0]["source_type"] == "csv"
+
+    def test_upload_multiple_csvs(self, client, tmp_path):
+        csv1 = tmp_path / "orders.csv"
+        csv1.write_text("order_id,customer,total\n1,Alice,50\n2,Bob,75\n")
+        csv2 = tmp_path / "customers.csv"
+        csv2.write_text("name,city\nAlice,NYC\nBob,LA\n")
+
+        files = []
+        handles = []
+        for p in [csv1, csv2]:
+            h = open(p, "rb")
+            handles.append(h)
+            files.append(("files", (p.name, h, "text/csv")))
+        try:
+            resp = client.post("/api/sources/csv", files=files)
+        finally:
+            for h in handles:
+                h.close()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "source_id" in data
+
+        # Should have tables for both files
+        sources = client.get("/api/sources").json()
+        assert len(sources) == 1
+        tables = sources[0].get("tables", [])
+        assert len(tables) == 2
+
+    def test_upload_csv_no_files(self, client):
+        resp = client.post("/api/sources/csv")
+        assert resp.status_code == 422  # validation error — no files
+
+    def test_upload_csv_auto_name(self, client, tmp_path):
+        csv_path = tmp_path / "data.csv"
+        csv_path.write_text("a,b\n1,2\n")
+
+        with open(csv_path, "rb") as f:
+            resp = client.post(
+                "/api/sources/csv",
+                files=[("files", ("data.csv", f, "text/csv"))],
+            )
+        assert resp.status_code == 200
+        sources = client.get("/api/sources").json()
+        assert "data.csv" in sources[0]["display_name"]
+
+    def test_remove_csv_source(self, client, tmp_path):
+        csv_path = tmp_path / "remove_me.csv"
+        csv_path.write_text("x,y\n1,2\n")
+
+        with open(csv_path, "rb") as f:
+            resp = client.post(
+                "/api/sources/csv",
+                files=[("files", ("remove_me.csv", f, "text/csv"))],
+            )
+        assert resp.status_code == 200
+        sid = resp.json()["source_id"]
+
+        resp = client.delete(f"/api/sources/{sid}")
+        assert resp.status_code == 200
+
+        sources = client.get("/api/sources").json()
+        assert len(sources) == 0
+
+    def test_csv_sample_endpoint(self, client, tmp_path):
+        csv_path = tmp_path / "sample_test.csv"
+        csv_path.write_text("id,name,value\n1,alpha,10\n2,beta,20\n3,gamma,30\n")
+
+        with open(csv_path, "rb") as f:
+            resp = client.post(
+                "/api/sources/csv",
+                files=[("files", ("sample_test.csv", f, "text/csv"))],
+            )
+        assert resp.status_code == 200
+        sid = resp.json()["source_id"]
+
+        # Get table name from sources list
+        sources = client.get("/api/sources").json()
+        table_name = sources[0]["tables"][0]["name"]
+
+        resp = client.get(f"/api/sources/{sid}/sample/{table_name}?limit=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "columns" in data
+        assert "rows" in data
+        assert len(data["rows"]) == 2
 
 
 class TestLLMConfig:

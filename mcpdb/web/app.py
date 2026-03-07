@@ -87,16 +87,8 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
     from mcpdb.experience.service import ExperienceService
     _experience_service = ExperienceService(_config.experience)
 
-    # Auto-connect database from env
-    db_url = os.environ.get("MCPDB_DATABASE_URL")
-    if db_url:
-        try:
-            from mcpdb.sources.database.source import DatabaseSource
-            source = DatabaseSource(db_url)
-            _registry.add_source(source)
-            logger.info("Auto-connected database from MCPDB_DATABASE_URL")
-        except Exception as e:
-            logger.warning("Failed to auto-connect: %s", e)
+    # Pass env DB URL to template for pre-filling (don't auto-connect)
+    _prefill_db_url = os.environ.get("MCPDB_DATABASE_URL", "")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -117,6 +109,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
     async def index(request: Request):
         return templates.TemplateResponse(request, "index.html", {
             "version": __version__,
+            "prefill_db_url": _prefill_db_url,
         })
 
     # --- Favicon ----------------------------------------------------------
@@ -180,20 +173,37 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
             raise HTTPException(status_code=400, detail=str(e))
 
     @app.post("/api/sources/csv")
-    async def upload_csv(file: UploadFile = File(...), display_name: str = Form("")):
+    async def upload_csv(
+        files: list[UploadFile] = File(...),
+        display_name: str = Form(""),
+    ):
         import tempfile, shutil
         try:
-            from mcpdb.sources.csv.source import CSVSource
+            from mcpdb.sources.csv.source import CsvSource
         except ImportError:
-            raise HTTPException(status_code=400, detail="CSV support not installed")
+            raise HTTPException(status_code=400, detail="CSV support not installed. Install with: pip install mcpdb[csv]")
 
-        suffix = Path(file.filename or "upload.csv").suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            shutil.copyfileobj(file.file, tmp)
-            tmp_path = tmp.name
+        # Save uploaded files to temp directory
+        tmp_paths = []
+        filenames = []
+        try:
+            for f in files:
+                suffix = Path(f.filename or "upload.csv").suffix
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    shutil.copyfileobj(f.file, tmp)
+                    tmp_paths.append(tmp.name)
+                    filenames.append(f.filename or "upload.csv")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"File upload failed: {e}")
 
         try:
-            source = CSVSource(tmp_path, display_name=display_name or file.filename)
+            name = display_name or ", ".join(filenames[:3])
+            if len(filenames) > 3:
+                name += f" (+{len(filenames) - 3} more)"
+            # Use original filenames (without extension) as table names
+            from mcpdb.sources.csv.loader import _make_table_name
+            table_names = [_make_table_name(fn) for fn in filenames]
+            source = CsvSource(tmp_paths, display_name=name, table_names=table_names)
             source_id = _registry.add_source(source)
             return {"source_id": source_id, "metadata": source.get_metadata().to_dict()}
         except Exception as e:

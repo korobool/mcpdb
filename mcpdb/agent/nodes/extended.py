@@ -137,7 +137,7 @@ async def revise_plan(
     idx = plan.get("current_step_index", 0)
 
     results_text = "\n".join(
-        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_preview', '')}"
+        f"Step {e.get('step_number', '?')}: {e.get('status', '?')} — {e.get('result_summary', e.get('error', ''))}"
         for e in state.get("execution_log", [])
     )
 
@@ -209,7 +209,7 @@ async def reflect(
 
     results_text = "\n".join(
         f"Step {e.get('step_number', '?')} ({e.get('action', '?')}): "
-        f"{e.get('status', '?')} — {e.get('result_preview', '')}"
+        f"{e.get('status', '?')} — {e.get('result_summary', e.get('error', ''))}"
         for e in state.get("execution_log", [])
     )
 
