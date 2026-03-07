@@ -37,9 +37,25 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .sidebar-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 8px; }
 
 /* Source cards */
-.source-card { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; }
-.source-card .name { font-weight: 600; font-size: 13px; }
+.source-card { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; position: relative; }
+.source-card .name { font-weight: 600; font-size: 13px; padding-right: 20px; }
 .source-card .meta { font-size: 11px; color: var(--fg2); margin-top: 2px; }
+.source-card .remove-btn { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--fg3); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px; }
+.source-card .remove-btn:hover { color: var(--red); }
+
+/* File drop zone */
+.file-drop { display: block; border: 2px dashed var(--border); border-radius: var(--radius); padding: 12px 10px; text-align: center; cursor: pointer; font-size: 12px; color: var(--fg2); transition: border-color 0.2s; }
+.file-drop:hover, .file-drop.dragover { border-color: var(--blue); color: var(--fg); }
+.file-drop input[type="file"] { display: none; }
+.staged-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.staged-files:empty { display: none; }
+.staged-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 3px 8px; font-size: 11px; color: var(--fg); }
+.staged-chip .remove { cursor: pointer; color: var(--fg3); font-size: 13px; line-height: 1; }
+.staged-chip .remove:hover { color: var(--red); }
+.upload-progress { margin-top: 6px; }
+.upload-progress-bar { height: 6px; background: var(--bg4); border-radius: 3px; overflow: hidden; }
+.upload-progress-fill { height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.2s ease; width: 0%; }
+.upload-progress-text { font-size: 11px; color: var(--fg3); margin-top: 2px; display: block; }
 
 /* Mode selector */
 .mode-select { width: 100%; padding: 6px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 13px; }
@@ -225,11 +241,27 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
       <h3>Sources</h3>
       <div id="sources-list"></div>
       <details id="connect-details">
-        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:8px;">Add source</summary>
+        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:8px;">Add database</summary>
         <div class="connect-form" style="margin-top:8px;">
-          <input type="text" id="conn-str" placeholder="mysql://user:pass@host/db">
+          <input type="text" id="conn-str" placeholder="mysql://user:pass@host/db" value="{{ prefill_db_url }}">
           <input type="text" id="conn-name" placeholder="Display name (optional)">
           <button class="btn btn-primary btn-sm" onclick="connectDatabase()">Connect</button>
+        </div>
+      </details>
+      <details id="csv-details">
+        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:4px;">Add CSV files</summary>
+        <div class="connect-form" style="margin-top:8px;">
+          <label class="file-drop" id="csv-drop">
+            <input type="file" id="csv-files" multiple accept=".csv,.tsv,.tab" onchange="stageFiles()">
+            <span id="csv-label">Drop CSV files here or click to browse</span>
+          </label>
+          <div id="csv-staged" class="staged-files"></div>
+          <div id="csv-progress" class="upload-progress" style="display:none;">
+            <div class="upload-progress-bar"><div class="upload-progress-fill" id="csv-progress-fill"></div></div>
+            <span class="upload-progress-text" id="csv-progress-text">Uploading...</span>
+          </div>
+          <input type="text" id="csv-name" placeholder="Display name (optional)">
+          <button class="btn btn-primary btn-sm" id="csv-upload-btn" onclick="uploadCSV()" disabled>Upload</button>
         </div>
       </details>
     </div>
@@ -905,6 +937,7 @@ function renderSources() {
   el.innerHTML = sources.map(s => {
     const tableCount = (s.tables || []).length;
     return `<div class="source-card">
+      <button class="remove-btn" onclick="removeSource('${escAttr(s.source_id)}')" title="Remove source">&times;</button>
       <div class="name">${escHtml(s.display_name || s.source_id)}</div>
       <div class="meta">${s.source_type} \u00b7 ${tableCount} table${tableCount !== 1 ? 's' : ''}</div>
     </div>`;
@@ -929,10 +962,123 @@ async function connectDatabase() {
   } catch (e) { alert('Connection failed: ' + e); }
 }
 
+let stagedFiles = [];
+
+function stageFiles() {
+  const input = document.getElementById('csv-files');
+  for (const f of input.files) {
+    if (!stagedFiles.some(s => s.name === f.name && s.size === f.size)) {
+      stagedFiles.push(f);
+    }
+  }
+  input.value = '';
+  renderStagedFiles();
+}
+
+function removeStagedFile(idx) {
+  stagedFiles.splice(idx, 1);
+  renderStagedFiles();
+}
+
+function renderStagedFiles() {
+  const el = document.getElementById('csv-staged');
+  el.innerHTML = stagedFiles.map((f, i) =>
+    `<span class="staged-chip">${escHtml(f.name)}<span class="remove" onclick="removeStagedFile(${i})">&times;</span></span>`
+  ).join('');
+  document.getElementById('csv-upload-btn').disabled = stagedFiles.length === 0;
+}
+
+function uploadCSV() {
+  if (!stagedFiles.length) return;
+  const btn = document.getElementById('csv-upload-btn');
+  const prog = document.getElementById('csv-progress');
+  const fill = document.getElementById('csv-progress-fill');
+  const text = document.getElementById('csv-progress-text');
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  prog.style.display = '';
+  fill.style.width = '0%';
+  text.textContent = 'Uploading...';
+
+  const name = document.getElementById('csv-name').value.trim();
+  const form = new FormData();
+  for (const f of stagedFiles) form.append('files', f);
+  if (name) form.append('display_name', name);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/sources/csv');
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      fill.style.width = pct + '%';
+      text.textContent = `Uploading... ${pct}%`;
+    }
+  };
+
+  xhr.onload = async () => {
+    if (xhr.status === 200) {
+      fill.style.width = '100%';
+      text.textContent = 'Processing...';
+      stagedFiles = [];
+      renderStagedFiles();
+      document.getElementById('csv-name').value = '';
+      prog.style.display = 'none';
+      document.getElementById('csv-details').removeAttribute('open');
+      btn.textContent = 'Upload';
+      await loadSources();
+    } else {
+      try { const e = JSON.parse(xhr.responseText); alert(e.detail); }
+      catch { alert('Upload failed: ' + xhr.statusText); }
+      btn.disabled = false;
+      btn.textContent = 'Upload';
+      prog.style.display = 'none';
+    }
+  };
+
+  xhr.onerror = () => {
+    alert('Upload failed: network error');
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+    prog.style.display = 'none';
+  };
+
+  xhr.send(form);
+}
+
+async function removeSource(sourceId) {
+  if (!confirm('Remove this data source?')) return;
+  try {
+    await fetch(`/api/sources/${sourceId}`, { method: 'DELETE' });
+    await loadSources();
+  } catch (e) { console.error('Failed to remove source', e); }
+}
+
+// Drag-and-drop for CSV
+document.addEventListener('DOMContentLoaded', () => {
+  const drop = document.getElementById('csv-drop');
+  if (!drop) return;
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault(); drop.classList.remove('dragover');
+    for (const f of e.dataTransfer.files) {
+      if (!stagedFiles.some(s => s.name === f.name && s.size === f.size))
+        stagedFiles.push(f);
+    }
+    renderStagedFiles();
+  });
+});
+
 // ── Welcome / discovery message ─────────────────────────
 async function renderWelcome() {
   if (!sources.length) {
-    addMessage('assistant', 'Welcome to **MCPDB**. Connect a database to get started.', { isWelcome: true });
+    const prefilled = document.getElementById('conn-str').value;
+    const hint = prefilled
+      ? 'A database connection string is pre-filled in the sidebar — click **Connect** to use it, or upload CSV files instead.'
+      : 'Connect a database or upload CSV files to get started.';
+    addMessage('assistant', `Welcome to **MCPDB**. ${hint}`, { isWelcome: true });
     return;
   }
 

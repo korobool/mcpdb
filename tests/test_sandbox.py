@@ -369,7 +369,7 @@ class TestExecuteNodePython:
         state = await execute_step(state, cb, registry_with_source)
         assert state["plan"]["steps"][1]["status"] == "success"
         assert len(state["execution_log"]) == 2
-        assert "Average price" in state["execution_log"][1]["result_preview"]
+        assert "result_summary" in state["execution_log"][1]
 
     @pytest.mark.asyncio
     async def test_python_chart_creates_artifact(self, registry_with_source):

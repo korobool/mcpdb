@@ -394,7 +394,7 @@ def _build_code_steps(state: AgentState) -> list[CodeStep]:
         steps.append(CodeStep(
             action_type=entry.get("action", entry.get("action_type", "unknown")),
             code=entry.get("code", ""),
-            result_preview=str(entry.get("result_preview", "")),
+            result_preview=str(entry.get("result_summary", entry.get("result_preview", ""))),
             time_ms=entry.get("time_ms", 0.0),
         ))
     return steps

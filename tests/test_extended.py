@@ -217,7 +217,7 @@ class TestRevisePlan:
                     {"step_number": 5, "description": "Old step"},
                 ],
             },
-            "execution_log": [{"step_number": 1, "status": "success", "result_preview": "ok"}],
+            "execution_log": [{"step_number": 1, "status": "success", "result_summary": "ok"}],
             "checkpoint_results": [{"reason": "Need revision"}],
         }
 
@@ -245,7 +245,7 @@ class TestReflect:
         state: AgentState = {
             "question": "Analyze metrics by category",
             "execution_log": [
-                {"step_number": 1, "action": "sql", "status": "success", "result_preview": "A: 400, B: 470, C: 505"},
+                {"step_number": 1, "action": "sql", "status": "success", "result_summary": "A: 400, B: 470, C: 505"},
             ],
         }
 
@@ -284,7 +284,7 @@ class TestExtendedSubgraph:
         # Validate
         llm.queue({"result": "adequate"})
         # Synthesize
-        llm.queue("Category analysis shows A, B, C each have ~6-7 entries. C leads in total value.")
+        llm.queue({"code": "print('Category analysis shows A, B, C each have ~6-7 entries. C leads in total value.')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -324,7 +324,7 @@ class TestExtendedSubgraph:
         # Validate
         llm.queue({"result": "adequate"})
         # Synthesize
-        llm.queue("There are 20 metrics records.")
+        llm.queue({"code": "print('There are 20 metrics records.')"})
 
         cb = CallbackManager()
         result = await run_agent(

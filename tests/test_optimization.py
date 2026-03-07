@@ -242,7 +242,7 @@ class TestOptimizationSubgraph:
             }],
         })
         # Synthesize
-        llm.queue("Total sales amount is $4,950.")
+        llm.queue({"code": "print('Total sales amount is $4,950.')"})
 
         cb = CallbackManager()
         state: AgentState = {
@@ -280,7 +280,7 @@ class TestOptimizationSubgraph:
             }],
         })
         # Synthesize
-        llm.queue("There are 100 sales records.")
+        llm.queue({"code": "print('There are 100 sales records.')"})
 
         cb = CallbackManager()
         state: AgentState = {

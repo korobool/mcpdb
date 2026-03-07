@@ -5,12 +5,11 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import chardet
-import pandas as pd
 
 logger = logging.getLogger("mcpdb.csv.loader")
 
@@ -20,16 +19,16 @@ _DELIMITERS = [",", ";", "\t", "|"]
 
 @dataclass
 class CsvLoadResult:
-    """Result of loading a CSV file."""
+    """Result of detecting CSV file properties (no data loaded into memory)."""
 
-    df: pd.DataFrame
     table_name: str
     file_path: str
     encoding: str
     delimiter: str
     has_header: bool
-    row_count: int
-    column_count: int
+    row_count: int = 0
+    column_count: int = 0
+    columns: list[str] = field(default_factory=list)
 
 
 def detect_encoding(file_path: str | Path, sample_size: int = 65536) -> str:
@@ -89,14 +88,14 @@ def _make_table_name(file_path: str | Path) -> str:
     return name or "unnamed_csv"
 
 
-def load_csv(
+def detect_csv(
     file_path: str | Path,
     table_name: str | None = None,
     encoding: str | None = None,
     delimiter: str | None = None,
     has_header: bool | None = None,
 ) -> CsvLoadResult:
-    """Load a CSV file into a DataFrame with auto-detection of encoding, delimiter, and header.
+    """Detect CSV file properties without loading data into memory.
 
     Args:
         file_path: Path to the CSV file.
@@ -106,7 +105,7 @@ def load_csv(
         has_header: Override header detection (default: auto-detect).
 
     Returns:
-        CsvLoadResult with DataFrame and metadata.
+        CsvLoadResult with detected properties (no data loaded).
     """
     file_path = str(file_path)
 
@@ -118,48 +117,35 @@ def load_csv(
     if has_header is None:
         has_header = detect_header(file_path, encoding, delimiter)
 
-    # Load with pandas
-    df = pd.read_csv(
-        file_path,
-        encoding=encoding,
-        sep=delimiter,
-        header=0 if has_header else None,
-        engine="python",
-        on_bad_lines="skip",
-    )
-
-    # Generate column names if no header
-    if not has_header:
-        df.columns = [f"col_{i}" for i in range(len(df.columns))]
-
     tname = table_name or _make_table_name(file_path)
 
-    logger.info("Loaded CSV '%s': %d rows, %d columns (encoding=%s, delim=%r, header=%s)",
-                file_path, len(df), len(df.columns), encoding, delimiter, has_header)
+    logger.info("Detected CSV '%s': encoding=%s, delim=%r, header=%s",
+                file_path, encoding, delimiter, has_header)
 
     return CsvLoadResult(
-        df=df,
         table_name=tname,
         file_path=file_path,
         encoding=encoding,
         delimiter=delimiter,
         has_header=has_header,
-        row_count=len(df),
-        column_count=len(df.columns),
     )
 
 
-def load_multiple_csvs(
+# Keep backwards-compatible alias
+load_csv = detect_csv
+
+
+def detect_multiple_csvs(
     file_paths: list[str | Path],
     table_names: list[str] | None = None,
 ) -> list[CsvLoadResult]:
-    """Load multiple CSV files with unique table names."""
+    """Detect properties for multiple CSV files with unique table names."""
     results = []
     used_names: set[str] = set()
 
     for i, path in enumerate(file_paths):
         name = table_names[i] if table_names and i < len(table_names) else None
-        result = load_csv(path, table_name=name)
+        result = detect_csv(path, table_name=name)
 
         # Ensure unique table name
         base = result.table_name
@@ -172,3 +158,7 @@ def load_multiple_csvs(
         results.append(result)
 
     return results
+
+
+# Keep backwards-compatible alias
+load_multiple_csvs = detect_multiple_csvs

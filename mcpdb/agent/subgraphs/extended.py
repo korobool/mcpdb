@@ -50,7 +50,7 @@ async def run_extended(
             "action": "context",
             "code": "",
             "status": "success",
-            "result_preview": state.get("source_context", "No data available"),
+            "result_summary": state.get("source_context", "No data available"),
             "time_ms": 0,
         }]
         state = await synthesize(state, llm, callbacks)
