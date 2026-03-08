@@ -977,3 +977,195 @@ class TestOrchestratorSimpleMode:
         types = [e.type for e in cb.get_events()]
         assert "quick/escalate" in types
         assert "simple/start" in types
+
+
+# --- Production Quality Tests ---
+
+
+class TestCancellation:
+    """Test that cancellation token is checked at pipeline boundaries."""
+
+    @pytest.mark.asyncio
+    async def test_execute_step_checks_cancellation(self, registry_with_source):
+        """Execute step should raise when cancelled."""
+        from mcpdb.agent.cancellation import CancellationToken, CancelledException
+
+        cb = CallbackManager()
+        token = CancellationToken()
+        token.cancel()
+
+        state: AgentState = {
+            "question": "Test",
+            "cancellation_token": token,
+            "plan": {
+                "steps": [{"step_number": 1, "action": "sql", "code": "SELECT 1", "source_id": "test_db", "status": "pending", "attempts": 0}],
+                "current_step_index": 0,
+            },
+        }
+
+        with pytest.raises(CancelledException):
+            await execute_step(state, cb, registry_with_source)
+
+    @pytest.mark.asyncio
+    async def test_plan_checks_cancellation(self, registry_with_source):
+        """Plan step should raise when cancelled."""
+        from mcpdb.agent.cancellation import CancellationToken, CancelledException
+
+        cb = CallbackManager()
+        llm = MockLLM()
+
+        token = CancellationToken()
+        token.cancel()
+
+        state: AgentState = {
+            "question": "Count customers",
+            "source_context": "Test DB",
+            "cancellation_token": token,
+        }
+
+        with pytest.raises(CancelledException):
+            await make_plan(state, llm, cb, registry_with_source)
+
+
+class TestDebugNodeErrorHandling:
+    """Test that debug node handles failures without infinite loops."""
+
+    @pytest.mark.asyncio
+    async def test_debug_gives_up_at_max_retries(self):
+        """When attempts >= max_retries, debug should give up and advance."""
+        llm = MockLLM()
+        cb = CallbackManager()
+
+        state: AgentState = {
+            "question": "Test",
+            "source_context": "test",
+            "max_retries": 3,
+            "plan": {
+                "steps": [
+                    {"step_number": 1, "action": "sql", "code": "BAD SQL", "status": "pending", "attempts": 3},
+                    {"step_number": 2, "action": "sql", "code": "SELECT 1", "status": "pending", "attempts": 0},
+                ],
+                "current_step_index": 0,
+            },
+            "current_error": {
+                "step_index": 0,
+                "action": "sql",
+                "code": "BAD SQL",
+                "error": "syntax error",
+                "attempts": 3,  # >= max_retries, so debug should give up
+            },
+        }
+
+        result = await debug_step(state, llm, cb)
+        # Step should be advanced past the failed step
+        assert result["plan"]["current_step_index"] == 1
+        assert result["current_error"] is None
+        assert result["plan"]["steps"][0]["status"] == "failed"
+        # LLM should not have been called
+        assert llm._call_index == 0
+
+    @pytest.mark.asyncio
+    async def test_debug_returns_original_code_on_no_fix(self):
+        """When LLM returns no corrected_code, original code is re-used."""
+        llm = MockLLM()
+        llm.queue({"error_analysis": "Unknown error"})  # No corrected_code key
+        cb = CallbackManager()
+
+        state: AgentState = {
+            "question": "Test",
+            "source_context": "test",
+            "max_retries": 3,
+            "plan": {
+                "steps": [
+                    {"step_number": 1, "action": "sql", "code": "SELECT bad", "status": "pending", "attempts": 0},
+                ],
+                "current_step_index": 0,
+            },
+            "current_error": {
+                "step_index": 0,
+                "action": "sql",
+                "code": "SELECT bad",
+                "error": "no such column: bad",
+                "attempts": 1,
+            },
+        }
+
+        result = await debug_step(state, llm, cb)
+        # Error should be cleared even though fix is same code
+        assert result["current_error"] is None
+        assert result["plan"]["steps"][0]["code"] == "SELECT bad"  # Original code used as fallback
+
+
+class TestFastPathSynthesizeNone:
+    """Test fast-path synthesize handles None values in data."""
+
+    @pytest.mark.asyncio
+    async def test_fast_path_handles_none_values(self):
+        """Fast path should not crash on None values in table data."""
+        llm = MockLLM()
+        cb = CallbackManager()
+
+        state: AgentState = {
+            "question": "Show data",
+            "query_mode": "simple",
+            "execution_log": [{"step_number": 1, "action": "sql", "status": "success", "result_summary": "2 rows"}],
+            "artifacts": [{
+                "type": "table",
+                "title": "Result",
+                "data": {
+                    "columns": ["name", "value"],
+                    "rows": [["Alice", None], [None, 42.123456789]],
+                    "total_rows": 2,
+                },
+            }],
+        }
+
+        result = await synthesize(state, llm, cb)
+        assert result["response"] is not None
+        assert "Alice" in result["response"]
+        assert "42.12" in result["response"]  # Float should be nicely formatted
+        # None should be rendered as empty, not "None"
+        assert "None" not in result["response"]
+
+
+class TestFallbackSynthesize:
+    """Test fallback synthesize produces useful output."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_shows_table_data(self):
+        """Fallback should format actual table data, not just metadata."""
+        from mcpdb.agent.nodes.common import _fallback_synthesize
+
+        state: AgentState = {
+            "question": "Who are the top customers?",
+            "execution_log": [{"step_number": 1, "action": "sql", "status": "success", "result_summary": "3 rows"}],
+            "artifacts": [{
+                "type": "table",
+                "title": "Top customers",
+                "data": {
+                    "columns": ["name", "revenue"],
+                    "rows": [["Alice", 1000], ["Bob", 800], ["Carol", 600]],
+                    "total_rows": 3,
+                },
+            }],
+        }
+
+        result = _fallback_synthesize(state)
+        assert "Alice" in result
+        assert "1000" in result
+        assert "|" in result  # Should be table format
+
+    @pytest.mark.asyncio
+    async def test_fallback_never_returns_empty(self):
+        """Fallback should always return something useful."""
+        from mcpdb.agent.nodes.common import _fallback_synthesize
+
+        state: AgentState = {
+            "question": "Anything?",
+            "execution_log": [],
+            "artifacts": [],
+        }
+
+        result = _fallback_synthesize(state)
+        assert result  # Not empty
+        assert len(result) > 10  # Not just whitespace

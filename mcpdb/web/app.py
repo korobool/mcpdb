@@ -42,6 +42,9 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 # Pydantic request models
 # ---------------------------------------------------------------------------
 
+MAX_UPLOAD_SIZE_MB = 500  # Max file upload size in MB
+
+
 class DatabaseConnectRequest(BaseModel):
     connection_string: str
     display_name: str | None = None
@@ -61,7 +64,8 @@ _registry: SourceRegistry | None = None
 _config: McpdbConfig | None = None
 _llm: Any = None
 _experience_service: Any = None
-_active_task: asyncio.Task | None = None
+_active_tasks: dict[int, asyncio.Task] = {}  # ws_id → task (per-connection)
+_ws_counter: int = 0
 _no_cache: bool = False
 
 
@@ -191,8 +195,18 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
                 suffix = Path(f.filename or "upload.csv").suffix
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     shutil.copyfileobj(f.file, tmp)
+                    # Check file size
+                    size_mb = Path(tmp.name).stat().st_size / (1024 * 1024)
+                    if size_mb > MAX_UPLOAD_SIZE_MB:
+                        Path(tmp.name).unlink(missing_ok=True)
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File '{f.filename}' is {size_mb:.0f}MB, max is {MAX_UPLOAD_SIZE_MB}MB",
+                        )
                     tmp_paths.append(tmp.name)
                     filenames.append(f.filename or "upload.csv")
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"File upload failed: {e}")
 
@@ -207,6 +221,13 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
             source_id = _registry.add_source(source)
             return {"source_id": source_id, "metadata": source.get_metadata().to_dict()}
         except Exception as e:
+            # Clean up temp files on source creation failure
+            for p in tmp_paths:
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            logger.exception("CSV source creation failed")
             raise HTTPException(status_code=400, detail=str(e))
 
     @app.post("/api/sources/excel")
@@ -222,11 +243,21 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
 
+        size_mb = Path(tmp_path).stat().st_size / (1024 * 1024)
+        if size_mb > MAX_UPLOAD_SIZE_MB:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=413,
+                detail=f"File is {size_mb:.0f}MB, max is {MAX_UPLOAD_SIZE_MB}MB",
+            )
+
         try:
             source = ExcelSource(tmp_path, display_name=display_name or file.filename)
             source_id = _registry.add_source(source)
             return {"source_id": source_id, "metadata": source.get_metadata().to_dict()}
         except Exception as e:
+            Path(tmp_path).unlink(missing_ok=True)
+            logger.exception("Excel source creation failed")
             raise HTTPException(status_code=400, detail=str(e))
 
     @app.delete("/api/sources/{source_id}")
@@ -239,7 +270,10 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
 
     @app.get("/api/sources/{source_id}/sample/{table}")
     async def get_sample(source_id: str, table: str, limit: int = 10):
-        source = _registry.get_source(source_id)
+        try:
+            source = _registry.get_source(source_id)
+        except SourceNotFoundError:
+            raise HTTPException(status_code=404, detail="Source not found")
         from mcpdb.sources.base import QueryableSource
         if not isinstance(source, QueryableSource):
             raise HTTPException(status_code=400, detail="Source does not support sampling")
@@ -293,6 +327,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
 
     @app.websocket("/ws/query")
     async def ws_query(ws: WebSocket):
+        global _ws_counter
+        _ws_counter += 1
+        ws_id = _ws_counter
         await ws.accept()
         try:
             while True:
@@ -305,24 +342,27 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
 
                 msg_type = msg.get("type")
                 if msg_type == "cancel":
-                    await _handle_cancel(ws)
+                    await _handle_cancel(ws, ws_id)
                 elif msg_type == "query":
-                    await _handle_query(ws, msg)
+                    await _handle_query(ws, msg, ws_id)
                 else:
                     await ws.send_json({"type": "error", "message": f"Unknown: {msg_type}"})
         except WebSocketDisconnect:
-            logger.debug("WebSocket disconnected")
+            logger.debug("WebSocket %d disconnected", ws_id)
+            # Cancel any running task for this connection
+            task = _active_tasks.pop(ws_id, None)
+            if task and not task.done():
+                task.cancel()
 
-    async def _handle_cancel(ws: WebSocket):
-        global _active_task
-        if _active_task and not _active_task.done():
-            _active_task.cancel()
+    async def _handle_cancel(ws: WebSocket, ws_id: int):
+        task = _active_tasks.get(ws_id)
+        if task and not task.done():
+            task.cancel()
             await ws.send_json({"type": "cancelled"})
         else:
             await ws.send_json({"type": "error", "message": "No active query"})
 
-    async def _handle_query(ws: WebSocket, msg: dict):
-        global _active_task
+    async def _handle_query(ws: WebSocket, msg: dict, ws_id: int):
 
         question = msg.get("question", "").strip()
         if not question:
@@ -337,6 +377,11 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
             await ws.send_json({"type": "error", "message": "No LLM provider configured"})
             return
 
+        # Cancel any existing query for this connection
+        existing = _active_tasks.pop(ws_id, None)
+        if existing and not existing.done():
+            existing.cancel()
+
         mode_override = msg.get("mode")
         if mode_override == "auto":
             mode_override = None
@@ -345,35 +390,44 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
         query_no_cache = msg.get("noCache", _no_cache)
 
         # Async queue bridges sync agent callbacks → async WebSocket
-        event_queue: asyncio.Queue = asyncio.Queue()
+        event_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
 
         def on_event(event):
-            event_queue.put_nowait({
-                "type": "event",
-                "event_type": event.type,
-                "data": _sanitize(event.data),
-                "timestamp": event.timestamp,
-            })
+            try:
+                event_queue.put_nowait({
+                    "type": "event",
+                    "event_type": event.type,
+                    "data": _sanitize(event.data),
+                    "timestamp": event.timestamp,
+                })
+            except asyncio.QueueFull:
+                pass  # Drop events rather than block — graceful degradation
 
         from mcpdb.agent.callbacks import CallbackManager
+        from mcpdb.agent.cancellation import CancellationToken
         from mcpdb.agent.graph import run_agent
         from mcpdb.mcp.tools.analysis import _generate_followups_inline
 
         callbacks = CallbackManager()
         callbacks.add_listener(on_event)
+        cancellation_token = CancellationToken()
 
         exp_cache = _experience_service.cache if _experience_service else None
         exp_staging = _experience_service.staging if _experience_service else None
 
         async def run_and_signal():
             try:
-                state = await run_agent(
-                    question, _registry, _llm, callbacks,
-                    mode_override=mode_override,
-                    experience_cache=exp_cache,
-                    force_rethink=force_rethink,
-                    staging_store=exp_staging,
-                    no_cache=query_no_cache,
+                state = await asyncio.wait_for(
+                    run_agent(
+                        question, _registry, _llm, callbacks,
+                        mode_override=mode_override,
+                        experience_cache=exp_cache,
+                        force_rethink=force_rethink,
+                        staging_store=exp_staging,
+                        no_cache=query_no_cache,
+                        cancellation_token=cancellation_token,
+                    ),
+                    timeout=600.0,  # 10-minute hard timeout per query
                 )
                 # Generate follow-up suggestions (best-effort, non-blocking)
                 followups = await _safe_generate_followups(
@@ -389,13 +443,19 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
                     "query_mode": state.get("query_mode", ""),
                     "followups": followups,
                 })
+            except asyncio.TimeoutError:
+                event_queue.put_nowait({
+                    "type": "error",
+                    "message": "Query timed out after 10 minutes. Try a simpler question or use a specific mode.",
+                })
             except asyncio.CancelledError:
                 event_queue.put_nowait({"type": "cancelled"})
             except Exception as e:
                 logger.exception("Agent error")
                 event_queue.put_nowait({"type": "error", "message": str(e)})
 
-        _active_task = asyncio.create_task(run_and_signal())
+        task = asyncio.create_task(run_and_signal())
+        _active_tasks[ws_id] = task
 
         # Stream events to browser as they arrive
         while True:
@@ -403,12 +463,13 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
             try:
                 await ws.send_json(item)
             except Exception:
-                _active_task.cancel()
+                task.cancel()
+                _active_tasks.pop(ws_id, None)
                 return
             if item["type"] in ("result", "error", "cancelled"):
                 break
 
-        _active_task = None
+        _active_tasks.pop(ws_id, None)
 
     return app
 

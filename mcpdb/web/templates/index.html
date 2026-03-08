@@ -357,8 +357,21 @@ let elapsedTimer = null;
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/ws/query`);
-  ws.onopen = () => console.log('WS connected');
-  ws.onclose = () => { ws = null; setTimeout(connectWS, 2000); };
+  ws.onopen = () => {
+    console.log('WS connected');
+    document.title = 'MCPDB';
+  };
+  ws.onclose = () => {
+    ws = null;
+    if (isQuerying) {
+      isQuerying = false;
+      document.getElementById('send-btn').style.display = '';
+      document.getElementById('cancel-btn').style.display = 'none';
+      addLog('Connection lost. Reconnecting...');
+    }
+    document.title = 'MCPDB (reconnecting...)';
+    setTimeout(connectWS, 2000);
+  };
   ws.onerror = () => {};
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
@@ -1290,7 +1303,7 @@ function autoGrow(el) {
 
 // ── Helpers ────────────────────────────────────────────
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/\n/g, ' '); }
+function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,' ').replace(/`/g,'&#96;'); }
 
 // ── Configure libraries ────────────────────────────────
 marked.setOptions({
@@ -1309,7 +1322,8 @@ customRenderer.code = function({ text, lang }) {
   if (lang === 'mermaid') {
     return `<div class="mermaid-pending">${escHtml(text)}</div>`;
   }
-  return `<pre><code class="language-${lang || 'plaintext'}">${text}</code></pre>`;
+  const safeLang = escHtml(lang || 'plaintext');
+  return `<pre><code class="language-${safeLang}">${escHtml(text)}</code></pre>`;
 };
 // Skip relative image paths (e.g. chart.png) — actual charts are rendered from artifacts
 customRenderer.image = function({ href, title, text }) {
@@ -1320,7 +1334,7 @@ customRenderer.image = function({ href, title, text }) {
 };
 marked.setOptions({ renderer: customRenderer });
 
-mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
 
 // ── Init ───────────────────────────────────────────────
 connectWS();

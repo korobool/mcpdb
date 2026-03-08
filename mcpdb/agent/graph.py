@@ -79,6 +79,7 @@ async def run_agent(
         "execution_log": [],
         "max_retries": 3,
         "cache_hit": False,
+        "cancellation_token": cancellation_token,
     }
 
     # Build anti-pattern context from experience data
@@ -275,16 +276,20 @@ async def _replay_cached(
 
     # Execute each step against live data
     had_error = False
-    for _ in range(len(plan_steps)):
-        idx = state["plan"]["current_step_index"]
-        if idx >= len(plan_steps):
-            break
-        state = await execute_step(state, callbacks, registry)
-        if state.get("current_error"):
-            # Cached code failed on current data — fall through to full pipeline
-            logger.warning("Cached step %d failed, falling through to full pipeline", idx + 1)
-            had_error = True
-            break
+    try:
+        for _ in range(len(plan_steps)):
+            idx = state["plan"]["current_step_index"]
+            if idx >= len(plan_steps):
+                break
+            state = await execute_step(state, callbacks, registry)
+            if state.get("current_error"):
+                # Cached code failed on current data — fall through to full pipeline
+                logger.warning("Cached step %d failed, falling through to full pipeline", idx + 1)
+                had_error = True
+                break
+    except Exception as e:
+        logger.warning("Unexpected error during cache replay: %s", e)
+        had_error = True
 
     if had_error:
         # Reset state so the full pipeline starts fresh
