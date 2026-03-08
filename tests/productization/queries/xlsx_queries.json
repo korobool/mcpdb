@@ -1,0 +1,142 @@
+[
+  {
+    "id": "xlsx001",
+    "question": "How many sheets are in this workbook and what are their names?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx002",
+    "question": "List the columns in each sheet",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx003",
+    "question": "How many rows of data are in total?",
+    "mode": "quick",
+    "category": "simple_aggregation",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx004",
+    "question": "What is the total amount paid?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx005",
+    "question": "Show the distribution of values by the main categorical column",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx006",
+    "question": "What is the average value across all numeric columns?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx007",
+    "question": "Show the trend over time if there are date columns",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx008",
+    "question": "Create a bar chart of the top categories by total amount",
+    "mode": "simple",
+    "category": "chart",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx009",
+    "question": "Are there any missing values in the dataset?",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx010",
+    "question": "Show summary statistics for all numeric columns",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "paid"
+  },
+  {
+    "id": "xlsx011",
+    "question": "How many sheets are in this workbook?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx012",
+    "question": "What columns are in each sheet?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx013",
+    "question": "What is the total reserved amount?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx014",
+    "question": "Show the distribution of reserved amounts",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx015",
+    "question": "What is the average reserved amount by category?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx016",
+    "question": "Create a histogram of reserved amounts",
+    "mode": "simple",
+    "category": "chart",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx017",
+    "question": "Show the top 10 records by amount",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx018",
+    "question": "Are there any duplicate records?",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx019",
+    "question": "What is the data range of dates in this dataset?",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "reserved"
+  },
+  {
+    "id": "xlsx020",
+    "question": "Show the relationship between key numeric columns",
+    "mode": "extended",
+    "category": "complex_analytics",
+    "source": "reserved"
+  }
+]

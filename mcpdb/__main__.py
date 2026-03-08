@@ -36,6 +36,8 @@ Usage:
   mcpdb repl file.csv            REPL with CSV source
   mcpdb repl file.xlsx           REPL with Excel source
   mcpdb repl <conn> --no-cache   REPL without cache lookup
+  mcpdb tui <conn>               Textual TUI mode (windowed)
+  mcpdb tui <conn> --no-cache    TUI without cache lookup
   mcpdb clean_cache              Clear all experience cache data
   mcpdb clean_cache --source <fp>  Clear cache for one source
   mcpdb clean_cache --stats      Show cache stats without clearing
@@ -196,6 +198,24 @@ def main() -> None:
 
         _start_repl(connection_string, config, logger, no_cache=no_cache)
 
+    elif command == "tui":
+        if len(args) < 2:
+            print("Usage: mcpdb tui <connection_string_or_file>")
+            sys.exit(1)
+
+        # Suppress INFO logs — TUI handles status
+        import logging as _logging
+        _logging.getLogger("mcpdb").setLevel(_logging.WARNING)
+        for h in _logging.getLogger("mcpdb").handlers:
+            h.setLevel(_logging.WARNING)
+        _logging.getLogger("google_genai").setLevel(_logging.WARNING)
+
+        no_cache = "--no-cache" in args
+        remaining = [a for a in args[1:] if a != "--no-cache"]
+        connection_string = remaining[0]
+
+        _start_tui(connection_string, config, logger, no_cache=no_cache)
+
     elif command == "experience":
         if len(args) < 2:
             print("Usage: mcpdb experience <stats|eval|clear|export|antipatterns>")
@@ -231,12 +251,9 @@ def main() -> None:
         sys.exit(1)
 
 
-def _start_repl(connection_string: str, config, logger, no_cache: bool = False) -> None:
-    """Start the interactive REPL."""
+def _create_source_and_registry(connection_string: str, logger):
+    """Create a source and registry from a connection string. Returns (registry, source)."""
     from mcpdb.sources.registry import SourceRegistry
-    from mcpdb.experience.service import ExperienceService
-    from mcpdb.llm.factory import create_provider
-    from mcpdb.cli.repl import Repl
 
     _CSV_EXTS = {".csv", ".tsv", ".tab"}
     _EXCEL_EXTS = {".xlsx", ".xls"}
@@ -245,31 +262,76 @@ def _start_repl(connection_string: str, config, logger, no_cache: bool = False) 
     candidate_paths = [p.strip() for p in connection_string.split(",")]
     ext = Path(candidate_paths[0]).suffix.lower()
 
+    if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(
+        Path(p).exists() for p in candidate_paths
+    ):
+        from mcpdb.sources.csv.source import CsvSource
+
+        names = [Path(p).stem for p in candidate_paths]
+        display = ", ".join(names[:3])
+        if len(names) > 3:
+            display += f" (+{len(names) - 3} more)"
+        source = CsvSource(candidate_paths, display_name=display)
+        registry.add_source(source)
+    elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
+        from mcpdb.sources.excel.source import ExcelSource
+
+        source = ExcelSource(
+            candidate_paths[0], display_name=Path(candidate_paths[0]).name
+        )
+        registry.add_source(source)
+    else:
+        from mcpdb.sources.database.source import DatabaseSource
+
+        source = DatabaseSource(connection_string)
+        registry.add_source(source)
+
+    return registry
+
+
+def _start_tui(connection_string: str, config, logger, no_cache: bool = False) -> None:
+    """Start the Textual TUI."""
     try:
-        if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(
-            Path(p).exists() for p in candidate_paths
-        ):
-            from mcpdb.sources.csv.source import CsvSource
+        from mcpdb.cli.tui.app import run_tui
+    except ImportError:
+        print("TUI requires textual. Install with: pip install mcpdb[tui]")
+        sys.exit(1)
 
-            names = [Path(p).stem for p in candidate_paths]
-            display = ", ".join(names[:3])
-            if len(names) > 3:
-                display += f" (+{len(names) - 3} more)"
-            source = CsvSource(candidate_paths, display_name=display)
-            registry.add_source(source)
-        elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
-            from mcpdb.sources.excel.source import ExcelSource
+    from mcpdb.experience.service import ExperienceService
+    from mcpdb.llm.factory import create_provider
 
-            source = ExcelSource(
-                candidate_paths[0], display_name=Path(candidate_paths[0]).name
-            )
-            registry.add_source(source)
-        else:
-            from mcpdb.sources.database.source import DatabaseSource
+    registry = _create_source_and_registry(connection_string, logger)
 
-            source = DatabaseSource(connection_string)
-            registry.add_source(source)
+    try:
+        llm_cfg = config.llm.reasoning
+        llm = create_provider(
+            llm_cfg.provider,
+            llm_cfg.model,
+            llm_cfg.api_key,
+        )
 
+        service = ExperienceService(config.experience)
+
+        run_tui(
+            registry=registry,
+            llm=llm,
+            config=config,
+            experience_service=service,
+            no_cache=no_cache,
+        )
+    finally:
+        registry.close_all()
+
+
+def _start_repl(connection_string: str, config, logger, no_cache: bool = False) -> None:
+    """Start the interactive REPL."""
+    from mcpdb.experience.service import ExperienceService
+    from mcpdb.llm.factory import create_provider
+    from mcpdb.cli.repl import Repl
+
+    registry = _create_source_and_registry(connection_string, logger)
+
+    try:
         llm_cfg = config.llm.reasoning
         llm = create_provider(
             llm_cfg.provider,

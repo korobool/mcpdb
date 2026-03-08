@@ -1,0 +1,302 @@
+[
+  {
+    "id": "stress001",
+    "question": "What is the total revenue from all transactions?",
+    "category": "full_scan",
+    "expected_behavior": "Should handle 1M row scan"
+  },
+  {
+    "id": "stress002",
+    "question": "What is the average transaction amount by payment method?",
+    "category": "full_scan",
+    "expected_behavior": "GROUP BY on large table"
+  },
+  {
+    "id": "stress003",
+    "question": "How many transactions occurred each month? Show the trend over time",
+    "category": "full_scan",
+    "expected_behavior": "Date parsing + GROUP BY on 1M rows"
+  },
+  {
+    "id": "stress004",
+    "question": "What is the median transaction amount?",
+    "category": "full_scan",
+    "expected_behavior": "Median requires sorting entire column"
+  },
+  {
+    "id": "stress005",
+    "question": "Calculate the 99th percentile of transaction amounts",
+    "category": "full_scan",
+    "expected_behavior": "Percentile on 1M rows"
+  },
+  {
+    "id": "stress006",
+    "question": "Show the top 20 customers by total spending",
+    "category": "join",
+    "expected_behavior": "JOIN customers + transactions, aggregate"
+  },
+  {
+    "id": "stress007",
+    "question": "What is the average transaction amount by customer age group (18-25, 26-35, 36-50, 50+)?",
+    "category": "join",
+    "expected_behavior": "JOIN + CASE + GROUP BY"
+  },
+  {
+    "id": "stress008",
+    "question": "Which product category generates the most revenue?",
+    "category": "join",
+    "expected_behavior": "JOIN products + transactions"
+  },
+  {
+    "id": "stress009",
+    "question": "Show the revenue by product category and customer gender",
+    "category": "join",
+    "expected_behavior": "3-table join + double GROUP BY"
+  },
+  {
+    "id": "stress010",
+    "question": "What is the customer lifetime value (total spending) distribution?",
+    "category": "join",
+    "expected_behavior": "Aggregate per customer then histogram"
+  },
+  {
+    "id": "stress011",
+    "question": "Show the daily transaction count for the last 6 months",
+    "category": "time_series",
+    "expected_behavior": "Date range filter + daily GROUP BY"
+  },
+  {
+    "id": "stress012",
+    "question": "What is the month-over-month revenue growth rate?",
+    "category": "time_series",
+    "expected_behavior": "Window function or self-join for MoM"
+  },
+  {
+    "id": "stress013",
+    "question": "Show the rolling 7-day average of transaction counts",
+    "category": "time_series",
+    "expected_behavior": "Window function with frame"
+  },
+  {
+    "id": "stress014",
+    "question": "What are the peak shopping hours by day of week?",
+    "category": "time_series",
+    "expected_behavior": "Extract hour + day, GROUP BY"
+  },
+  {
+    "id": "stress015",
+    "question": "Show the cumulative revenue over time",
+    "category": "time_series",
+    "expected_behavior": "Running sum on large dataset"
+  },
+  {
+    "id": "stress016",
+    "question": "What is the average, min, max, and std deviation of transaction amounts by product category?",
+    "category": "aggregation",
+    "expected_behavior": "Multiple aggregates per group"
+  },
+  {
+    "id": "stress017",
+    "question": "How many unique customers made purchases each month?",
+    "category": "aggregation",
+    "expected_behavior": "COUNT DISTINCT per month on large table"
+  },
+  {
+    "id": "stress018",
+    "question": "What is the Pareto analysis - what percentage of customers account for 80% of revenue?",
+    "category": "aggregation",
+    "expected_behavior": "Complex cumulative distribution"
+  },
+  {
+    "id": "stress019",
+    "question": "Show the distribution of order sizes (1 item, 2-3 items, 4-5 items, 6+ items)",
+    "category": "aggregation",
+    "expected_behavior": "CASE bucketing on 1M rows"
+  },
+  {
+    "id": "stress020",
+    "question": "What is the repeat purchase rate by product category?",
+    "category": "aggregation",
+    "expected_behavior": "Self-join or subquery for repeat detection"
+  },
+  {
+    "id": "stress021",
+    "question": "What is the most common page viewed by each device type?",
+    "category": "events_analysis",
+    "expected_behavior": "GROUP BY on 2M row events table"
+  },
+  {
+    "id": "stress022",
+    "question": "What is the conversion rate from page_view to purchase events?",
+    "category": "events_analysis",
+    "expected_behavior": "Funnel analysis on large event log"
+  },
+  {
+    "id": "stress023",
+    "question": "Show the average session duration by device type",
+    "category": "events_analysis",
+    "expected_behavior": "Session boundary detection on 2M events"
+  },
+  {
+    "id": "stress024",
+    "question": "How many events are generated per day on average?",
+    "category": "events_analysis",
+    "expected_behavior": "COUNT + date GROUP BY on 2M rows"
+  },
+  {
+    "id": "stress025",
+    "question": "What are the most common event sequences (pairs of consecutive events)?",
+    "category": "events_analysis",
+    "expected_behavior": "LAG window function on 2M rows"
+  },
+  {
+    "id": "stress026",
+    "question": "List all tables with their sizes and column counts",
+    "category": "schema",
+    "expected_behavior": "Fast schema query"
+  },
+  {
+    "id": "stress027",
+    "question": "Show the relationship between tables using foreign keys",
+    "category": "schema",
+    "expected_behavior": "FK detection"
+  },
+  {
+    "id": "stress028",
+    "question": "Are there any NULL values in critical columns across all tables?",
+    "category": "data_quality",
+    "expected_behavior": "NULL check on all large tables"
+  },
+  {
+    "id": "stress029",
+    "question": "Find duplicate customer emails",
+    "category": "data_quality",
+    "expected_behavior": "GROUP BY + HAVING on large text column"
+  },
+  {
+    "id": "stress030",
+    "question": "What percentage of transactions have NULL shipped_at or delivered_at?",
+    "category": "data_quality",
+    "expected_behavior": "NULL counting on 1M rows"
+  },
+  {
+    "id": "stress031",
+    "question": "Create a bar chart showing revenue by product category",
+    "category": "chart",
+    "expected_behavior": "Aggregate then chart"
+  },
+  {
+    "id": "stress032",
+    "question": "Show a line chart of daily revenue for the last year",
+    "category": "chart",
+    "expected_behavior": "Time series chart from large data"
+  },
+  {
+    "id": "stress033",
+    "question": "Create a scatter plot of customer age vs total spending",
+    "category": "chart",
+    "expected_behavior": "JOIN + scatter on aggregated data"
+  },
+  {
+    "id": "stress034",
+    "question": "Show a histogram of transaction amounts",
+    "category": "chart",
+    "expected_behavior": "Histogram from 1M values"
+  },
+  {
+    "id": "stress035",
+    "question": "Create a heatmap of transactions by day-of-week and hour",
+    "category": "chart",
+    "expected_behavior": "Pivot + heatmap from large data"
+  },
+  {
+    "id": "stress036",
+    "question": "Perform a comprehensive business analysis: revenue trends, customer segments, product performance, and key metrics",
+    "category": "deep",
+    "expected_behavior": "Deep mode with multiple large-table queries"
+  },
+  {
+    "id": "stress037",
+    "question": "Investigate the factors that drive high-value transactions",
+    "category": "deep",
+    "expected_behavior": "Extended analysis across joins"
+  },
+  {
+    "id": "stress038",
+    "question": "Which customers are at risk of churning based on their transaction patterns?",
+    "category": "complex",
+    "expected_behavior": "Recency analysis on 1M transactions"
+  },
+  {
+    "id": "stress039",
+    "question": "What is the customer acquisition cost effectiveness by signup cohort?",
+    "category": "complex",
+    "expected_behavior": "Cohort analysis"
+  },
+  {
+    "id": "stress040",
+    "question": "Show the market basket analysis - which products are frequently bought together?",
+    "category": "complex",
+    "expected_behavior": "Self-join on transactions, very expensive"
+  },
+  {
+    "id": "stress041",
+    "question": "What is the refund rate by product category and time period?",
+    "category": "complex",
+    "expected_behavior": "Status filter + category join + time bucketing"
+  },
+  {
+    "id": "stress042",
+    "question": "Calculate the customer retention rate by monthly cohort",
+    "category": "complex",
+    "expected_behavior": "Cohort retention matrix"
+  },
+  {
+    "id": "stress043",
+    "question": "What are the seasonal patterns in purchasing behavior?",
+    "category": "complex",
+    "expected_behavior": "Seasonality detection on 1M rows"
+  },
+  {
+    "id": "stress044",
+    "question": "Compare the performance of different payment methods over time",
+    "category": "complex",
+    "expected_behavior": "Pivot by payment method + time"
+  },
+  {
+    "id": "stress045",
+    "question": "What is the average discount given by income bracket and product category?",
+    "category": "complex",
+    "expected_behavior": "3-way JOIN + double GROUP BY"
+  },
+  {
+    "id": "stress046",
+    "question": "Find anomalous transactions (amounts more than 3 standard deviations from the mean)",
+    "category": "complex",
+    "expected_behavior": "Statistical outlier detection on 1M rows"
+  },
+  {
+    "id": "stress047",
+    "question": "What is the profit margin by product subcategory, considering cost data?",
+    "category": "complex",
+    "expected_behavior": "JOIN + margin calculation"
+  },
+  {
+    "id": "stress048",
+    "question": "Show the geographic distribution of revenue by city",
+    "category": "complex",
+    "expected_behavior": "JOIN + city aggregation"
+  },
+  {
+    "id": "stress049",
+    "question": "What is the average time between a customer's first and second purchase?",
+    "category": "complex",
+    "expected_behavior": "LAG/LEAD window on large table per customer"
+  },
+  {
+    "id": "stress050",
+    "question": "Create a comprehensive dashboard with KPIs: total revenue, active customers, avg order value, conversion rate, top products",
+    "category": "deep",
+    "expected_behavior": "Multiple large queries for KPI extraction"
+  }
+]

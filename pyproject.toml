@@ -56,6 +56,9 @@ web = [
 cli = [
     "prompt_toolkit>=3.0",
 ]
+tui = [
+    "textual>=0.50",
+]
 export = [
     "weasyprint>=62",
     "nbformat>=5.0",
