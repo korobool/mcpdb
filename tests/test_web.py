@@ -332,9 +332,15 @@ class TestExport:
     def test_export_html(self, client):
         resp = client.post("/api/export/html", json={"turns": self.SAMPLE_TURNS, "dbInfo": "bgins"})
         assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "How many tables" in resp.text
-        assert "21 tables" in resp.text
+        data = resp.json()
+        assert "export_id" in data
+        assert "url" in data
+        # Fetch the actual HTML via the view endpoint
+        view_resp = client.get(data["url"])
+        assert view_resp.status_code == 200
+        assert "text/html" in view_resp.headers["content-type"]
+        assert "How many tables" in view_resp.text
+        assert "21 tables" in view_resp.text
 
     def test_export_html_empty_turns(self, client):
         resp = client.post("/api/export/html", json={"turns": []})
@@ -375,8 +381,20 @@ class TestExport:
         }]
         resp = client.post("/api/export/html", json={"turns": turns})
         assert resp.status_code == 200
-        assert "data:image/png;base64" in resp.text
-        assert "<table" in resp.text
+        data = resp.json()
+        view_resp = client.get(data["url"])
+        assert view_resp.status_code == 200
+        assert "data:image/png;base64" in view_resp.text
+        assert "<table" in view_resp.text
+
+    def test_export_view_one_time_use(self, client):
+        """Export view endpoint should only serve the HTML once."""
+        resp = client.post("/api/export/html", json={"turns": self.SAMPLE_TURNS})
+        url = resp.json()["url"]
+        # First access works
+        assert client.get(url).status_code == 200
+        # Second access returns 404
+        assert client.get(url).status_code == 404
 
 
 class TestLLMConfig:

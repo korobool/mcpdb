@@ -1,384 +1,332 @@
-"""Tests for v3.2.x — Export (HTML, PDF, Jupyter, MCP tool, UI dialog)."""
+"""Unit tests for mcpdb.web.export module.
 
+Tests HTML report generation, notebook generation, and artifact rendering
+without requiring a running web server.
+"""
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
-from mcpdb.export.html_export import (
-    ExportArtifact,
-    ExportMessage,
-    ExportPayload,
-    render_html,
-)
-from mcpdb.export.notebook_export import (
-    render_notebook,
-    render_notebook_json,
-    export_notebook,
-)
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+SIMPLE_TURN = {
+    "question": "How many tables are in the database?",
+    "response": "There are **21 tables** in the bgins database.",
+    "artifacts": [],
+    "executionLog": [
+        {
+            "step_number": 1,
+            "action": "sql",
+            "code": "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE()",
+            "status": "success",
+            "result_summary": "cnt: 21",
+            "time_ms": 45,
+        },
+    ],
+    "mode": "quick",
+    "elapsed": 2.3,
+}
+
+CHART_TURN = {
+    "question": "Plot monthly claims over time",
+    "response": "Here is the monthly trend of insurance claims.\n\nThe chart shows...",
+    "artifacts": [
+        {
+            "type": "chart",
+            "title": "Monthly Claims Trend",
+            "data": {"image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "format": "png"},
+        },
+    ],
+    "executionLog": [
+        {"step_number": 1, "action": "sql", "code": "SELECT DATE_FORMAT(d.damage_date, '%Y-%m') AS month, COUNT(*) AS cnt FROM ins_damages d GROUP BY month ORDER BY month", "status": "success", "result_summary": "60 rows"},
+        {"step_number": 2, "action": "python", "code": "import matplotlib.pyplot as plt\nplt.plot(df['month'], df['cnt'])\nplt.title('Monthly Claims')\nplt.show()", "status": "success", "result_summary": "chart generated"},
+    ],
+    "mode": "simple",
+    "elapsed": 12.5,
+}
+
+TABLE_TURN = {
+    "question": "Top 5 car brands by claims",
+    "response": "The top 5 car brands by number of claims are shown below.",
+    "artifacts": [
+        {
+            "type": "table",
+            "title": "Top Brands",
+            "data": {
+                "columns": ["brand", "claim_count", "avg_cost"],
+                "rows": [
+                    ["Mercedes", 274, 650.5],
+                    ["BMW", 257, 720.3],
+                    ["Audi", 234, 580.1],
+                    ["VW", 220, 450.2],
+                    ["Toyota", 85, 380.0],
+                ],
+            },
+        },
+    ],
+    "executionLog": [
+        {"step_number": 1, "action": "sql", "code": "SELECT brand, COUNT(*) as claim_count, AVG(total_cost) as avg_cost FROM ...", "status": "success", "result_summary": "5 rows"},
+    ],
+    "mode": "simple",
+    "elapsed": 8.0,
+}
+
+MULTI_TURNS = [SIMPLE_TURN, TABLE_TURN, CHART_TURN]
+
+ERROR_TURN = {
+    "question": "Bad query",
+    "response": "**Error:** Query timed out",
+    "artifacts": [],
+    "executionLog": [
+        {"step_number": 1, "action": "sql", "code": "SELECT SLEEP(999)", "status": "error", "error": "timeout"},
+    ],
+    "mode": "simple",
+    "elapsed": 60.0,
+}
 
 
 # ---------------------------------------------------------------------------
-# ExportPayload tests
+# HTML Report Tests
 # ---------------------------------------------------------------------------
 
-class TestExportPayload:
-    def test_defaults(self):
-        p = ExportPayload()
-        assert p.title == "MCPDB Analysis"
-        assert p.messages == []
-        assert p.artifacts == []
-        assert p.metadata == {}
-
-    def test_with_messages(self):
-        p = ExportPayload(
-            messages=[
-                ExportMessage(role="user", content="Hello"),
-                ExportMessage(role="assistant", content="Hi there"),
-            ]
-        )
-        assert len(p.messages) == 2
-        assert p.messages[0].role == "user"
-
-    def test_with_artifacts(self):
-        p = ExportPayload(
-            artifacts=[
-                ExportArtifact(artifact_type="table", title="Results"),
-                ExportArtifact(artifact_type="chart", title="Chart"),
-            ]
-        )
-        assert len(p.artifacts) == 2
-
-    def test_with_metadata(self):
-        p = ExportPayload(metadata={"source": "test.db", "date": "2024-01-01"})
-        assert p.metadata["source"] == "test.db"
-
-
-# ---------------------------------------------------------------------------
-# HTML rendering tests
-# ---------------------------------------------------------------------------
-
-class TestHTMLExport:
-    def test_basic_render(self):
-        html = render_html(ExportPayload())
+class TestHTMLReport:
+    def test_single_turn(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([SIMPLE_TURN], "bgins")
         assert "<!DOCTYPE html>" in html
-        assert "MCPDB Analysis" in html
-        assert "</html>" in html
+        assert "How many tables" in html
+        assert "21 tables" in html
+        assert "MCPDB" in html
+        assert "bgins" in html
 
-    def test_custom_title(self):
-        html = render_html(ExportPayload(title="My Report"))
-        assert "My Report" in html
-        assert "<title>My Report</title>" in html
+    def test_multiple_turns(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report(MULTI_TURNS, "bgins")
+        assert "How many tables" in html
+        assert "Top 5 car brands" in html
+        assert "Plot monthly claims" in html
 
-    def test_messages_rendered(self):
-        p = ExportPayload(messages=[
-            ExportMessage(role="user", content="What tables exist?"),
-            ExportMessage(role="assistant", content="There are 3 tables."),
-        ])
-        html = render_html(p)
-        assert "What tables exist?" in html
-        assert "There are 3 tables." in html
-        assert "msg-user" in html
-        assert "msg-assistant" in html
+    def test_chart_artifact_rendered(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([CHART_TURN])
+        assert "data:image/png;base64," in html
+        assert "Monthly Claims Trend" in html
 
-    def test_metadata_rendered(self):
-        p = ExportPayload(metadata={"source": "postgres", "date": "2024-01-01"})
-        html = render_html(p)
-        assert "postgres" in html
-        assert "2024-01-01" in html
+    def test_table_artifact_rendered(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([TABLE_TURN])
+        assert "<table" in html
+        assert "Mercedes" in html
+        assert "BMW" in html
+        assert "274" in html
 
-    def test_table_artifact(self):
-        p = ExportPayload(artifacts=[
-            ExportArtifact(
-                artifact_type="table",
-                title="Results",
-                data={
-                    "columns": ["name", "age"],
-                    "rows": [
-                        {"name": "Alice", "age": "30"},
-                        {"name": "Bob", "age": "25"},
-                    ],
-                },
-            )
-        ])
-        html = render_html(p)
-        assert "<table>" in html
-        assert "Alice" in html
-        assert "Bob" in html
-        assert "name" in html
-        assert "age" in html
+    def test_execution_plan_rendered(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([SIMPLE_TURN])
+        assert "execution-plan" in html
+        assert "SQL" in html
 
-    def test_table_with_list_rows(self):
-        p = ExportPayload(artifacts=[
-            ExportArtifact(
-                artifact_type="table",
-                title="Data",
-                data={
-                    "columns": ["x", "y"],
-                    "rows": [["1", "2"], ["3", "4"]],
-                },
-            )
-        ])
-        html = render_html(p)
-        assert "<table>" in html
-        assert "1" in html
+    def test_mode_and_elapsed_shown(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([SIMPLE_TURN])
+        assert "quick" in html
+        assert "2.3" in html
 
-    def test_chart_artifact(self):
-        p = ExportPayload(artifacts=[
-            ExportArtifact(
-                artifact_type="chart",
-                title="My Chart",
-                data="iVBORw0KGgo=",  # fake base64
-            )
-        ])
-        html = render_html(p)
-        assert "data:image/png;base64,iVBORw0KGgo=" in html
-        assert "My Chart" in html
+    def test_empty_turns(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([])
+        assert "<!DOCTYPE html>" in html
+        assert "0 turns" in html
 
-    def test_code_artifact(self):
-        p = ExportPayload(artifacts=[
-            ExportArtifact(
-                artifact_type="code",
-                title="Query",
-                data="SELECT * FROM users",
-            )
-        ])
-        html = render_html(p)
-        assert "<pre>" in html
-        assert "SELECT * FROM users" in html
+    def test_error_turn(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([ERROR_TURN])
+        assert "Bad query" in html
+        assert "error" in html.lower()
 
-    def test_html_escaping(self):
-        p = ExportPayload(
-            title="<script>alert('xss')</script>",
-            messages=[
-                ExportMessage(role="user", content="<b>bold</b>"),
-            ],
-        )
-        html = render_html(p)
-        assert "<script>" not in html
+    def test_special_characters_escaped(self):
+        from mcpdb.web.export import generate_html_report
+        turn = {
+            "question": "What about <script>alert('xss')</script>?",
+            "response": "Safe response",
+            "artifacts": [], "executionLog": [], "mode": "quick", "elapsed": 1,
+        }
+        html = generate_html_report([turn])
+        assert "<script>alert" not in html
         assert "&lt;script&gt;" in html
-        assert "&lt;b&gt;" in html
 
-    def test_footer_present(self):
-        html = render_html(ExportPayload())
-        assert "Generated by MCPDB" in html
-
-    def test_css_present(self):
-        html = render_html(ExportPayload())
+    def test_report_is_self_contained(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report(MULTI_TURNS)
+        assert "https://" not in html
         assert "<style>" in html
-        assert "font-family" in html
-
-    def test_empty_messages_and_artifacts(self):
-        html = render_html(ExportPayload(messages=[], artifacts=[]))
-        assert "<!DOCTYPE html>" in html
 
 
 # ---------------------------------------------------------------------------
-# Notebook rendering tests
+# Notebook Export Tests
 # ---------------------------------------------------------------------------
+
+def _cell_source(cell: dict) -> str:
+    """Get cell source as a single string (nbformat may serialize as list)."""
+    src = cell["source"]
+    return "".join(src) if isinstance(src, list) else src
+
 
 class TestNotebookExport:
     def test_basic_notebook(self):
-        nb = render_notebook(ExportPayload())
-        assert nb["nbformat"] == 4
+        from mcpdb.web.export import generate_notebook
+        nb_bytes = generate_notebook(
+            [SIMPLE_TURN],
+            connection_string="mysql+pymysql://test@localhost/db",
+            db_type="mysql",
+            db_info="bgins",
+        )
+        nb = json.loads(nb_bytes)
         assert "cells" in nb
-        assert len(nb["cells"]) >= 1  # at least the title cell
+        assert nb["metadata"]["kernelspec"]["name"] == "python3"
 
-    def test_title_cell(self):
-        nb = render_notebook(ExportPayload(title="Test Report"))
-        title_cell = nb["cells"][0]
-        assert title_cell["cell_type"] == "markdown"
-        assert any("Test Report" in line for line in title_cell["source"])
+    def test_setup_cell_has_connection_string(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN],
+            connection_string="mysql+pymysql://user:pass@host/db",
+        ))
+        setup_cell = nb["cells"][1]
+        assert setup_cell["cell_type"] == "code"
+        src = _cell_source(setup_cell)
+        assert "mysql+pymysql://user:pass@host/db" in src
+        assert "db_query" in src
 
-    def test_messages_as_cells(self):
-        p = ExportPayload(messages=[
-            ExportMessage(role="user", content="Hello"),
-            ExportMessage(role="assistant", content="World"),
-        ])
-        nb = render_notebook(p)
-        # Title + metadata + 2 message cells = at least 3
-        assert len(nb["cells"]) >= 3
-        sources = ["\n".join(c["source"]) for c in nb["cells"]]
-        all_text = "\n".join(sources)
-        assert "Hello" in all_text
-        assert "World" in all_text
-
-    def test_code_artifact_as_code_cell(self):
-        p = ExportPayload(
-            messages=[ExportMessage(role="user", content="Test")],
-            artifacts=[
-                ExportArtifact(
-                    artifact_type="code",
-                    title="Query",
-                    data="print('hello')",
-                    step_number=0,
-                )
-            ],
-        )
-        nb = render_notebook(p)
+    def test_sql_step_becomes_code_cell(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([SIMPLE_TURN]))
         code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
-        assert len(code_cells) >= 1
+        assert len(code_cells) >= 2
+        src = _cell_source(code_cells[1])
+        assert "db_query" in src
+        assert "information_schema" in src
 
-    def test_table_artifact_as_pandas_code(self):
-        p = ExportPayload(
-            messages=[ExportMessage(role="user", content="Show data")],
-            artifacts=[
-                ExportArtifact(
-                    artifact_type="table",
-                    title="Results",
-                    data={
-                        "columns": ["a", "b"],
-                        "rows": [{"a": 1, "b": 2}],
-                    },
-                    step_number=0,
-                )
-            ],
-        )
-        nb = render_notebook(p)
+    def test_python_step_becomes_code_cell(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CHART_TURN]))
         code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
-        assert len(code_cells) >= 1
-        code_text = "\n".join(code_cells[0]["source"])
-        assert "pandas" in code_text
+        python_cells = [c for c in code_cells if "matplotlib" in _cell_source(c)]
+        assert len(python_cells) >= 1
 
-    def test_notebook_json_valid(self):
-        nb_json = render_notebook_json(ExportPayload(title="JSON Test"))
-        parsed = json.loads(nb_json)
-        assert parsed["nbformat"] == 4
-        assert "cells" in parsed
-
-    def test_export_to_file(self, tmp_path):
-        out = str(tmp_path / "test.ipynb")
-        result = export_notebook(ExportPayload(title="File Test"), out)
-        assert result == out
-        assert os.path.exists(out)
-        with open(out) as f:
-            nb = json.load(f)
-        assert nb["nbformat"] == 4
-
-    def test_metadata_cell(self):
-        p = ExportPayload(metadata={"source": "test.db"})
-        nb = render_notebook(p)
-        # Should have title + metadata cells
-        assert len(nb["cells"]) >= 2
-
-    def test_kernelspec(self):
-        nb = render_notebook(ExportPayload())
-        assert nb["metadata"]["kernelspec"]["language"] == "python"
-
-    def test_chart_artifact_as_markdown(self):
-        p = ExportPayload(
-            messages=[ExportMessage(role="user", content="Chart")],
-            artifacts=[
-                ExportArtifact(
-                    artifact_type="chart",
-                    title="Plot",
-                    data="base64data",
-                    step_number=0,
-                )
-            ],
-        )
-        nb = render_notebook(p)
+    def test_multiple_turns(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(MULTI_TURNS))
         md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
-        all_md = "\n".join("\n".join(c["source"]) for c in md_cells)
-        assert "base64data" in all_md
+        turn_headers = [c for c in md_cells if _cell_source(c).startswith("## Turn")]
+        assert len(turn_headers) == 3
+
+    def test_response_in_markdown_cell(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([SIMPLE_TURN]))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        response_cells = [c for c in md_cells if "MCPDB Response" in _cell_source(c)]
+        assert len(response_cells) >= 1
+        assert "21 tables" in _cell_source(response_cells[0])
+
+    def test_security_notice(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([SIMPLE_TURN]))
+        title_cell = nb["cells"][0]
+        assert "Security Notice" in _cell_source(title_cell)
+
+    def test_pip_install_mysql(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([SIMPLE_TURN], db_type="mysql"))
+        setup = _cell_source(nb["cells"][1])
+        assert "pymysql" in setup
+
+    def test_pip_install_postgresql(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([SIMPLE_TURN], db_type="postgresql"))
+        setup = _cell_source(nb["cells"][1])
+        assert "psycopg2" in setup
+
+    def test_triple_quote_sql_escaped(self):
+        from mcpdb.web.export import generate_notebook
+        turn = {
+            "question": "test", "response": "ok", "artifacts": [],
+            "executionLog": [{
+                "step_number": 1, "action": "sql",
+                "code": 'SELECT """triple""" FROM t',
+                "status": "success", "result_summary": "1 row",
+            }],
+            "mode": "quick", "elapsed": 1,
+        }
+        nb = json.loads(generate_notebook([turn]))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        for c in code_cells:
+            src = _cell_source(c)
+            if "db_query" in src:
+                assert '"""triple"""' not in src
+
+    def test_failed_steps_skipped(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([ERROR_TURN]))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        assert len(code_cells) == 1  # just setup
 
 
 # ---------------------------------------------------------------------------
-# PDF export tests (import only — weasyprint may not be installed)
+# Rendering helpers
 # ---------------------------------------------------------------------------
 
-class TestPDFExport:
-    def test_import_pdf_module(self):
-        from mcpdb.export.pdf_export import render_pdf, export_pdf
-        assert callable(render_pdf)
-        assert callable(export_pdf)
+class TestRendering:
+    def test_markdown_to_html_basic(self):
+        from mcpdb.web.export import _markdown_to_html
+        html = _markdown_to_html("**bold** and *italic*")
+        assert "<strong>bold</strong>" in html
+        assert "<em>italic</em>" in html
 
+    def test_markdown_to_html_code_block(self):
+        from mcpdb.web.export import _markdown_to_html
+        html = _markdown_to_html("```sql\nSELECT 1\n```")
+        assert "SELECT" in html
+        assert "<pre" in html or "<code" in html
 
-# ---------------------------------------------------------------------------
-# MCP export tool tests
-# ---------------------------------------------------------------------------
+    def test_render_chart_artifact(self):
+        from mcpdb.web.export import _render_artifacts_html
+        html = _render_artifacts_html([{
+            "type": "chart", "title": "Test Chart",
+            "data": {"image_base64": "abc123", "format": "png"},
+        }])
+        assert "data:image/png;base64,abc123" in html
+        assert "Test Chart" in html
 
-class TestExportTool:
-    def test_get_tools(self):
-        from mcpdb.mcp.tools.export import get_export_tools
-        tools = get_export_tools()
-        assert len(tools) == 1
-        assert tools[0].name == "export_conversation"
+    def test_render_table_artifact(self):
+        from mcpdb.web.export import _render_artifacts_html
+        html = _render_artifacts_html([{
+            "type": "table", "title": "Results",
+            "data": {"columns": ["Name", "Value"], "rows": [["Alice", 100], ["Bob", 200]]},
+        }])
+        assert "<table" in html
+        assert "Alice" in html
+        assert "200" in html
 
-    def test_handle_html_export(self, tmp_path):
-        from mcpdb.mcp.tools.export import handle_export_tool
-        out_path = str(tmp_path / "test.html")
-        result = handle_export_tool("export_conversation", {
-            "format": "html",
-            "title": "Test",
-            "output_path": out_path,
-            "messages": [{"role": "user", "content": "Hello"}],
-        })
-        assert len(result) == 1
-        assert out_path in result[0].text
-        assert os.path.exists(out_path)
-        with open(out_path) as f:
-            content = f.read()
-        assert "Hello" in content
+    def test_render_empty_artifacts(self):
+        from mcpdb.web.export import _render_artifacts_html
+        assert _render_artifacts_html([]) == ""
 
-    def test_handle_notebook_export(self, tmp_path):
-        from mcpdb.mcp.tools.export import handle_export_tool
-        out_path = str(tmp_path / "test.ipynb")
-        result = handle_export_tool("export_conversation", {
-            "format": "notebook",
-            "title": "NB Test",
-            "output_path": out_path,
-            "messages": [
-                {"role": "user", "content": "Q"},
-                {"role": "assistant", "content": "A"},
-            ],
-        })
-        assert len(result) == 1
-        assert out_path in result[0].text
-        with open(out_path) as f:
-            nb = json.load(f)
-        assert nb["nbformat"] == 4
+    def test_render_plan_html(self):
+        from mcpdb.web.export import _render_plan_html
+        html = _render_plan_html([
+            {"step_number": 1, "action": "sql", "status": "success", "result_summary": "5 rows"},
+            {"step_number": 2, "action": "python", "status": "error", "error": "NameError"},
+        ])
+        assert "step-done" in html
+        assert "step-failed" in html
+        assert "SQL" in html
+        assert "PYTHON" in html
 
-    def test_handle_auto_path(self, tmp_path, monkeypatch):
-        import tempfile
-        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
-        from mcpdb.mcp.tools.export import handle_export_tool
-        result = handle_export_tool("export_conversation", {
-            "format": "html",
-            "title": "Auto",
-        })
-        assert "exported to" in result[0].text.lower()
-
-    def test_handle_unknown_format(self):
-        from mcpdb.mcp.tools.export import handle_export_tool
-        result = handle_export_tool("export_conversation", {
-            "format": "docx",
-        })
-        assert "unknown format" in result[0].text.lower()
-
-    def test_handle_unknown_tool(self):
-        from mcpdb.mcp.tools.export import handle_export_tool
-        result = handle_export_tool("unknown_tool", {})
-        assert "unknown" in result[0].text.lower()
-
-    def test_handle_with_artifacts(self, tmp_path):
-        from mcpdb.mcp.tools.export import handle_export_tool
-        out_path = str(tmp_path / "art.html")
-        result = handle_export_tool("export_conversation", {
-            "format": "html",
-            "output_path": out_path,
-            "artifacts": [
-                {"type": "table", "title": "Results", "data": {
-                    "columns": ["x"], "rows": [{"x": 1}],
-                }},
-            ],
-        })
-        assert os.path.exists(out_path)
-        with open(out_path) as f:
-            content = f.read()
-        assert "Results" in content
-
-
-# ---------------------------------------------------------------------------
+    def test_render_plan_empty(self):
+        from mcpdb.web.export import _render_plan_html
+        assert _render_plan_html([]) == ""

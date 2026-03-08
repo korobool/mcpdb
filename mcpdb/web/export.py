@@ -81,42 +81,69 @@ def _markdown_to_html(text: str) -> str:
 # Turn rendering helpers
 # ---------------------------------------------------------------------------
 
+def _coerce_artifact_data(data: Any) -> dict:
+    """Coerce artifact data to a dict — handles string-encoded data from WebSocket."""
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, str):
+        # Try JSON first
+        try:
+            parsed = _json.loads(data)
+            if isinstance(parsed, dict):
+                return parsed
+        except (_json.JSONDecodeError, ValueError):
+            pass
+        # Try Python literal (handles datetime.date repr etc.)
+        try:
+            import ast
+            parsed = ast.literal_eval(data)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+    return {}
+
+
 def _render_artifacts_html(artifacts: list[dict]) -> str:
     """Render artifact list to HTML."""
     parts: list[str] = []
     for art in artifacts:
-        atype = art.get("type")
-        data = art.get("data", {})
+        try:
+            atype = art.get("type")
+            data = _coerce_artifact_data(art.get("data", {}))
 
-        if atype == "chart":
-            b64 = data.get("image_base64", "")
-            fmt = data.get("format", "png")
-            title = html_escape(art.get("title", ""))
-            if b64:
-                title_html = f'<p class="chart-title">{title}</p>' if title else ""
-                parts.append(
-                    f'{title_html}<div class="chart-container">'
-                    f'<img src="data:image/{fmt};base64,{b64}" alt="{title or "Chart"}">'
-                    f"</div>"
-                )
+            if atype == "chart":
+                b64 = data.get("image_base64", "")
+                fmt = data.get("format", "png")
+                title = html_escape(art.get("title", ""))
+                if b64:
+                    title_html = f'<p class="chart-title">{title}</p>' if title else ""
+                    parts.append(
+                        f'{title_html}<div class="chart-container">'
+                        f'<img src="data:image/{fmt};base64,{b64}" alt="{title or "Chart"}">'
+                        f"</div>"
+                    )
 
-        elif atype == "table":
-            cols = data.get("columns", [])
-            rows = data.get("rows", [])
-            title = html_escape(art.get("title", ""))
-            if cols:
-                title_html = f'<p class="table-title">{title}</p>' if title else ""
-                # Build HTML table
-                header = "".join(f"<th>{html_escape(str(c))}</th>" for c in cols)
-                body_rows = []
-                for row in rows[:200]:
-                    cells = "".join(f"<td>{html_escape(str(v))}</td>" for v in row)
-                    body_rows.append(f"<tr>{cells}</tr>")
-                parts.append(
-                    f'{title_html}<table class="data-table">'
-                    f"<thead><tr>{header}</tr></thead>"
-                    f"<tbody>{''.join(body_rows)}</tbody></table>"
-                )
+            elif atype == "table":
+                cols = data.get("columns", [])
+                rows = data.get("rows", [])
+                title = html_escape(art.get("title", ""))
+                if cols:
+                    title_html = f'<p class="table-title">{title}</p>' if title else ""
+                    # Build HTML table
+                    header = "".join(f"<th>{html_escape(str(c))}</th>" for c in cols)
+                    body_rows = []
+                    for row in rows[:200]:
+                        cells = "".join(f"<td>{html_escape(str(v))}</td>" for v in row)
+                        body_rows.append(f"<tr>{cells}</tr>")
+                    parts.append(
+                        f'{title_html}<table class="data-table">'
+                        f"<thead><tr>{header}</tr></thead>"
+                        f"<tbody>{''.join(body_rows)}</tbody></table>"
+                    )
+        except Exception as e:
+            logger.warning("Failed to render artifact: %s", e)
+            continue
 
     return "\n".join(parts)
 
@@ -131,7 +158,7 @@ def _render_plan_html(execution_log: list[dict]) -> str:
         css = {"success": "step-done", "error": "step-failed"}.get(status, "step-pending")
         action = html_escape(entry.get("action", "").upper())
         step_num = entry.get("step_number", "?")
-        summary = html_escape(entry.get("result_summary", entry.get("error", ""))[:150])
+        summary = html_escape(str(entry.get("result_summary", entry.get("error", "")))[:150])
         parts.append(f'<li class="{css}">[{action}] Step {step_num}: {summary}</li>')
     parts.append("</ol></div>")
     return "\n".join(parts)

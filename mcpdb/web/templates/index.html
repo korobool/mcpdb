@@ -1396,9 +1396,7 @@ async function exportHTML() {
       body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo() }),
     });
     if (!resp.ok) { alert('Export failed: ' + (await resp.text())); return; }
-    const html = await resp.text();
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
+    const { url } = await resp.json();
     window.open(url, '_blank');
   } catch (e) { alert('Export failed: ' + e.message); }
 }

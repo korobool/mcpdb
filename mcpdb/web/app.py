@@ -301,17 +301,39 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
 
     # --- Export -----------------------------------------------------------
 
+    # Temp store for HTML exports (avoids blob URLs which break popup/tabs)
+    _html_exports: dict[str, str] = {}
+
     @app.post("/api/export/html")
     async def export_html(request: Request):
-        """Export conversation as a self-contained HTML report."""
-        from fastapi.responses import HTMLResponse as _HTMLResponse
+        """Export conversation as a self-contained HTML report.
+
+        Returns JSON with export_id and url for the viewer endpoint.
+        The HTML is stored temporarily and served once via GET.
+        """
         from mcpdb.web.export import generate_html_report
+        import uuid
         body = await request.json()
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
         if not turns:
             raise HTTPException(status_code=400, detail="No conversation data")
         html = generate_html_report(turns, db_info)
+        export_id = uuid.uuid4().hex[:12]
+        _html_exports[export_id] = html
+        # Limit stored exports to prevent memory leak
+        if len(_html_exports) > 50:
+            oldest = next(iter(_html_exports))
+            _html_exports.pop(oldest, None)
+        return {"export_id": export_id, "url": f"/api/export/view/{export_id}"}
+
+    @app.get("/api/export/view/{export_id}")
+    async def view_export(export_id: str):
+        """Serve a previously generated HTML export (one-time use)."""
+        from fastapi.responses import HTMLResponse as _HTMLResponse
+        html = _html_exports.pop(export_id, None)
+        if not html:
+            raise HTTPException(status_code=404, detail="Export not found or already viewed")
         return _HTMLResponse(content=html)
 
     @app.post("/api/export/pdf")
