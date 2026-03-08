@@ -1,0 +1,64 @@
+{
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "hangs": 0,
+    "timing_violations": 1,
+    "mode_mismatches": 0,
+    "total_time_s": 58.89,
+    "total_anomalies": 0
+  },
+  "results": [
+    {
+      "question_id": "db01",
+      "question": "How many tables are in the database?",
+      "source": "bgins",
+      "expected_mode": "quick",
+      "actual_mode": "quick",
+      "max_time_s": 15,
+      "actual_time_s": 5.82,
+      "status": "pass",
+      "response_preview": "There are 21 tables in the `bgins` database.",
+      "error_message": "",
+      "observer_anomalies": 0,
+      "observer_summary": "",
+      "timing_ok": true,
+      "mode_ok": true
+    },
+    {
+      "question_id": "db02",
+      "question": "How many records are in ins_cars?",
+      "source": "bgins",
+      "expected_mode": "quick",
+      "actual_mode": "quick",
+      "max_time_s": 15,
+      "actual_time_s": 12.1,
+      "status": "pass",
+      "response_preview": "The `ins_cars` table has 1,105 rows.",
+      "error_message": "",
+      "observer_anomalies": 0,
+      "observer_summary": "",
+      "timing_ok": true,
+      "mode_ok": true
+    },
+    {
+      "question_id": "db06",
+      "question": "What car brands appear most frequently in ins_cars?",
+      "source": "bgins",
+      "expected_mode": "simple",
+      "actual_mode": "simple",
+      "max_time_s": 40,
+      "actual_time_s": 40.97,
+      "status": "pass",
+      "response_preview": "## Ford is the Most Frequent Car Brand\n\nThe analysis reveals that **TA3PD27008** is the most common car brand, with **134** occurrences. It is followed by **TA3PD27001** with **119** cars and **TA3PD27004** with **114**.\n\n### Key Observations:\n*   **Clear Leader:** TA3PD27008 has a notable lead, with 15 more vehicles than the next most common brand, TA3PD27001.\n*   **Top Heavy Distribution:** The top 10 brands account for 748 out of 1105 total cars, representing **67.7%** of all entries.\n\n### To",
+      "error_message": "",
+      "observer_anomalies": 0,
+      "observer_summary": "",
+      "timing_ok": false,
+      "mode_ok": true
+    }
+  ]
+}
