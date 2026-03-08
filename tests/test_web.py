@@ -313,6 +313,72 @@ class TestExcelUpload:
             assert sample.status_code == 200
 
 
+class TestExport:
+    """Test export endpoints."""
+
+    SAMPLE_TURNS = [{
+        "question": "How many tables?",
+        "response": "There are **21 tables** in the database.",
+        "artifacts": [],
+        "executionLog": [
+            {"step_number": 1, "action": "sql",
+             "code": "SELECT COUNT(*) FROM information_schema.tables",
+             "status": "success", "result_summary": "21 tables"},
+        ],
+        "mode": "quick",
+        "elapsed": 2.5,
+    }]
+
+    def test_export_html(self, client):
+        resp = client.post("/api/export/html", json={"turns": self.SAMPLE_TURNS, "dbInfo": "bgins"})
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "How many tables" in resp.text
+        assert "21 tables" in resp.text
+
+    def test_export_html_empty_turns(self, client):
+        resp = client.post("/api/export/html", json={"turns": []})
+        assert resp.status_code == 400
+
+    def test_export_notebook(self, client):
+        resp = client.post("/api/export/notebook", json={
+            "turns": self.SAMPLE_TURNS,
+            "connectionString": "mysql+pymysql://test@localhost/db",
+            "dbType": "mysql",
+            "dbInfo": "bgins",
+        })
+        assert resp.status_code == 200
+        assert "ipynb" in resp.headers.get("content-disposition", "")
+        # Verify it's valid notebook JSON
+        nb = json.loads(resp.content)
+        assert "cells" in nb
+        assert len(nb["cells"]) >= 3  # title + setup + at least 1 turn
+
+    def test_export_notebook_empty_turns(self, client):
+        resp = client.post("/api/export/notebook", json={"turns": []})
+        assert resp.status_code == 400
+
+    def test_export_html_with_artifacts(self, client):
+        turns = [{
+            "question": "Show chart",
+            "response": "Here is the chart.",
+            "artifacts": [{
+                "type": "chart", "title": "Test",
+                "data": {"image_base64": "iVBORw0KGgo=", "format": "png"},
+            }, {
+                "type": "table", "title": "Data",
+                "data": {"columns": ["A", "B"], "rows": [[1, 2]]},
+            }],
+            "executionLog": [],
+            "mode": "simple",
+            "elapsed": 3.0,
+        }]
+        resp = client.post("/api/export/html", json={"turns": turns})
+        assert resp.status_code == 200
+        assert "data:image/png;base64" in resp.text
+        assert "<table" in resp.text
+
+
 class TestLLMConfig:
     def test_get_config(self, client):
         resp = client.get("/api/config/llm")

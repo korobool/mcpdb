@@ -70,6 +70,9 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .btn-primary { background: var(--blue); color: #000; }
 .btn-secondary { background: var(--bg4); color: var(--fg); border: 1px solid var(--border); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.export-row { display: flex; gap: 4px; }
+.export-row .btn { flex: 1; font-size: 11px; padding: 5px 4px; }
 
 /* ── Chat area ───────────────────────────────────────── */
 #messages { flex: 1; overflow-y: auto; padding: 16px 24px; }
@@ -294,8 +297,20 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
       <div class="mode-desc" id="mode-desc">Automatically selects the best mode</div>
     </div>
 
-    <div class="sidebar-section" style="border-bottom:none;">
+    <div class="sidebar-section">
       <button class="btn btn-secondary" style="width:100%;" onclick="newConversation()">New conversation</button>
+    </div>
+
+    <div class="sidebar-section" id="export-section" style="border-bottom:none; display:none;">
+      <h3>Export</h3>
+      <div class="export-row">
+        <button class="btn btn-secondary" onclick="exportHTML()" title="Open HTML report in new tab">HTML</button>
+        <button class="btn btn-secondary" onclick="exportPDF()" title="Download PDF report">PDF</button>
+        <button class="btn btn-secondary" onclick="exportNotebook(false)" title="Download Jupyter notebook">Notebook</button>
+      </div>
+      <div class="export-row" style="margin-top:4px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="exportNotebook(true)" title="Open in Jupyter (starts server)">Open in Jupyter</button>
+      </div>
     </div>
   </div>
 
@@ -333,6 +348,8 @@ let ws = null;
 let sources = [];
 let messages = [];
 let isQuerying = false;
+let conversationTurns = [];   // Structured export data: [{question, response, artifacts, executionLog, mode, elapsed}]
+let currentQuestion = '';      // Tracks the question for the active query
 
 // Execution monitor state
 let mon = {
@@ -602,6 +619,17 @@ function handleResult(msg) {
   }
   const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [] };
   addMessage('assistant', msg.response, meta);
+
+  // Track structured turn for export
+  conversationTurns.push({
+    question: currentQuestion,
+    response: msg.response || '',
+    artifacts: resultArtifacts,
+    executionLog: msg.execution_log || [],
+    mode: msg.query_mode || '',
+    elapsed: mon.elapsed,
+  });
+  updateExportVisibility();
   toggleInputState(false);
 }
 
@@ -635,12 +663,14 @@ function sendQuestion(text) {
   autoGrow(document.getElementById('question'));
   addMessage('user', q);
 
+  currentQuestion = q;
   isQuerying = true;
   resetMonitor();
   setPhase('classifying');
   toggleInputState(true);
 
-  const mode = document.getElementById('mode-select').value;
+  let mode = document.getElementById('mode-select').value;
+  if (mode === 'optimization') mode = 'optimization_required';
   ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode }));
 }
 
@@ -734,10 +764,13 @@ function scrollToBottom() {
 
 function newConversation() {
   messages = [];
+  conversationTurns = [];
+  currentQuestion = '';
   const container = document.getElementById('messages');
   container.innerHTML = '';
   resetMonitor();
   renderWelcome();
+  updateExportVisibility();
 }
 
 // ── Execution Monitor rendering ────────────────────────
@@ -1335,6 +1368,101 @@ customRenderer.image = function({ href, title, text }) {
 marked.setOptions({ renderer: customRenderer });
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+
+// ── Export functions ──────────────────────────────────────
+function updateExportVisibility() {
+  const el = document.getElementById('export-section');
+  if (el) el.style.display = conversationTurns.length > 0 ? '' : 'none';
+}
+
+function _getDbInfo() {
+  const cards = document.querySelectorAll('#sources-list .source-card');
+  if (cards.length === 0) return '';
+  return cards[0].textContent.trim().split('\n')[0] || '';
+}
+
+function _getConnectionString() {
+  // Try to get from the database connection form
+  const input = document.getElementById('db-url');
+  return input ? input.value : '';
+}
+
+async function exportHTML() {
+  if (conversationTurns.length === 0) return;
+  try {
+    const resp = await fetch('/api/export/html', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo() }),
+    });
+    if (!resp.ok) { alert('Export failed: ' + (await resp.text())); return; }
+    const html = await resp.text();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch (e) { alert('Export failed: ' + e.message); }
+}
+
+async function exportPDF() {
+  if (conversationTurns.length === 0) return;
+  try {
+    const resp = await fetch('/api/export/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo() }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      alert('PDF export failed: ' + detail);
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mcpdb_export_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { alert('PDF export failed: ' + e.message); }
+}
+
+async function exportNotebook(openJupyter = false) {
+  if (conversationTurns.length === 0) return;
+  try {
+    const connStr = _getConnectionString();
+    const dbType = connStr.includes('mysql') ? 'mysql' :
+                   connStr.includes('postgresql') ? 'postgresql' :
+                   connStr.includes('sqlite') ? 'sqlite' : 'mysql';
+    const resp = await fetch('/api/export/notebook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turns: conversationTurns,
+        connectionString: connStr,
+        dbType: dbType,
+        dbInfo: _getDbInfo(),
+        openJupyter: openJupyter,
+      }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      alert('Notebook export failed: ' + detail);
+      return;
+    }
+    if (openJupyter) {
+      const data = await resp.json();
+      if (data.url) window.open(data.url, '_blank');
+    } else {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mcpdb_export_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.ipynb`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  } catch (e) { alert('Notebook export failed: ' + e.message); }
+}
 
 // ── Init ───────────────────────────────────────────────
 connectWS();

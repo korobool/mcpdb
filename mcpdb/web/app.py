@@ -299,6 +299,75 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    # --- Export -----------------------------------------------------------
+
+    @app.post("/api/export/html")
+    async def export_html(request: Request):
+        """Export conversation as a self-contained HTML report."""
+        from fastapi.responses import HTMLResponse as _HTMLResponse
+        from mcpdb.web.export import generate_html_report
+        body = await request.json()
+        turns = body.get("turns", [])
+        db_info = body.get("dbInfo", "")
+        if not turns:
+            raise HTTPException(status_code=400, detail="No conversation data")
+        html = generate_html_report(turns, db_info)
+        return _HTMLResponse(content=html)
+
+    @app.post("/api/export/pdf")
+    async def export_pdf(request: Request):
+        """Export conversation as a PDF."""
+        from fastapi.responses import Response
+        from mcpdb.web.export import generate_pdf
+        body = await request.json()
+        turns = body.get("turns", [])
+        db_info = body.get("dbInfo", "")
+        if not turns:
+            raise HTTPException(status_code=400, detail="No conversation data")
+        try:
+            pdf_bytes = generate_pdf(turns, db_info)
+        except ImportError as e:
+            raise HTTPException(status_code=501, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=mcpdb_export.pdf"},
+        )
+
+    @app.post("/api/export/notebook")
+    async def export_notebook(request: Request):
+        """Export conversation as a Jupyter notebook and optionally start Jupyter."""
+        from mcpdb.web.export import generate_notebook, start_jupyter_and_open
+        body = await request.json()
+        turns = body.get("turns", [])
+        connection_string = body.get("connectionString", "")
+        db_type = body.get("dbType", "mysql")
+        db_info = body.get("dbInfo", "")
+        open_jupyter = body.get("openJupyter", False)
+        if not turns:
+            raise HTTPException(status_code=400, detail="No conversation data")
+        try:
+            nb_bytes = generate_notebook(turns, connection_string, db_type, db_info)
+        except ImportError as e:
+            raise HTTPException(status_code=501, detail=str(e))
+
+        if open_jupyter:
+            try:
+                url = start_jupyter_and_open(nb_bytes)
+                return {"url": url}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Jupyter start failed: {e}")
+
+        # Return notebook as download
+        from fastapi.responses import Response
+        return Response(
+            content=nb_bytes,
+            media_type="application/x-ipynb+json",
+            headers={"Content-Disposition": "attachment; filename=mcpdb_export.ipynb"},
+        )
+
     # --- LLM Config -------------------------------------------------------
 
     @app.get("/api/config/llm")
