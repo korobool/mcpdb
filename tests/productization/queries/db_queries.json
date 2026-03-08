@@ -1,0 +1,527 @@
+[
+  {
+    "id": "db001",
+    "question": "How many tables are in the database?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "bgins"
+  },
+  {
+    "id": "db002",
+    "question": "List all tables with their row counts",
+    "mode": "simple",
+    "category": "schema_discovery",
+    "source": "bgins"
+  },
+  {
+    "id": "db003",
+    "question": "Describe the columns of the ins_cars table",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "bgins"
+  },
+  {
+    "id": "db004",
+    "question": "What are the foreign key relationships between tables?",
+    "mode": "simple",
+    "category": "schema_discovery",
+    "source": "bgins"
+  },
+  {
+    "id": "db005",
+    "question": "How many cars are registered in the database?",
+    "mode": "quick",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db006",
+    "question": "What is the total number of damages recorded?",
+    "mode": "quick",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db007",
+    "question": "What is the average claim amount across all damages?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db008",
+    "question": "What are the minimum and maximum damage amounts?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db009",
+    "question": "How many distinct car brands are there?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db010",
+    "question": "What is the sum of all premiums collected?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db011",
+    "question": "Show the top 10 car brands by number of policies",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db012",
+    "question": "What is the distribution of damage types?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db013",
+    "question": "Show a histogram of claim amounts in 10 buckets",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db014",
+    "question": "What percentage of policies have had claims?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db015",
+    "question": "Rank car brands by average claim amount",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db016",
+    "question": "Show the average premium by car brand, sorted descending",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db017",
+    "question": "Which cars have had the most damage claims? Show top 15",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db018",
+    "question": "What is the claim-to-premium ratio by car brand?",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db019",
+    "question": "Show all damage records for policies with more than 3 claims",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db020",
+    "question": "Find the car brands where average claim exceeds average premium",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db021",
+    "question": "Calculate the loss ratio (total claims / total premiums) per year",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db022",
+    "question": "What is the median claim amount?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db023",
+    "question": "Show the running total of claims by date",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db024",
+    "question": "Which policies have claims that are more than 2 standard deviations above average?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db025",
+    "question": "Create a bar chart showing the number of policies per car brand for the top 10 brands",
+    "mode": "simple",
+    "category": "chart",
+    "source": "bgins"
+  },
+  {
+    "id": "db026",
+    "question": "Generate a scatter plot of premium vs claim amount",
+    "mode": "simple",
+    "category": "chart",
+    "source": "bgins"
+  },
+  {
+    "id": "db027",
+    "question": "Create a pie chart of damage types distribution",
+    "mode": "simple",
+    "category": "chart",
+    "source": "bgins"
+  },
+  {
+    "id": "db028",
+    "question": "Show a line chart of claims over time by month",
+    "mode": "simple",
+    "category": "chart",
+    "source": "bgins"
+  },
+  {
+    "id": "db029",
+    "question": "Are there any NULL values in the key columns of the ins_cars table?",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "bgins"
+  },
+  {
+    "id": "db030",
+    "question": "What tables have zero rows?",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "bgins"
+  },
+  {
+    "id": "db031",
+    "question": "Show all columns that contain only NULL values across all tables",
+    "mode": "extended",
+    "category": "edge_case",
+    "source": "bgins"
+  },
+  {
+    "id": "db032",
+    "question": "Find duplicate records in the ins_cars table",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "bgins"
+  },
+  {
+    "id": "db033",
+    "question": "Perform a comprehensive analysis of the claims landscape: what are the key risk factors, which segments are most profitable, and where are the biggest loss drivers?",
+    "mode": "deep",
+    "category": "deep_investigation",
+    "source": "bgins"
+  },
+  {
+    "id": "db034",
+    "question": "Investigate the relationship between vehicle characteristics and claim severity",
+    "mode": "extended",
+    "category": "deep_investigation",
+    "source": "bgins"
+  },
+  {
+    "id": "db035",
+    "question": "What are the seasonal patterns in insurance claims?",
+    "mode": "extended",
+    "category": "temporal",
+    "source": "bgins"
+  },
+  {
+    "id": "db036",
+    "question": "Show the year-over-year growth in policy count",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "bgins"
+  },
+  {
+    "id": "db037",
+    "question": "What is the average time between policy start and first claim?",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "bgins"
+  },
+  {
+    "id": "db038",
+    "question": "Show the monthly trend of new policies vs claims filed",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "bgins"
+  },
+  {
+    "id": "db039",
+    "question": "How many policies are in the database?",
+    "mode": "quick",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db040",
+    "question": "What is the most common car model?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db041",
+    "question": "Show the count of claims grouped by status",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "db042",
+    "question": "What is the 95th percentile of claim amounts?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db043",
+    "question": "Compare the average claim amount across different vehicle types",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db044",
+    "question": "What car brand has the highest total claim amount?",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db045",
+    "question": "What is the correlation between vehicle age and claim frequency?",
+    "mode": "extended",
+    "category": "complex_analytics",
+    "source": "bgins"
+  },
+  {
+    "id": "db046",
+    "question": "Show policies that have never had a claim",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db047",
+    "question": "What are the top 5 most expensive individual claims?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "bgins"
+  },
+  {
+    "id": "db048",
+    "question": "Generate an ERD diagram showing table relationships",
+    "mode": "simple",
+    "category": "schema_discovery",
+    "source": "bgins"
+  },
+  {
+    "id": "db049",
+    "question": "What is the average premium per vehicle type?",
+    "mode": "simple",
+    "category": "joins",
+    "source": "bgins"
+  },
+  {
+    "id": "db050",
+    "question": "Show the claim frequency distribution - how many policies have 0, 1, 2, 3+ claims",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "bgins"
+  },
+  {
+    "id": "rdb001",
+    "question": "How many tables are in the database and what are they?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb002",
+    "question": "List all tables with their row counts",
+    "mode": "simple",
+    "category": "schema_discovery",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb003",
+    "question": "What are the column types in the policy table?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb004",
+    "question": "How many policies are in the portfolio?",
+    "mode": "quick",
+    "category": "simple_aggregation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb005",
+    "question": "What is the total premium collected across all policies?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb006",
+    "question": "How many claims have been filed?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb007",
+    "question": "What is the average claim amount?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb008",
+    "question": "Show the top 10 companies by policy count",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb009",
+    "question": "What is the claim-to-premium ratio (loss ratio) by company?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb010",
+    "question": "Show the monthly trend of new policies",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb011",
+    "question": "Which companies have the highest risk scores?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb012",
+    "question": "What is the distribution of policy statuses?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb013",
+    "question": "Create a bar chart showing claims by company for top 10 companies",
+    "mode": "simple",
+    "category": "chart",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb014",
+    "question": "What is the average time between policy start and first claim?",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb015",
+    "question": "Perform a comprehensive portfolio analysis: profitability by segment, risk concentration, and loss trends",
+    "mode": "deep",
+    "category": "deep_investigation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb016",
+    "question": "What is the relationship between company risk scores and actual claim amounts?",
+    "mode": "extended",
+    "category": "complex_analytics",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb017",
+    "question": "Show the year-over-year change in claim frequency",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb018",
+    "question": "Which policies have the highest ratio of claims to premium?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb019",
+    "question": "Find duplicate addresses in the address table",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb020",
+    "question": "Show the distribution of claim amounts in a histogram",
+    "mode": "simple",
+    "category": "chart",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb021",
+    "question": "What is the geographic distribution of policies by address?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb022",
+    "question": "Show the correlation between company size (policy count) and average claim severity",
+    "mode": "extended",
+    "category": "complex_analytics",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb023",
+    "question": "Generate an ERD showing all table relationships",
+    "mode": "simple",
+    "category": "schema_discovery",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb024",
+    "question": "What are the top 10 largest individual claims?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "portfolio_analysis"
+  },
+  {
+    "id": "rdb025",
+    "question": "Show a scatter plot of premium vs total claims per policy",
+    "mode": "simple",
+    "category": "chart",
+    "source": "portfolio_analysis"
+  }
+]

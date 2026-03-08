@@ -1,0 +1,212 @@
+[
+  {
+    "id": "csv001",
+    "question": "How many rows are in this CSV file?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv002",
+    "question": "List all columns and their data types",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv003",
+    "question": "Show the first 5 rows of data as a sample",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv004",
+    "question": "How many unique policy IDs are there?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv005",
+    "question": "What is the average underwriting premium?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv006",
+    "question": "What are the most common vehicle brands?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv007",
+    "question": "Show the distribution of vehicle types",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv008",
+    "question": "What is the average insured sum by vehicle type?",
+    "mode": "simple",
+    "category": "joins",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv009",
+    "question": "Show the top 15 vehicle brands by average premium",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv010",
+    "question": "What is the trend of policy issuance over time? Group by month",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv011",
+    "question": "Create a bar chart showing average premium by vehicle type",
+    "mode": "simple",
+    "category": "chart",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv012",
+    "question": "What percentage of policies have a deductible greater than 0?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv013",
+    "question": "What is the correlation between vehicle cylinder capacity and premium?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv014",
+    "question": "Show the distribution of premiums in a histogram with 20 bins",
+    "mode": "simple",
+    "category": "chart",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv015",
+    "question": "Which insurance class has the highest average premium?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv016",
+    "question": "Are there any NULL or missing values in the premium columns?",
+    "mode": "simple",
+    "category": "edge_case",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv017",
+    "question": "What is the average policy duration in days?",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv018",
+    "question": "Show the relationship between vehicle age and premium amount",
+    "mode": "extended",
+    "category": "complex_analytics",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv019",
+    "question": "What is the total commission earned?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv020",
+    "question": "Find the top 10 most expensive policies by premium",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "qala_mtpl"
+  },
+  {
+    "id": "csv021",
+    "question": "How many rows are in this dataset?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv022",
+    "question": "What columns are available and what are their types?",
+    "mode": "quick",
+    "category": "schema_discovery",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv023",
+    "question": "What is the total claim amount across all records?",
+    "mode": "simple",
+    "category": "simple_aggregation",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv024",
+    "question": "Show the distribution of vehicle brands",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv025",
+    "question": "What is the average claim amount by vehicle brand?",
+    "mode": "simple",
+    "category": "joins",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv026",
+    "question": "What is the claim frequency (claims per contract)?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv027",
+    "question": "Show the trend of claims over time by month",
+    "mode": "simple",
+    "category": "temporal",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv028",
+    "question": "What vehicle types have the highest claim severity?",
+    "mode": "simple",
+    "category": "distribution",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv029",
+    "question": "Create a scatter plot of vehicle power vs claim amount",
+    "mode": "simple",
+    "category": "chart",
+    "source": "contracts_claims"
+  },
+  {
+    "id": "csv030",
+    "question": "What is the ratio of reserved to paid claims?",
+    "mode": "simple",
+    "category": "complex_analytics",
+    "source": "contracts_claims"
+  }
+]
