@@ -477,6 +477,95 @@ class TestSynthesizeNode:
         assert "synthesize/complete" in types
 
     @pytest.mark.asyncio
+    async def test_synthesize_fast_path_single_value(self):
+        """Fast path: 1 table, 1 row, 1 column → direct format, no LLM call."""
+        llm = MockLLM()
+        # No LLM response queued — fast path should not call LLM
+
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "How many records in users?",
+            "query_mode": "simple",
+            "execution_log": [{"step_number": 1, "action": "sql", "status": "success", "result_summary": "1 row"}],
+            "artifacts": [{
+                "type": "table",
+                "title": "Count",
+                "data": {"columns": ["count"], "rows": [[42]], "total_rows": 1},
+            }],
+        }
+
+        result = await synthesize(state, llm, cb)
+        assert "42" in result["response"]
+        # Verify LLM was not called (fast path)
+        assert llm._call_index == 0  # LLM was never called (fast path)
+
+    @pytest.mark.asyncio
+    async def test_synthesize_fast_path_table(self):
+        """Fast path: 1 table with a few rows → markdown table, no LLM call."""
+        llm = MockLLM()
+
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "Top 3 customers?",
+            "query_mode": "simple",
+            "execution_log": [{"step_number": 1, "action": "sql", "status": "success", "result_summary": "3 rows"}],
+            "artifacts": [{
+                "type": "table",
+                "title": "Top customers",
+                "data": {
+                    "columns": ["name", "revenue"],
+                    "rows": [["Alice", 1000], ["Bob", 800], ["Carol", 600]],
+                    "total_rows": 3,
+                },
+            }],
+        }
+
+        result = await synthesize(state, llm, cb)
+        assert "Alice" in result["response"]
+        assert "1000" in result["response"]
+        assert "|" in result["response"]  # table format
+
+    @pytest.mark.asyncio
+    async def test_synthesize_skips_fast_path_for_charts(self):
+        """Charts require LLM interpretation — no fast path."""
+        llm = MockLLM()
+        llm.queue({"code": "print('Chart analysis here')"})
+
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "Show distribution",
+            "query_mode": "simple",
+            "execution_log": [{"step_number": 1, "action": "python", "status": "success", "result_summary": "chart"}],
+            "artifacts": [
+                {"type": "chart", "title": "Distribution", "data": {"image_base64": "abc", "format": "png"}},
+            ],
+        }
+
+        result = await synthesize(state, llm, cb)
+        assert result["response"]  # LLM was called
+
+    @pytest.mark.asyncio
+    async def test_synthesize_skips_fast_path_for_deep_mode(self):
+        """Deep mode needs rich synthesis — no fast path."""
+        llm = MockLLM()
+        llm.queue({"code": "print('Deep analysis')"})
+
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "Full profile",
+            "query_mode": "deep",
+            "execution_log": [{"step_number": 1, "action": "sql", "status": "success", "result_summary": "1 row"}],
+            "artifacts": [{
+                "type": "table",
+                "title": "Stats",
+                "data": {"columns": ["metric"], "rows": [["value"]], "total_rows": 1},
+            }],
+        }
+
+        result = await synthesize(state, llm, cb)
+        assert result["response"]
+
+    @pytest.mark.asyncio
     async def test_synthesize_handles_no_results(self):
         llm = MockLLM()
         llm.queue({"code": "print('No data was available to answer this question.')"})

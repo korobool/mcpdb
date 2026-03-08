@@ -228,3 +228,33 @@ When anomaly detected, decides action:
   than blocking.
 - **LLM assessment cost**: Gate behind timing threshold. Only assess if query has
   been running > 2× expected time AND a pattern anomaly is detected.
+
+## 8. Real Eval Findings (Batch 1: 15 questions)
+
+**Results**: 15/15 pass, 0 errors, 0 timeouts
+
+**Key bottleneck: Synthesize phase**
+
+The synthesize phase (LLM generates formatting code → sandbox executes) consistently
+takes 2-4× longer than expected:
+
+| Question | Total Time | Synthesize Time | Expected Max | Over |
+|----------|-----------|----------------|-------------|------|
+| db04     | 62.7s     | 37.0s          | 10s         | 3.7× |
+| db06     | 67.9s     | 38.8s          | 10s         | 3.9× |
+| db09     | 66.2s     | 23.3s          | 10s         | 2.3× |
+| db12     | 51.6s     | 27.5s          | 10s         | 2.8× |
+
+**Root causes identified:**
+1. Synthesize LLM call generates complex formatting code for simple results
+2. LLM sometimes fails JSON extraction on first try → retry with sleep delay
+3. Retry delays were 2s + 5s (now reduced to 1s + 1s)
+
+**Optimizations applied:**
+- Reduced synthesize retry delay from 2s+5s to 1s+1s
+- Observer detects empty result loops via step/complete events
+
+**Planned optimizations:**
+- For simple/quick mode: shorter synthesize prompt with simpler formatting expectations
+- For queries with single small results (< 20 rows): skip code generation, format directly
+- Token budget: reduce system prompt for formatting code generation
