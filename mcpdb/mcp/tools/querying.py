@@ -122,7 +122,7 @@ def _execute_sql(
     registry: SourceRegistry, args: dict[str, Any]
 ) -> list[TextContent]:
     source = _get_queryable(registry, args["source_id"])
-    max_rows = args.get("max_rows", 100)
+    max_rows = min(args.get("max_rows", 100), 10000)  # Cap at 10K rows
     df = source.execute_query(args["sql"], max_rows=max_rows)
 
     if df.empty:

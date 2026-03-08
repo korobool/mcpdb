@@ -81,9 +81,12 @@ async def classify(
     import asyncio
     for retry in range(3):
         try:
-            result, usage = await llm.generate_json(
-                [Message(role="user", content=prompt)],
-                system="You are a query classifier. Respond with JSON only.",
+            result, usage = await asyncio.wait_for(
+                llm.generate_json(
+                    [Message(role="user", content=prompt)],
+                    system="You are a query classifier. Respond with JSON only.",
+                ),
+                timeout=30.0,
             )
 
             mode = result.get("mode", "simple")
@@ -102,6 +105,8 @@ async def classify(
             )
             return state
 
+        except asyncio.TimeoutError:
+            logger.warning("Classification timed out (retry %d)", retry + 1)
         except Exception as e:
             if retry < 2:
                 delay = [2, 5][min(retry, 1)]
