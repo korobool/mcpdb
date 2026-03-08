@@ -32,6 +32,10 @@ Usage:
   mcpdb query file.csv <question>  Query CSV file(s) (comma-separated)
   mcpdb query file.xlsx <question> Query Excel workbook
   mcpdb query <conn> <question> --no-cache  Skip cache, still populate
+  mcpdb repl <conn>              Interactive REPL mode
+  mcpdb repl file.csv            REPL with CSV source
+  mcpdb repl file.xlsx           REPL with Excel source
+  mcpdb repl <conn> --no-cache   REPL without cache lookup
   mcpdb clean_cache              Clear all experience cache data
   mcpdb clean_cache --source <fp>  Clear cache for one source
   mcpdb clean_cache --stats      Show cache stats without clearing
@@ -174,6 +178,24 @@ def main() -> None:
         else:
             _oneshot_query(connection_string, question, config, logger, no_cache=no_cache)
 
+    elif command == "repl":
+        if len(args) < 2:
+            print("Usage: mcpdb repl <connection_string_or_file>")
+            sys.exit(1)
+
+        # Suppress INFO logs — Rich UI handles status
+        import logging as _logging
+        _logging.getLogger("mcpdb").setLevel(_logging.WARNING)
+        for h in _logging.getLogger("mcpdb").handlers:
+            h.setLevel(_logging.WARNING)
+        _logging.getLogger("google_genai").setLevel(_logging.WARNING)
+
+        no_cache = "--no-cache" in args
+        remaining = [a for a in args[1:] if a != "--no-cache"]
+        connection_string = remaining[0]
+
+        _start_repl(connection_string, config, logger, no_cache=no_cache)
+
     elif command == "experience":
         if len(args) < 2:
             print("Usage: mcpdb experience <stats|eval|clear|export|antipatterns>")
@@ -209,128 +231,64 @@ def main() -> None:
         sys.exit(1)
 
 
-class _ConsoleProgress:
-    """Live console progress indicator using agent callback events."""
+def _start_repl(connection_string: str, config, logger, no_cache: bool = False) -> None:
+    """Start the interactive REPL."""
+    from mcpdb.sources.registry import SourceRegistry
+    from mcpdb.experience.service import ExperienceService
+    from mcpdb.llm.factory import create_provider
+    from mcpdb.cli.repl import Repl
 
-    SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    _CSV_EXTS = {".csv", ".tsv", ".tab"}
+    _EXCEL_EXTS = {".xlsx", ".xls"}
 
-    # Map event types to human-readable status messages
-    LABELS = {
-        "classify/start": "Classifying question",
-        "classify/complete": None,  # handled specially
-        "plan/start": "Planning analysis",
-        "plan/ready": None,
-        "plan/retry": "Retrying plan",
-        "plan/error": "Plan failed, using fallback",
-        "step/start": None,  # handled specially
-        "step/complete": None,
-        "step/error": None,
-        "debug/start": "Debugging failed step",
-        "debug/fixed": "Fix applied",
-        "debug/give_up": "Skipping failed step",
-        "checkpoint/start": "Reviewing progress",
-        "checkpoint/complete": None,
-        "revise/start": "Revising plan",
-        "revise/ready": None,
-        "reflect/start": "Reflecting on results",
-        "reflect/ready": None,
-        "validate/start": "Validating results",
-        "validate/adequate": None,
-        "validate/inadequate": "Results incomplete, replanning",
-        "replan/start": "Creating corrected plan",
-        "replan/ready": None,
-        "synthesize/start": "Synthesizing response",
-        "synthesize/complete": None,
-        "extended/start": None,
-        "extended/complete": None,
-        "agent/complete": None,
-        "experience/cache_hit": "Using cached result",
-        "quick/start": "Answering from context",
-        "quick/complete": None,
-        "quick/escalate": "Escalating to full analysis",
-    }
+    registry = SourceRegistry()
+    candidate_paths = [p.strip() for p in connection_string.split(",")]
+    ext = Path(candidate_paths[0]).suffix.lower()
 
-    def __init__(self) -> None:
-        import threading
-        self._lock = threading.Lock()
-        self._spin_idx = 0
-        self._current_msg = ""
-        self._step_count = 0
-        self._steps_done = 0
-        self._mode = ""
-        self._start_time = 0.0
+    try:
+        if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(
+            Path(p).exists() for p in candidate_paths
+        ):
+            from mcpdb.sources.csv.source import CsvSource
 
-    def on_event(self, event) -> None:
-        import time
-        etype = event.type
-        data = event.data
+            names = [Path(p).stem for p in candidate_paths]
+            display = ", ".join(names[:3])
+            if len(names) > 3:
+                display += f" (+{len(names) - 3} more)"
+            source = CsvSource(candidate_paths, display_name=display)
+            registry.add_source(source)
+        elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
+            from mcpdb.sources.excel.source import ExcelSource
 
-        if self._start_time == 0.0:
-            self._start_time = time.time()
+            source = ExcelSource(
+                candidate_paths[0], display_name=Path(candidate_paths[0]).name
+            )
+            registry.add_source(source)
+        else:
+            from mcpdb.sources.database.source import DatabaseSource
 
-        msg = None
+            source = DatabaseSource(connection_string)
+            registry.add_source(source)
 
-        if etype == "classify/complete":
-            self._mode = data.get("mode", "")
-            msg = f"Mode: {self._mode}"
-        elif etype == "plan/ready":
-            self._step_count = data.get("step_count", 0)
-            msg = f"Plan ready — {self._step_count} steps"
-        elif etype == "step/start":
-            step_num = data.get("step_number", "?")
-            action = data.get("action", "")
-            total = self._step_count or "?"
-            msg = f"Step {step_num}/{total} ({action})"
-        elif etype == "step/complete":
-            self._steps_done += 1
-            step_num = data.get("step_number", "?")
-            ms = data.get("time_ms", 0)
-            msg = f"Step {step_num} done ({ms}ms)"
-        elif etype == "step/error":
-            step_num = data.get("step_number", "?")
-            err = data.get("error", "")[:60]
-            msg = f"Step {step_num} error: {err}"
-        elif etype == "replan/ready":
-            self._step_count = data.get("step_count", 0)
-            self._steps_done = 0
-            msg = f"New plan — {self._step_count} steps"
-        elif etype == "revise/ready":
-            new = data.get("new_step_count", 0)
-            msg = f"Revised — {new} steps remaining"
-        elif etype == "checkpoint/complete":
-            action = data.get("action", "")
-            if action == "done":
-                msg = "Checkpoint: stopping early"
-        elif etype == "observer/warning":
-            warn_msg = data.get("message", "anomaly detected")
-            msg = f"⚠ {warn_msg}"
-        elif etype in self.LABELS:
-            msg = self.LABELS[etype]
-        # None means skip (no status update for this event)
+        llm_cfg = config.llm.reasoning
+        llm = create_provider(
+            llm_cfg.provider,
+            llm_cfg.model,
+            llm_cfg.api_key,
+        )
 
-        if msg is not None:
-            self._print_status(msg)
+        service = ExperienceService(config.experience)
 
-    def _print_status(self, msg: str) -> None:
-        import time
-        with self._lock:
-            self._spin_idx = (self._spin_idx + 1) % len(self.SPINNER)
-            spinner = self.SPINNER[self._spin_idx]
-            elapsed = time.time() - self._start_time if self._start_time else 0
-            line = f"\r\033[K  {spinner} {msg}  [{elapsed:.0f}s]"
-            sys.stderr.write(line)
-            sys.stderr.flush()
-            self._current_msg = msg
-
-    def finish(self) -> None:
-        import time
-        elapsed = time.time() - self._start_time if self._start_time else 0
-        sys.stderr.write(f"\r\033[K  ✓ Done — {self._steps_done} steps in {elapsed:.0f}s\n")
-        sys.stderr.flush()
-
-    def error(self, msg: str) -> None:
-        sys.stderr.write(f"\r\033[K  ✗ {msg}\n")
-        sys.stderr.flush()
+        repl = Repl(
+            registry=registry,
+            llm=llm,
+            config=config,
+            experience_service=service,
+            no_cache=no_cache,
+        )
+        repl.run()
+    finally:
+        registry.close_all()
 
 
 def _oneshot_query(connection_string: str, question: str, config, logger, no_cache: bool = False) -> None:
@@ -344,8 +302,10 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.experience.service import ExperienceService
         from mcpdb.llm.factory import create_provider
+        from mcpdb.cli.progress import RichProgress
+        from mcpdb.cli.renderer import ResultRenderer
 
-        progress = _ConsoleProgress()
+        progress = RichProgress(question=question, source_name=connection_string)
         callbacks = CallbackManager()
         callbacks.add_listener(progress.on_event)
 
@@ -364,6 +324,8 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
                 llm_cfg.api_key,
             )
 
+            progress.start()
+
             state = await run_agent(
                 question, registry, llm, callbacks,
                 experience_cache=service.cache,
@@ -371,8 +333,9 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
                 no_cache=no_cache,
             )
             response = state.get("response") or "No response generated."
-            progress.finish()
-            print(response)
+            progress.finish(state)
+            renderer = ResultRenderer()
+            renderer.render_response(response)
         except Exception as e:
             progress.error(str(e))
             raise
@@ -393,8 +356,15 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.experience.service import ExperienceService
         from mcpdb.llm.factory import create_provider
+        from mcpdb.cli.progress import RichProgress
+        from mcpdb.cli.renderer import ResultRenderer
 
-        progress = _ConsoleProgress()
+        names = [Path(p).stem for p in file_paths]
+        display = ", ".join(names[:3])
+        if len(names) > 3:
+            display += f" (+{len(names) - 3} more)"
+
+        progress = RichProgress(question=question, source_name=display)
         callbacks = CallbackManager()
         callbacks.add_listener(progress.on_event)
 
@@ -402,10 +372,6 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
 
         registry = SourceRegistry()
         try:
-            names = [Path(p).stem for p in file_paths]
-            display = ", ".join(names[:3])
-            if len(names) > 3:
-                display += f" (+{len(names) - 3} more)"
             source = CsvSource(file_paths, display_name=display)
             registry.add_source(source)
             logger.info("Loaded CSV: %s", display)
@@ -417,6 +383,8 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
                 llm_cfg.api_key,
             )
 
+            progress.start()
+
             state = await run_agent(
                 question, registry, llm, callbacks,
                 experience_cache=service.cache,
@@ -424,8 +392,9 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
                 no_cache=no_cache,
             )
             response = state.get("response") or "No response generated."
-            progress.finish()
-            print(response)
+            progress.finish(state)
+            renderer = ResultRenderer()
+            renderer.render_response(response)
         except Exception as e:
             progress.error(str(e))
             raise
@@ -446,8 +415,11 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.experience.service import ExperienceService
         from mcpdb.llm.factory import create_provider
+        from mcpdb.cli.progress import RichProgress
+        from mcpdb.cli.renderer import ResultRenderer
 
-        progress = _ConsoleProgress()
+        display = Path(file_path).name
+        progress = RichProgress(question=question, source_name=display)
         callbacks = CallbackManager()
         callbacks.add_listener(progress.on_event)
 
@@ -455,9 +427,9 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
 
         registry = SourceRegistry()
         try:
-            source = ExcelSource(file_path, display_name=Path(file_path).name)
+            source = ExcelSource(file_path, display_name=display)
             registry.add_source(source)
-            logger.info("Loaded Excel: %s", Path(file_path).name)
+            logger.info("Loaded Excel: %s", display)
 
             llm_cfg = config.llm.reasoning
             llm = create_provider(
@@ -466,6 +438,8 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
                 llm_cfg.api_key,
             )
 
+            progress.start()
+
             state = await run_agent(
                 question, registry, llm, callbacks,
                 experience_cache=service.cache,
@@ -473,8 +447,9 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
                 no_cache=no_cache,
             )
             response = state.get("response") or "No response generated."
-            progress.finish()
-            print(response)
+            progress.finish(state)
+            renderer = ResultRenderer()
+            renderer.render_response(response)
         except Exception as e:
             progress.error(str(e))
             raise
