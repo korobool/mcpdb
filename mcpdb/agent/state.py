@@ -55,5 +55,9 @@ class AgentState(TypedDict, total=False):
     cache_hit: bool
     cached_response: str | None
 
+    # --- Observer ---
+    observer_report: dict | None
+    cancellation_token: Any  # CancellationToken (avoid circular import)
+
     # --- Response ---
     response: str | None

@@ -15,7 +15,7 @@ from typing import Any, Callable
 from mcp.server import Server
 from mcp.types import TextContent, Tool
 
-from mcpdb.sources.registry import SourceRegistry
+from mcpdb.sources.registry import SourceNotFoundError, SourceRegistry
 
 logger = logging.getLogger("mcpdb.mcp.tools")
 
@@ -92,6 +92,12 @@ def register_all_tools(
             if inspect.isawaitable(result):
                 result = await result
             return result
+        except SourceNotFoundError as e:
+            logger.warning("Tool %s: source not found — %s", name, e)
+            return [TextContent(
+                type="text",
+                text=f"Error: Source not found — {e}. Use list_sources to see available sources.",
+            )]
         except Exception as e:
             logger.error("Tool %s failed: %s", name, e, exc_info=True)
             return [TextContent(type="text", text=f"Error: {e}")]

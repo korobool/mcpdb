@@ -9,6 +9,7 @@ from typing import Any
 
 from mcpdb.agent.state import AgentState
 from mcpdb.agent.callbacks import CallbackManager
+from mcpdb.agent.cancellation import CancelledException
 from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sandbox.executor import execute_python
 from mcpdb.sandbox.security import get_security
@@ -16,6 +17,13 @@ from mcpdb.sources.base import QueryableSource
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.agent.nodes")
+
+
+def _check_cancelled(state: AgentState) -> None:
+    """Check if execution has been cancelled and raise if so."""
+    token = state.get("cancellation_token")
+    if token is not None:
+        token.check()
 
 
 # --- Plan Node ---
@@ -114,6 +122,7 @@ async def make_plan(
     plan if all LLM attempts fail.
     """
     callbacks.emit("plan/start")
+    _check_cancelled(state)
 
     mode = query_mode or state.get("query_mode", "simple")
     mode_desc = _get_mode_description(mode, state["question"])
@@ -212,11 +221,19 @@ async def _try_plan(
     import asyncio
     for retry in range(max_retries):
         try:
-            result, usage = await llm.generate_json(
-                [Message(role="user", content=prompt)],
-                system="You are a data analysis planner. Respond with JSON only.",
+            result, usage = await asyncio.wait_for(
+                llm.generate_json(
+                    [Message(role="user", content=prompt)],
+                    system="You are a data analysis planner. Respond with JSON only.",
+                ),
+                timeout=90.0,
             )
             return result
+        except asyncio.TimeoutError:
+            logger.warning("Planning attempt %d retry %d timed out", attempt, retry + 1)
+            if retry >= max_retries - 1:
+                callbacks.emit("plan/error", error="LLM call timed out", attempt=attempt)
+                return None
         except Exception as e:
             if retry < max_retries - 1:
                 delay = [2, 5][min(retry, 1)]
@@ -226,7 +243,8 @@ async def _try_plan(
             else:
                 logger.warning("Planning attempt %d failed: %s", attempt, e)
                 callbacks.emit("plan/error", error=str(e), attempt=attempt)
-        return None
+                return None
+    return None
 
 
 def _generate_fallback_plan(state: AgentState, registry: SourceRegistry) -> list[dict]:
@@ -334,6 +352,8 @@ async def execute_step(
     registry: SourceRegistry,
 ) -> AgentState:
     """Execute the current plan step."""
+    _check_cancelled(state)
+
     plan = state.get("plan")
     if not plan or not plan.get("steps"):
         return state
@@ -591,10 +611,14 @@ async def debug_step(
         available_libraries=security.get_allowed_for_prompt(),
     )
 
+    import asyncio as _asyncio
     try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a code debugger. Respond with JSON only.",
+        result, usage = await _asyncio.wait_for(
+            llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a code debugger. Respond with JSON only.",
+            ),
+            timeout=60.0,
         )
 
         corrected = result.get("corrected_code", error["code"])
@@ -607,8 +631,13 @@ async def debug_step(
 
     except Exception as e:
         logger.warning("Debug LLM failed: %s", e)
-        # Count this as another attempt
         callbacks.emit("debug/error", step_index=idx, error=str(e))
+        # Treat LLM failure as another failed attempt — advance if exhausted
+        if error["attempts"] >= max_retries - 1:
+            if idx < len(steps):
+                steps[idx]["status"] = "failed"
+            plan["current_step_index"] = idx + 1
+            state["current_error"] = None
 
     return state
 
@@ -673,6 +702,7 @@ async def synthesize(
     format directly without an LLM call to save 10-30s.
     """
     callbacks.emit("synthesize/start")
+    _check_cancelled(state)
 
     # Fast path: skip LLM for simple, small results
     fast_response = _try_fast_synthesize(state)
@@ -715,9 +745,12 @@ async def synthesize(
     import asyncio
     for retry in range(3):
         try:
-            result, usage = await llm.generate_json(
-                [Message(role="user", content=prompt)],
-                system="You are a data formatting expert. Generate Python code that formats analysis results into a clear answer. Respond with JSON only.",
+            result, usage = await asyncio.wait_for(
+                llm.generate_json(
+                    [Message(role="user", content=prompt)],
+                    system="You are a data formatting expert. Generate Python code that formats analysis results into a clear answer. Respond with JSON only.",
+                ),
+                timeout=60.0,
             )
 
             format_code = result.get("code", "")
@@ -729,6 +762,10 @@ async def synthesize(
             state["response"] = response
             break
 
+        except asyncio.TimeoutError:
+            logger.warning("Synthesis LLM call timed out (retry %d)", retry + 1)
+            if retry >= 2:
+                state["response"] = _fallback_synthesize(state)
         except Exception as e:
             if retry < 2:
                 delay = 1  # Quick retry — failures are usually JSON parsing, not rate limits
@@ -848,29 +885,80 @@ def _try_fast_synthesize(state: AgentState) -> str | None:
 
         # Rows
         for row in rows:
-            parts.append("| " + " | ".join(str(v) for v in row) + " |")
+            cells = []
+            for v in row:
+                if v is None:
+                    cells.append("")
+                elif isinstance(v, float):
+                    # Format floats nicely — avoid excessive decimal places
+                    cells.append(f"{v:,.4g}" if abs(v) >= 0.01 or v == 0 else f"{v:.6g}")
+                else:
+                    cells.append(str(v))
+            parts.append("| " + " | ".join(cells) + " |")
         parts.append("")
 
     return "\n".join(parts).strip()
 
 
 def _fallback_synthesize(state: AgentState) -> str:
-    """Build a basic response from result summaries when code synthesis fails."""
+    """Build a response from artifacts when LLM code synthesis fails.
+
+    This is the last resort — we format actual data from artifacts into
+    markdown so the user always gets something useful.
+    """
+    # Try the fast-path first (works for small results regardless of mode)
+    artifacts = state.get("artifacts", [])
+    tables = [a for a in artifacts if a["type"] == "table"]
+    charts = [a for a in artifacts if a["type"] == "chart"]
+
     parts = ["## Analysis Results\n"]
 
-    for entry in state.get("execution_log", []):
-        status = entry.get("status", "unknown")
-        summary = entry.get("result_summary", entry.get("error", ""))
-        step_num = entry.get("step_number", "?")
-        if status == "success":
-            parts.append(f"**Step {step_num}**: {summary}")
-        elif status == "error":
-            parts.append(f"**Step {step_num}** (failed): {entry.get('error', 'Unknown error')}")
+    # Format available table data
+    for t in tables:
+        data = t["data"]
+        columns = data.get("columns", [])
+        rows = data.get("rows", [])
+        title = t.get("title", "Result")
 
-    has_charts = any(
-        a["type"] == "chart" for a in state.get("artifacts", [])
-    )
-    if has_charts:
+        if not rows:
+            continue
+
+        if title and title != "Result":
+            parts.append(f"**{title}**\n")
+
+        # Single value
+        if len(columns) == 1 and len(rows) == 1:
+            parts.append(f"{columns[0]}: **{rows[0][0]}**\n")
+            continue
+
+        # Table format (cap at 50 rows for readability)
+        parts.append("| " + " | ".join(str(c) for c in columns) + " |")
+        parts.append("| " + " | ".join("---" for _ in columns) + " |")
+        display_rows = rows[:50]
+        for row in display_rows:
+            cells = [str(v) if v is not None else "" for v in row]
+            parts.append("| " + " | ".join(cells) + " |")
+        if len(rows) > 50:
+            parts.append(f"\n*Showing 50 of {len(rows)} rows.*\n")
+        parts.append("")
+
+    # Note any errors
+    errors = [e for e in state.get("execution_log", []) if e.get("status") == "error"]
+    if errors:
+        parts.append(f"\n*Note: {len(errors)} step(s) encountered errors during execution.*")
+
+    if charts:
         parts.append("\nSee the charts below for visual results.")
 
-    return "\n\n".join(parts)
+    result = "\n".join(parts).strip()
+    # If we have no table data at all, fall back to execution log summaries
+    if not tables:
+        for entry in state.get("execution_log", []):
+            status = entry.get("status", "unknown")
+            summary = entry.get("result_summary", entry.get("error", ""))
+            step_num = entry.get("step_number", "?")
+            if status == "success" and summary:
+                parts.append(f"**Step {step_num}**: {summary}")
+        result = "\n\n".join(parts).strip()
+
+    return result or "No results were generated for this query."

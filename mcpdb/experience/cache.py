@@ -175,10 +175,12 @@ class ExperienceCache:
         logger.debug("Cached response: %s (semantic: %s)", ih, sh)
 
     def invalidate(self, question: str, source_metadata: SourceMetadata) -> None:
-        """Remove a cached entry."""
+        """Remove a cached entry (memory + semantic index)."""
         fp = fingerprint_source(source_metadata)
         ih = intent_hash(question, fp)
+        sh = semantic_hash(question, fp)
         self._memory.pop(ih, None)
+        self._semantic_index.pop(sh, None)
 
     def clear_source(self, source_metadata: SourceMetadata) -> None:
         """Clear all cache entries for a source (by metadata)."""

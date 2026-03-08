@@ -77,16 +77,20 @@ class ExperienceService:
 
     async def stop(self) -> None:
         """Graceful shutdown with 5s timeout."""
-        if self._worker:
-            self._worker.stop()
-        if self._task:
-            try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                self._task.cancel()
+        try:
+            if self._worker:
+                self._worker.stop()
+            if self._task:
+                try:
+                    await asyncio.wait_for(self._task, timeout=5.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    self._task.cancel()
+        except Exception as e:
+            logger.warning("Error stopping experience service: %s", e)
+        finally:
             self._task = None
             self._worker = None
-            logger.info("Quality evaluation worker stopped")
+            logger.info("Experience service stopped")
 
     @property
     def is_running(self) -> bool:
