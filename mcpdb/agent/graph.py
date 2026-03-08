@@ -196,6 +196,7 @@ async def run_agent(
     observer_report = None
     if observer is not None:
         observer_report = observer.stop()
+        state["observer_report"] = observer_report.to_dict()
         if observer_report.had_anomalies:
             logger.info("Observer report:\n%s", observer_report.summary())
             callbacks.emit(
