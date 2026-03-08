@@ -668,8 +668,19 @@ async def synthesize(
     The LLM never sees actual data values — only result metadata (shapes, types, stats).
     It generates Python code that reads the artifacts and formats the answer.
     The sandbox executes this code with access to the real data.
+
+    Fast path: for simple results (1 small table, no charts, no errors),
+    format directly without an LLM call to save 10-30s.
     """
     callbacks.emit("synthesize/start")
+
+    # Fast path: skip LLM for simple, small results
+    fast_response = _try_fast_synthesize(state)
+    if fast_response:
+        logger.info("Synthesize fast path: skipping LLM call")
+        state["response"] = fast_response
+        callbacks.emit("synthesize/complete")
+        return state
 
     # Build metadata-only summary for the LLM
     results_parts = []
@@ -766,6 +777,81 @@ def _run_synthesize_code(code: str, state: AgentState) -> str:
 def _artifacts_literal(json_str: str) -> str:
     """Safely embed a JSON string as a Python string literal."""
     return "'''" + json_str.replace("\\", "\\\\").replace("'''", "\\'\\'\\'") + "'''"
+
+
+def _try_fast_synthesize(state: AgentState) -> str | None:
+    """Try to format simple results directly, without an LLM call.
+
+    Returns formatted response or None if results are too complex for fast path.
+    Fast path criteria:
+    - No charts (charts need interpretation)
+    - No errors in execution
+    - At most 2 table artifacts with ≤ 50 rows total
+    - No deep/extended/optimization mode (these need richer synthesis)
+    """
+    mode = state.get("query_mode", "simple")
+    if mode in ("deep", "extended", "optimization_required"):
+        return None
+
+    artifacts = state.get("artifacts", [])
+    charts = [a for a in artifacts if a["type"] == "chart"]
+    if charts:
+        return None
+
+    tables = [a for a in artifacts if a["type"] == "table"]
+    if not tables or len(tables) > 2:
+        return None
+
+    # Check for errors in execution
+    for entry in state.get("execution_log", []):
+        if entry.get("status") == "error":
+            return None
+
+    # Check total row count
+    total_rows = sum(t["data"].get("total_rows", 0) for t in tables)
+    if total_rows > 50:
+        return None
+
+    # Format directly
+    question = state.get("question", "")
+    parts = [f"## Results\n"]
+
+    for t in tables:
+        data = t["data"]
+        columns = data.get("columns", [])
+        rows = data.get("rows", [])
+        title = t.get("title", "Result")
+
+        if not rows:
+            parts.append(f"**{title}**: No data returned.\n")
+            continue
+
+        # Single value result
+        if len(columns) == 1 and len(rows) == 1:
+            parts.append(f"**{title}**: {rows[0][0]}\n")
+            continue
+
+        # Single row with few columns — key-value format
+        if len(rows) == 1 and len(columns) <= 6:
+            for col, val in zip(columns, rows[0]):
+                parts.append(f"- **{col}**: {val}")
+            parts.append("")
+            continue
+
+        # Table format
+        if title and title != "Result":
+            parts.append(f"**{title}**\n")
+
+        # Header
+        parts.append("| " + " | ".join(str(c) for c in columns) + " |")
+        parts.append("| " + " | ".join("---" for _ in columns) + " |")
+
+        # Rows
+        for row in rows:
+            parts.append("| " + " | ".join(str(v) for v in row) + " |")
+        parts.append("")
+
+    return "\n".join(parts).strip()
 
 
 def _fallback_synthesize(state: AgentState) -> str:
