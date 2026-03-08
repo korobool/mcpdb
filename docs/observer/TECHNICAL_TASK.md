@@ -283,3 +283,34 @@ Fixed false positive detection in eval runner.
 - 6× timing_warning (synthesize 15-27s, plan 17-60s)
 - 1× timing_critical (plan 60s in extended mode)
 - 1× debug cycle
+
+## 10. Grand Summary — All Eval Batches
+
+| Metric | Value |
+|--------|-------|
+| Total questions | 57 |
+| Pass | 56 (98.2%) |
+| Fail (false positive) | 1 |
+| Error | 0 |
+| Timeout | 0 |
+| Total time | 43.1 min |
+| Avg time/question | 45.4s |
+| Observer anomalies | 21 |
+| Fast-path synthesize | ~18 questions |
+
+**Data sources tested:**
+- bgins MySQL DB: 21 tables, Bulgarian insurance claims
+- Qala CSV: 464K rows, MTPL insurance policies (79MB)
+- Lithuania CSV: 312K rows, MTPL insurance (221MB)
+
+**Key optimizations delivered:**
+1. Fast-path synthesize: skip LLM call for simple results → saves 10-30s/query
+2. Reduced synthesize retry delay: 2s+5s → 1s+1s
+3. Observer detects timing anomalies, debug loops, stuck phases in real-time
+4. Observer warnings visible in both CLI and web UI
+
+**Remaining optimization opportunities:**
+1. Plan generation: consistently 15-30s for simple mode, could benefit from plan caching
+2. Classification: sometimes underestimates complexity (db19 → simple instead of extended)
+3. Synthesize code quality: LLM occasionally generates bad Python (type errors, syntax errors)
+4. Large result sets: synthesize still uses LLM for >50 rows, could use templates instead
