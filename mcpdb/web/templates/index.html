@@ -38,7 +38,8 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 
 /* Source cards */
 .source-card { background: var(--bg3); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; position: relative; }
-.source-card .name { font-weight: 600; font-size: 13px; padding-right: 20px; }
+.source-card .name { font-weight: 600; font-size: 13px; padding-right: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-card .conn-detail { font-size: 10px; color: var(--fg3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-card .meta { font-size: 11px; color: var(--fg2); margin-top: 2px; }
 .source-card .remove-btn { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--fg3); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px; }
 .source-card .remove-btn:hover { color: var(--red); }
@@ -350,6 +351,8 @@ let messages = [];
 let isQuerying = false;
 let conversationTurns = [];   // Structured export data: [{question, response, artifacts, executionLog, mode, elapsed}]
 let currentQuestion = '';      // Tracks the question for the active query
+let _lastConnStr = '';         // Stores connection string after connect (input gets cleared)
+let _erdMermaid = '';          // ERD mermaid code from initial discovery
 
 // Execution monitor state
 let mon = {
@@ -997,6 +1000,17 @@ async function loadSources() {
   } catch (e) { console.error('Failed to load sources', e); }
 }
 
+function _friendlySourceName(raw, sourceType) {
+  if (sourceType === 'database') {
+    // Extract db name from connection string like "mysql+pymysql://user:***@host:port/dbname"
+    try {
+      const m = raw.match(/\/([^/?]+)(?:\?.*)?$/);
+      if (m) return m[1];
+    } catch {}
+  }
+  return raw;
+}
+
 function renderSources() {
   const el = document.getElementById('sources-list');
   if (!sources.length) {
@@ -1005,9 +1019,14 @@ function renderSources() {
   }
   el.innerHTML = sources.map(s => {
     const tableCount = (s.tables || []).length;
+    const raw = s.display_name || s.source_id;
+    // Extract a friendly short name: db name from URL, or filename, or raw
+    const friendly = _friendlySourceName(raw, s.source_type);
+    const showDetail = friendly !== raw;
     return `<div class="source-card">
       <button class="remove-btn" onclick="removeSource('${escAttr(s.source_id)}')" title="Remove source">&times;</button>
-      <div class="name">${escHtml(s.display_name || s.source_id)}</div>
+      <div class="name" title="${escAttr(raw)}">${escHtml(friendly)}</div>
+      ${showDetail ? `<div class="conn-detail" title="${escAttr(raw)}">${escHtml(raw)}</div>` : ''}
       <div class="meta">${s.source_type} \u00b7 ${tableCount} table${tableCount !== 1 ? 's' : ''}</div>
     </div>`;
   }).join('');
@@ -1024,6 +1043,7 @@ async function connectDatabase() {
       body: JSON.stringify({ connection_string: connStr, display_name: name || undefined }),
     });
     if (!res.ok) { const e = await res.json(); alert(e.detail); return; }
+    _lastConnStr = connStr;  // Save before clearing for notebook export
     document.getElementById('conn-str').value = '';
     document.getElementById('conn-name').value = '';
     document.getElementById('connect-details').removeAttribute('open');
@@ -1269,6 +1289,7 @@ async function renderWelcome() {
       erdMermaid = data.mermaid || '';
     }
   } catch (e) {}
+  _erdMermaid = erdMermaid;  // Store for export
 
   // Starter questions
   const starters = suggestStarters(tables);
@@ -1376,15 +1397,25 @@ function updateExportVisibility() {
 }
 
 function _getDbInfo() {
-  const cards = document.querySelectorAll('#sources-list .source-card');
-  if (cards.length === 0) return '';
-  return cards[0].textContent.trim().split('\n')[0] || '';
+  if (!sources.length) return '';
+  return sources.map(s => _friendlySourceName(s.display_name || s.source_id, s.source_type)).join(', ');
 }
 
 function _getConnectionString() {
-  // Try to get from the database connection form
-  const input = document.getElementById('db-url');
+  // Prefer the stored value (input gets cleared after connect), fall back to current input
+  if (_lastConnStr) return _lastConnStr;
+  const input = document.getElementById('conn-str');
   return input ? input.value : '';
+}
+
+function _getDiscovery() {
+  // Build discovery payload: table summaries + ERD for export
+  if (!sources.length) return {};
+  const s = sources[0];
+  const tableSummary = (s.table_summary || []).map(t => ({
+    name: t.name, columns: t.columns, rows: t.rows,
+  }));
+  return { tableSummary, erdMermaid: _erdMermaid || '' };
 }
 
 async function exportHTML() {
@@ -1393,7 +1424,7 @@ async function exportHTML() {
     const resp = await fetch('/api/export/html', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo() }),
+      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo(), discovery: _getDiscovery() }),
     });
     if (!resp.ok) { alert('Export failed: ' + (await resp.text())); return; }
     const { url } = await resp.json();
@@ -1407,7 +1438,7 @@ async function exportPDF() {
     const resp = await fetch('/api/export/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo() }),
+      body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo(), discovery: _getDiscovery() }),
     });
     if (!resp.ok) {
       const detail = await resp.text();
@@ -1428,7 +1459,10 @@ async function exportNotebook(openJupyter = false) {
   if (conversationTurns.length === 0) return;
   try {
     const connStr = _getConnectionString();
-    const dbType = connStr.includes('mysql') ? 'mysql' :
+    const sourceType = sources.length ? sources[0].source_type : 'database';
+    const dbType = sourceType === 'csv' ? 'csv' :
+                   sourceType === 'excel' ? 'excel' :
+                   connStr.includes('mysql') ? 'mysql' :
                    connStr.includes('postgresql') ? 'postgresql' :
                    connStr.includes('sqlite') ? 'sqlite' : 'mysql';
     const resp = await fetch('/api/export/notebook', {
@@ -1439,6 +1473,7 @@ async function exportNotebook(openJupyter = false) {
         connectionString: connStr,
         dbType: dbType,
         dbInfo: _getDbInfo(),
+        discovery: _getDiscovery(),
         openJupyter: openJupyter,
       }),
     });

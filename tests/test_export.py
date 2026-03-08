@@ -78,6 +78,24 @@ TABLE_TURN = {
 
 MULTI_TURNS = [SIMPLE_TURN, TABLE_TURN, CHART_TURN]
 
+SAMPLE_DISCOVERY = {
+    "tableSummary": [
+        {"name": "ins_cars", "columns": 8, "rows": 1105},
+        {"name": "ins_damages", "columns": 6, "rows": 2141},
+        {"name": "ins_opis", "columns": 5, "rows": 2141},
+    ],
+    "erdMermaid": 'erDiagram\n    ins_cars {\n        INT car_id PK\n    }\n    ins_damages {\n        INT damage_id PK\n    }',
+}
+
+CACHED_TURN = {
+    "question": "How many tables are there?",
+    "response": "There are **21 tables** in the database.",
+    "artifacts": [],
+    "executionLog": [],
+    "mode": "quick",
+    "elapsed": 0.5,
+}
+
 ERROR_TURN = {
     "question": "Bad query",
     "response": "**Error:** Query timed out",
@@ -163,8 +181,29 @@ class TestHTMLReport:
     def test_report_is_self_contained(self):
         from mcpdb.web.export import generate_html_report
         html = generate_html_report(MULTI_TURNS)
-        assert "https://" not in html
+        # Allow only the mermaid CDN for ERD rendering
+        for line in html.split("\n"):
+            if "https://" in line:
+                assert "mermaid" in line, f"Unexpected external URL: {line.strip()}"
         assert "<style>" in html
+
+    def test_discovery_section_rendered(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([SIMPLE_TURN], "bgins", discovery=SAMPLE_DISCOVERY)
+        assert "Database Overview" in html
+        assert "ins_cars" in html
+        assert "1,105" in html
+        assert "ins_damages" in html
+
+    def test_cached_turn_badge(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([CACHED_TURN], "bgins")
+        assert "context-based" in html
+
+    def test_executed_turn_no_badge(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report([SIMPLE_TURN], "bgins")
+        assert "context-based" not in html
 
 
 # ---------------------------------------------------------------------------
@@ -225,19 +264,21 @@ class TestNotebookExport:
         turn_headers = [c for c in md_cells if _cell_source(c).startswith("## Turn")]
         assert len(turn_headers) == 3
 
-    def test_response_in_markdown_cell(self):
+    def test_no_precomputed_response(self):
+        """Notebook should NOT contain pre-computed MCPDB response — results come from running cells."""
         from mcpdb.web.export import generate_notebook
         nb = json.loads(generate_notebook([SIMPLE_TURN]))
         md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
         response_cells = [c for c in md_cells if "MCPDB Response" in _cell_source(c)]
-        assert len(response_cells) >= 1
-        assert "21 tables" in _cell_source(response_cells[0])
+        assert len(response_cells) == 0, "Should not have pre-computed response cells"
 
     def test_security_notice(self):
         from mcpdb.web.export import generate_notebook
-        nb = json.loads(generate_notebook([SIMPLE_TURN]))
+        nb = json.loads(generate_notebook([SIMPLE_TURN], db_info="bgins"))
         title_cell = nb["cells"][0]
-        assert "Security Notice" in _cell_source(title_cell)
+        src = _cell_source(title_cell)
+        assert "Security Notice" in src
+        assert "bgins" in src
 
     def test_pip_install_mysql(self):
         from mcpdb.web.export import generate_notebook
@@ -273,7 +314,173 @@ class TestNotebookExport:
         from mcpdb.web.export import generate_notebook
         nb = json.loads(generate_notebook([ERROR_TURN]))
         code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
-        assert len(code_cells) == 1  # just setup
+        # setup + schema query (error step is skipped, falls back to context query)
+        assert len(code_cells) == 2
+        # The second code cell should be a schema query, not the failed SQL
+        src = _cell_source(code_cells[1])
+        assert "SLEEP" not in src  # original error code not included
+        assert "Context-based answer" in src
+
+    def test_discovery_cells_are_executable(self):
+        """Discovery cells should be code cells querying live DB, not static markdown."""
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="mysql", discovery=SAMPLE_DISCOVERY,
+        ))
+        # Should have markdown header + code cell for schema overview
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        overview_headers = [c for c in md_cells if "Database Overview" in _cell_source(c)]
+        assert len(overview_headers) == 1
+
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        # code_cells[0] = setup, code_cells[1] = schema overview, code_cells[2] = ERD
+        assert len(code_cells) >= 3
+        schema_cell = code_cells[1]
+        src = _cell_source(schema_cell)
+        assert "information_schema" in src
+        assert "db_query" in src
+
+        # ERD code cell embeds pre-computed mermaid, renders via iframe + mermaid.js
+        erd_headers = [c for c in md_cells if "Entity-Relationship" in _cell_source(c)]
+        assert len(erd_headers) == 1
+        erd_cell = code_cells[2]
+        erd_src = _cell_source(erd_cell)
+        assert "b64decode" in erd_src  # mermaid code is base64-encoded
+        assert "iframe" in erd_src
+        assert "mermaid" in erd_src
+        assert "IPython.display" in erd_src
+
+    def test_cached_turn_has_schema_query(self):
+        """Context-based turns should have an executable schema query, not just markdown."""
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CACHED_TURN], db_type="mysql"))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        # Should have setup + schema query
+        assert len(code_cells) >= 2
+        schema_cell = code_cells[1]
+        src = _cell_source(schema_cell)
+        assert "Context-based answer" in src
+        assert "db_query" in src
+        assert "information_schema" in src
+
+
+# ---------------------------------------------------------------------------
+# CSV / Excel (file source) notebook tests
+# ---------------------------------------------------------------------------
+
+CSV_DISCOVERY = {
+    "tableSummary": [
+        {"name": "sales", "columns": 5, "rows": 200},
+        {"name": "products", "columns": 3, "rows": 50},
+    ],
+    "erdMermaid": "",
+}
+
+EXCEL_DISCOVERY = {
+    "tableSummary": [
+        {"name": "employees", "columns": 8, "rows": 500},
+    ],
+    "erdMermaid": "",
+}
+
+
+class TestFileSourceNotebook:
+    def test_csv_setup_uses_duckdb(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", db_info="sales.csv",
+            discovery=CSV_DISCOVERY,
+        ))
+        setup_cell = nb["cells"][1]
+        src = _cell_source(setup_cell)
+        assert "duckdb" in src
+        assert "read_csv_auto" in src
+        assert "db_query" in src
+        # Should reference discovered tables
+        assert "sales" in src
+        assert "products" in src
+
+    def test_excel_setup_uses_duckdb(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="excel", db_info="employees.xlsx",
+            discovery=EXCEL_DISCOVERY,
+        ))
+        setup_cell = nb["cells"][1]
+        src = _cell_source(setup_cell)
+        assert "duckdb" in src
+        assert "openpyxl" in src
+        assert "employees" in src
+
+    def test_csv_title_no_security_notice(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", db_info="data",
+        ))
+        title_src = _cell_source(nb["cells"][0])
+        assert "Security Notice" not in title_src
+        assert "CSV" in title_src
+
+    def test_csv_discovery_uses_duckdb_tables(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", discovery=CSV_DISCOVERY,
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        # setup + schema overview + column details + turn code
+        assert len(code_cells) >= 3
+        schema_src = _cell_source(code_cells[1])
+        assert "duckdb_tables" in schema_src
+        assert "db_query" in schema_src
+
+    def test_csv_discovery_has_column_details(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", discovery=CSV_DISCOVERY,
+        ))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        detail_headers = [c for c in md_cells if "Column Details" in _cell_source(c)]
+        assert len(detail_headers) == 1
+
+    def test_csv_no_erd_cell(self):
+        """CSV/Excel sources should not attempt ERD generation."""
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", discovery=CSV_DISCOVERY,
+        ))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        erd_headers = [c for c in md_cells if "Entity-Relationship" in _cell_source(c)]
+        assert len(erd_headers) == 0
+
+    def test_csv_cached_turn_uses_duckdb_query(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CACHED_TURN], db_type="csv"))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        # Find the context-based turn cell
+        ctx_cells = [c for c in code_cells if "Context-based answer" in _cell_source(c)]
+        assert len(ctx_cells) == 1
+        src = _cell_source(ctx_cells[0])
+        assert "duckdb_tables" in src
+        assert "information_schema" not in src
+
+    def test_excel_cached_turn_uses_duckdb_query(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CACHED_TURN], db_type="excel"))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        ctx_cells = [c for c in code_cells if "Context-based answer" in _cell_source(c)]
+        assert len(ctx_cells) == 1
+        src = _cell_source(ctx_cells[0])
+        assert "duckdb_tables" in src
+
+    def test_csv_discovery_overview_header_says_data(self):
+        """File sources should say 'Data Overview', not 'Database Overview'."""
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="csv", discovery=CSV_DISCOVERY,
+        ))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        overview = [c for c in md_cells if "Overview" in _cell_source(c)]
+        assert any("Data Overview" in _cell_source(c) for c in overview)
 
 
 # ---------------------------------------------------------------------------

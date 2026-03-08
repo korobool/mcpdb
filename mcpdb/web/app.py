@@ -316,9 +316,10 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
         body = await request.json()
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
+        discovery = body.get("discovery", {})
         if not turns:
             raise HTTPException(status_code=400, detail="No conversation data")
-        html = generate_html_report(turns, db_info)
+        html = generate_html_report(turns, db_info, discovery=discovery)
         export_id = uuid.uuid4().hex[:12]
         _html_exports[export_id] = html
         # Limit stored exports to prevent memory leak
@@ -344,10 +345,11 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
         body = await request.json()
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
+        discovery = body.get("discovery", {})
         if not turns:
             raise HTTPException(status_code=400, detail="No conversation data")
         try:
-            pdf_bytes = generate_pdf(turns, db_info)
+            pdf_bytes = generate_pdf(turns, db_info, discovery=discovery)
         except ImportError as e:
             raise HTTPException(status_code=501, detail=str(e))
         except Exception as e:
@@ -367,11 +369,12 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
         connection_string = body.get("connectionString", "")
         db_type = body.get("dbType", "mysql")
         db_info = body.get("dbInfo", "")
+        discovery = body.get("discovery", {})
         open_jupyter = body.get("openJupyter", False)
         if not turns:
             raise HTTPException(status_code=400, detail="No conversation data")
         try:
-            nb_bytes = generate_notebook(turns, connection_string, db_type, db_info)
+            nb_bytes = generate_notebook(turns, connection_string, db_type, db_info, discovery=discovery)
         except ImportError as e:
             raise HTTPException(status_code=501, detail=str(e))
 

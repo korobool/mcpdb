@@ -1,4 +1,4 @@
-"""Tests for the mcpdb CLI Rich UI components (v5.2.0)."""
+"""Tests for the mcpdb CLI Rich UI components (v5.3.0)."""
 
 from __future__ import annotations
 

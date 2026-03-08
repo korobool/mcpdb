@@ -49,6 +49,310 @@ Usage:
   mcpdb experience antipatterns [--source <fp>]  List anti-patterns
 """
 
+MANUAL = f"""\
+{'=' * 72}
+  MCPDB v{__version__} — Natural Language Database Explorer
+{'=' * 72}
+
+  Ask questions about your data in plain English. MCPDB translates them
+  into SQL, executes safely, and returns formatted answers with charts.
+
+  Works with PostgreSQL, MySQL, SQLite, SQL Server, Oracle, CSV, and
+  Excel files. Connects to Claude Desktop as an MCP server or runs
+  standalone via web UI, REPL, TUI, or one-shot CLI.
+
+{'─' * 72}
+  QUICK START
+{'─' * 72}
+
+  Web client (recommended):
+    mcpdb web
+
+  One-shot query:
+    mcpdb query "postgresql://user:pass@host/db" "How many orders last month?"
+    mcpdb query sales.csv "What is the top product by revenue?"
+    mcpdb query report.xlsx "Summarize sheet 1"
+
+  Interactive REPL:
+    mcpdb repl "mysql+pymysql://user:pass@host/db"
+
+  MCP server for Claude Desktop:
+    mcpdb serve
+
+{'─' * 72}
+  COMMANDS
+{'─' * 72}
+
+  mcpdb                               Print version
+  mcpdb web [OPTIONS]                  Start web client (browser UI)
+  mcpdb query <source> <question>      One-shot query
+  mcpdb repl <source>                  Interactive REPL
+  mcpdb tui <source>                   Textual TUI (windowed terminal UI)
+  mcpdb serve [OPTIONS]                Start MCP server
+  mcpdb experience <subcommand>        Manage experience cache
+  mcpdb clean_cache [OPTIONS]          Clear cached data
+  mcpdb help                           This manual
+  mcpdb --version                      Print version
+
+  <source> can be:
+    - Database URL:  postgresql://user:pass@host/db
+                     mysql+pymysql://user:pass@host/db
+                     sqlite:///path/to/file.db
+    - CSV file(s):   data.csv  or  a.csv,b.csv,c.csv
+    - Excel file:    report.xlsx
+
+{'─' * 72}
+  WEB CLIENT — mcpdb web
+{'─' * 72}
+
+  Full-featured browser UI with real-time query execution.
+
+  Options:
+    --port PORT       Custom port (default: auto-detect free port)
+    --no-browser      Start server without opening browser
+    --no-cache        Skip experience cache lookup
+
+  Features:
+    - Connect databases, upload CSV/Excel from the browser
+    - Real-time execution monitor: phase pipeline, plan steps, progress
+    - Charts rendered inline (matplotlib/seaborn captured automatically)
+    - Follow-up question suggestions after every response
+    - Export results to HTML report, PDF, or Jupyter notebook
+    - ER diagram visualization with inferred relationships
+    - Deep mode investigation results streamed as they complete
+
+{'─' * 72}
+  ONE-SHOT QUERY — mcpdb query
+{'─' * 72}
+
+  Run a single question and exit. Useful for scripting.
+
+  mcpdb query <source> <question> [--no-cache]
+
+  Examples:
+    mcpdb query "postgres://u:p@h/db" "How many users signed up today?"
+    mcpdb query sales.csv "Total revenue by region"
+    mcpdb query data.xlsx "Average order value per customer"
+
+{'─' * 72}
+  INTERACTIVE REPL — mcpdb repl
+{'─' * 72}
+
+  Conversational interface with history, follow-ups, and mode control.
+
+  mcpdb repl <source> [--no-cache]
+
+  REPL commands:
+    /help                   Show available commands
+    /mode <mode|auto>       Override query mode (see QUERY MODES below)
+    /source list            List connected sources
+    /schema [table]         Show full or filtered schema
+    /history                Show query history
+    /export <markdown|json> Export last result
+    /cache                  Show cache statistics
+    /quit                   Exit
+
+  Tip: Type a number (1, 2, 3) to pick a follow-up suggestion.
+
+{'─' * 72}
+  TEXTUAL TUI — mcpdb tui
+{'─' * 72}
+
+  Windowed terminal UI with source panel, pipeline bar, and result log.
+
+  mcpdb tui <source> [--no-cache]
+
+  Requires the textual package: pip install mcpdb[tui]
+
+{'─' * 72}
+  MCP SERVER — mcpdb serve
+{'─' * 72}
+
+  Runs MCPDB as a Model Context Protocol server for Claude Desktop
+  or other MCP-compatible clients.
+
+  Options:
+    --transport stdio|sse   Transport protocol (default: stdio)
+    --port PORT             Port for SSE transport (default: 8765)
+
+  Claude Desktop config (~/.config/claude/claude_desktop_config.json):
+    {{
+      "mcpServers": {{
+        "mcpdb": {{
+          "command": "mcpdb",
+          "args": ["serve"]
+        }}
+      }}
+    }}
+
+  Provides 30+ tools including: connect_database, execute_sql,
+  ask_question, search_schema, render_erd, profile_table,
+  find_relationships, export_conversation, and more.
+
+{'─' * 72}
+  QUERY MODES
+{'─' * 72}
+
+  MCPDB automatically classifies each question into the best mode:
+
+  quick          Answer from known context (schema info, previous
+                 results). Instant, no SQL execution.
+                 Example: "What tables are in the database?"
+
+  simple         Standard analytical query, 1-5 execution steps.
+                 Default for most data questions.
+                 Example: "What are the top 10 customers by revenue?"
+
+  extended       Comprehensive analysis with 3-10 steps, iterative
+                 refinement via checkpoint/revision loop.
+                 Example: "Perform an EDA on the sales table"
+
+  optimization   Large-table queries (>1M rows). Pauses for cost
+                 gate strategy: SAMPLE, FULL, or CANCEL.
+                 Example: "Analyze all 50M transaction records"
+
+  deep           Multi-investigation research with 2-5 parallel
+                 sub-investigations, blueprint-based reasoning.
+                 Example: "Investigate customer churn patterns"
+
+  In the REPL, override with: /mode simple  (or /mode auto to reset)
+  In the web UI, select mode from the dropdown before submitting.
+
+{'─' * 72}
+  EXPERIENCE CACHE
+{'─' * 72}
+
+  MCPDB learns from successful queries. Identical or semantically
+  similar questions return cached results instantly.
+
+  Cache features:
+    - Two-tier lookup: exact hash + semantic similarity
+    - Mode-aware: won't serve a "quick" cache hit for a "deep" request
+    - Schema drift detection: invalidates stale entries automatically
+    - Quality evaluation: staged results scored before promotion
+
+  Subcommands:
+    mcpdb experience stats                    Show cache statistics
+    mcpdb experience eval                     Evaluate pending results
+    mcpdb experience clear --all              Clear everything
+    mcpdb experience clear --source <fp>      Clear one source
+    mcpdb experience export [--source <fp>]   Export as JSON
+    mcpdb experience antipatterns             List failure patterns
+
+  Flags:
+    --no-cache       Skip cache lookup (still stores new results)
+
+  Storage: ~/.mcpdb/experience/ (configurable via mcpdb.yaml)
+
+{'─' * 72}
+  EXPORT
+{'─' * 72}
+
+  After running queries in the web client, export your conversation:
+
+  HTML       Self-contained single-file report with styling, tables,
+             and embedded chart images. Opens in a new tab.
+
+  PDF        Downloadable PDF document with full conversation.
+
+  Notebook   Jupyter .ipynb with executable code cells:
+             - Database/file connection setup
+             - Schema overview queries
+             - ER diagram (rendered via mermaid.js)
+             - All SQL queries as runnable cells
+             Optional: auto-launch Jupyter server
+
+{'─' * 72}
+  CONFIGURATION
+{'─' * 72}
+
+  Config file search order:
+    1. MCPDB_CONFIG environment variable
+    2. ./mcpdb.yaml in current directory
+    3. Built-in defaults (no file needed)
+
+  Key sections in mcpdb.yaml:
+
+    llm:
+      reasoning:
+        provider: gemini          # gemini, openai, anthropic, ollama
+        model: gemini-2.5-pro
+      fast:
+        provider: gemini
+        model: gemini-2.5-flash
+
+    execution:
+      query_timeout: 30           # SQL query timeout (seconds)
+      python_timeout: 60          # Python sandbox timeout
+      max_rows_display: 100       # Max rows in result display
+      read_only: true             # Block INSERT/UPDATE/DELETE
+
+    cost_gate:
+      enabled: true
+      large_table_threshold: 1000000
+
+    experience:
+      enabled: true
+      storage_dir: ~/.mcpdb/experience
+      cache_max_age_days: 30
+      quality_eval_min_score: 7
+
+    sandbox:
+      memory_mb: 2048
+      cpu_seconds: 60
+
+{'─' * 72}
+  ENVIRONMENT VARIABLES
+{'─' * 72}
+
+  GEMINI_API_KEY        API key for Google Gemini (default provider)
+  OPENAI_API_KEY        API key for OpenAI models
+  ANTHROPIC_API_KEY     API key for Anthropic Claude models
+  MCPDB_CONFIG          Path to mcpdb.yaml config file
+  MCPDB_DATABASE_URL    Pre-fill database URL in web UI
+
+  API keys can also be set in mcpdb.yaml under llm.reasoning.api_key.
+  Environment variables take precedence when the config value is empty.
+
+{'─' * 72}
+  SUPPORTED DATABASES
+{'─' * 72}
+
+  PostgreSQL      postgresql://user:pass@host:5432/dbname
+  MySQL           mysql+pymysql://user:pass@host:3306/dbname
+  SQLite          sqlite:///path/to/database.db
+  SQL Server      mssql+pymssql://user:pass@host/dbname
+  Oracle          oracle+oracledb://user:pass@host:1521/service
+
+  File sources:
+  CSV/TSV         path/to/file.csv  (or comma-separated list)
+  Excel           path/to/workbook.xlsx
+
+  CSV and Excel files are loaded into DuckDB for SQL querying.
+  Multiple CSV files can be joined across tables.
+
+{'─' * 72}
+  SAFETY & SECURITY
+{'─' * 72}
+
+  - Read-only mode by default (no INSERT/UPDATE/DELETE)
+  - Python code executes in a sandboxed environment
+  - Dangerous modules blocked (os, subprocess, socket, etc.)
+  - File uploads limited to 500MB with automatic cleanup
+  - Query timeout: 10 minutes max
+  - HTML output sanitized against XSS
+
+{'─' * 72}
+  MORE INFO
+{'─' * 72}
+
+  Short usage:     mcpdb --help
+  Version:         mcpdb --version
+  Source & issues:  https://github.com/nickolay/mcpdb
+
+{'=' * 72}
+"""
+
 
 def _apply_sandbox_config(config) -> None:
     """Apply sandbox config to the security module."""
@@ -239,7 +543,10 @@ def main() -> None:
             print("Available: stats, eval, clear, export, antipatterns")
             sys.exit(1)
 
-    elif command in ("--help", "-h", "help"):
+    elif command == "help":
+        print(MANUAL)
+
+    elif command in ("--help", "-h"):
         print(USAGE)
 
     elif command in ("--version", "-V"):

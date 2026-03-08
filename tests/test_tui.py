@@ -1,4 +1,4 @@
-"""Tests for the mcpdb TUI application (v5.2.0)."""
+"""Tests for the mcpdb TUI application (v5.3.0)."""
 
 from __future__ import annotations
 

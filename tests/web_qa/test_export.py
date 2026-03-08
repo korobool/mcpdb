@@ -133,11 +133,11 @@ class TestNotebookExport:
     """Test Jupyter notebook export."""
 
     def test_notebook_download(self, ready_page: Page, artifact_dir):
-        """Clicking Notebook export should trigger a .ipynb download."""
+        """Notebook should have connection string, SQL code cells, and proper structure."""
         page = ready_page
         result = submit_query(
-            page, "How many rows in ins_cars?",
-            mode="quick", timeout=90_000,
+            page, "How many rows are in the ins_cars table?",
+            mode="simple", timeout=120_000,
         )
         assert not result["error"]
 
@@ -160,10 +160,22 @@ class TestNotebookExport:
         assert "cells" in nb
         assert nb["metadata"]["kernelspec"]["name"] == "python3"
 
-        # Check cells contain the query
         def _src(cell): return "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
         all_sources = " ".join(_src(c) for c in nb["cells"])
-        assert "db_query" in all_sources or "CONNECTION_STRING" in all_sources
+
+        # Connection string must be populated with actual credentials
+        assert 'CONNECTION_STRING = ""' not in all_sources, "CONNECTION_STRING is empty in notebook!"
+        assert "dbtalk" in all_sources or "localhost" in all_sources, \
+            f"Connection string not populated. Setup cell: {_src(nb['cells'][1])[:200]}"
+
+        # Must have executable code cells with SQL (not just markdown responses)
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        assert len(code_cells) >= 2, f"Expected at least 2 code cells (setup + query), got {len(code_cells)}"
+
+        # At least one code cell should contain db_query (actual SQL execution)
+        sql_cells = [c for c in code_cells if "db_query" in _src(c) and "def db_query" not in _src(c)]
+        assert len(sql_cells) >= 1, \
+            f"No SQL query code cells found. Code cells: {[_src(c)[:100] for c in code_cells]}"
 
         take_screenshot(page, "export_notebook_done", artifact_dir)
 
