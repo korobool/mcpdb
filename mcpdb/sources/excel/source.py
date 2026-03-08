@@ -1,4 +1,4 @@
-"""ExcelSource — SpreadsheetSource implementation for Excel workbooks."""
+"""ExcelSource — dual QueryableSource + SpreadsheetSource for Excel workbooks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import pandas as pd
 
 from mcpdb.sources.base import (
     ColumnInfo,
+    QueryableSource,
     SpreadsheetSource,
     SourceMetadata,
     SourceType,
@@ -18,17 +19,23 @@ from mcpdb.sources.base import (
 )
 from mcpdb.sources.csv.duckdb_backend import DuckDBBackend
 from mcpdb.sources.excel.cell_grid import CellGrid
+from mcpdb.sources.excel.formula_clusters import find_formula_clusters
+from mcpdb.sources.excel.formula_deps import build_dependency_graph
 from mcpdb.sources.excel.structure_analyzer import DetectedTable, analyze_sheet
 from mcpdb.sources.excel.workbook_reader import WorkbookReader
 
 logger = logging.getLogger("mcpdb.excel")
 
 
-class ExcelSource(SpreadsheetSource):
+class ExcelSource(QueryableSource, SpreadsheetSource):
     """Excel workbook source with structure analysis and SQL querying.
 
     Detected tables are extracted as DataFrames and registered in DuckDB
-    for SQL querying. Text regions are available for LLM context.
+    for SQL querying (QueryableSource). Spreadsheet-specific features like
+    cell ranges, formulas, and text regions are also available (SpreadsheetSource).
+
+    Context enrichment: text regions, formula clusters, and dependency analysis
+    are included in the LLM context alongside table schemas.
     """
 
     def __init__(
@@ -50,6 +57,11 @@ class ExcelSource(SpreadsheetSource):
         self._sheet_analysis: dict[str, dict[str, Any]] = {}
         self._detected_tables: list[DetectedTable] = []
         self._tables: list[TableInfo] = []
+
+        # Formula analysis (built lazily per sheet, cached)
+        self._formula_cache: dict[str, list[dict[str, str]]] = {}
+        self._cluster_cache: dict[str, Any] = {}
+        self._dep_graph_cache: dict[str, Any] = {}
 
         # DuckDB for extracted tables
         self._backend = DuckDBBackend(memory_limit=memory_limit)
@@ -82,6 +94,10 @@ class ExcelSource(SpreadsheetSource):
                         sheet_name=sheet_name,
                     ))
 
+        # Pre-analyze formulas for all sheets
+        for sheet_name in self._reader.sheet_names:
+            self._analyze_formulas(sheet_name)
+
         logger.info(
             "ExcelSource created: %s (%d sheets, %d tables detected)",
             self._display_name,
@@ -109,9 +125,30 @@ class ExcelSource(SpreadsheetSource):
 
         return pd.DataFrame(rows, columns=headers[:expected_cols])
 
+    def _analyze_formulas(self, sheet_name: str) -> None:
+        """Analyze formulas for a sheet and cache results."""
+        formulas = self._reader.get_formulas(sheet_name)
+        self._formula_cache[sheet_name] = formulas
+        if formulas:
+            self._cluster_cache[sheet_name] = find_formula_clusters(formulas)
+            self._dep_graph_cache[sheet_name] = build_dependency_graph(formulas, sheet_name)
+
     @property
     def source_type(self) -> SourceType:
         return SourceType.EXCEL
+
+    # --- QueryableSource interface ---
+
+    def execute_query(self, query: str, max_rows: int = 100) -> pd.DataFrame:
+        return self._backend.execute_query(query, max_rows=max_rows)
+
+    def get_sample(self, table_name: str, limit: int = 5) -> pd.DataFrame:
+        return self._backend.execute_query(
+            f'SELECT * FROM "{table_name}" LIMIT {limit}',
+            max_rows=limit,
+        )
+
+    # --- Metadata ---
 
     def get_metadata(self) -> SourceMetadata:
         return SourceMetadata(
@@ -119,7 +156,7 @@ class ExcelSource(SpreadsheetSource):
             source_type=SourceType.EXCEL,
             display_name=self._display_name,
             tables=self._tables,
-            capabilities={"sql", "formulas"},
+            capabilities={"sql", "python", "formulas"},
             raw_info={
                 "file_path": self._path,
                 "sheets": self._reader.list_sheets(),
@@ -128,26 +165,85 @@ class ExcelSource(SpreadsheetSource):
         )
 
     def get_context_description(self) -> str:
+        """Rich context including tables, text regions, and formula intelligence."""
         lines = [
             f"Excel Workbook: {self._display_name}",
             f"Source ID: {self._source_id}",
-            f"Sheets ({len(self._reader.sheet_names)}):",
         ]
+
+        # --- Sheet overview ---
+        lines.append(f"\nSheets ({len(self._reader.sheet_names)}):")
         for sheet_name in self._reader.sheet_names:
             analysis = self._sheet_analysis.get(sheet_name, {})
             stype = analysis.get("structure_type", "unknown")
             ntables = len(analysis.get("tables", []))
-            lines.append(f"  - {sheet_name} (type: {stype}, {ntables} table(s))")
+            ntext = len(analysis.get("text_regions", []))
+            nformulas = len(self._formula_cache.get(sheet_name, []))
+            parts = [f"type: {stype}", f"{ntables} table(s)"]
+            if ntext:
+                parts.append(f"{ntext} text region(s)")
+            if nformulas:
+                parts.append(f"{nformulas} formula(s)")
+            lines.append(f"  - {sheet_name} ({', '.join(parts)})")
 
+        # --- Extracted tables (queryable via SQL) ---
         if self._tables:
-            lines.append(f"\nExtracted Tables ({len(self._tables)}):")
+            lines.append(f"\nQueryable Tables ({len(self._tables)}):")
             for t in self._tables:
                 lines.append(f"  - {t.name} ({t.row_count} rows)")
                 for col in t.columns:
                     lines.append(f"      {col.name}: {col.dtype}")
 
-        lines.append("\nExtracted tables can be queried with SQL.")
+        # --- Text regions (non-tabular context) ---
+        text_sections = []
+        for sheet_name in self._reader.sheet_names:
+            analysis = self._sheet_analysis.get(sheet_name, {})
+            for region in analysis.get("text_regions", []):
+                text_sections.append((sheet_name, region))
+
+        if text_sections:
+            lines.append(f"\nText Context ({len(text_sections)} region(s)):")
+            for sheet_name, region in text_sections:
+                preview = region.text[:300].replace("\n", " | ")
+                lines.append(
+                    f"  - [{sheet_name}] rows {region.start_row + 1}-{region.end_row + 1}: "
+                    f"{preview}"
+                )
+
+        # --- Formula intelligence ---
+        all_clusters = []
+        for sheet_name in self._reader.sheet_names:
+            clusters = self._cluster_cache.get(sheet_name, [])
+            for cluster in clusters:
+                all_clusters.append((sheet_name, cluster))
+
+        if all_clusters:
+            lines.append(f"\nBusiness Logic (from formulas):")
+            for sheet_name, cluster in all_clusters[:15]:  # Cap at 15 most important
+                lines.append(
+                    f"  - [{sheet_name}] {cluster.description} "
+                    f"(pattern: {cluster.pattern}, {cluster.count} cells, "
+                    f"e.g. {cluster.example})"
+                )
+
+        # Cross-sheet dependencies
+        cross_sheet_refs = []
+        for sheet_name in self._reader.sheet_names:
+            for formula_rec in self._formula_cache.get(sheet_name, []):
+                formula = formula_rec["formula"]
+                # Detect cross-sheet references (contains "!" but not in function names)
+                if "!" in formula and not formula.startswith("=!"):
+                    cross_sheet_refs.append((sheet_name, formula_rec["cell"], formula))
+
+        if cross_sheet_refs:
+            lines.append(f"\nCross-Sheet References ({len(cross_sheet_refs)}):")
+            for sheet, cell, formula in cross_sheet_refs[:10]:
+                lines.append(f"  - [{sheet}]{cell}: {formula}")
+
+        lines.append("\nExtracted tables can be queried with SQL via DuckDB.")
         return "\n".join(lines)
+
+    # --- SpreadsheetSource interface ---
 
     def list_sheets(self) -> list[dict]:
         sheets = self._reader.list_sheets()
@@ -201,7 +297,7 @@ class ExcelSource(SpreadsheetSource):
 
     def get_formulas(self, sheet_name: str) -> list[dict[str, str]]:
         """List all formulas in a sheet."""
-        return self._reader.get_formulas(sheet_name)
+        return self._formula_cache.get(sheet_name, [])
 
     def close(self) -> None:
         if not self._closed:
