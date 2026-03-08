@@ -6,14 +6,92 @@ execution, chart rendering, monitor panel, follow-ups, and responsive layout.
 
 ## Prerequisites
 
+### 1. Python environment
+
+Python 3.10+ with the mcpdb dev and web extras:
+
 ```bash
-pip install -e ".[dev]"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,web,mysql,gemini,sandbox]"
+```
+
+Key packages this installs: `pytest`, `pytest-playwright`, `fastapi`, `uvicorn`,
+`pymysql`, `google-genai`, `matplotlib`, `seaborn`.
+
+### 2. Playwright browsers
+
+Install Chromium (the default test browser):
+
+```bash
 playwright install chromium
 ```
 
-A running MySQL instance with the bgins database is required (default:
-`mysql+pymysql://dbtalk:dbtalk@localhost:3306/bgins`). Override with the
-`MCPDB_DATABASE_URL` env var.
+On a fresh Linux system, Playwright also needs system libraries. Install them with:
+
+```bash
+playwright install-deps chromium
+```
+
+This installs `libnss3`, `libatk1.0-0`, `libgbm1`, `libasound2`, and other
+shared libraries that Chromium requires. On Ubuntu/Debian you can also install
+them manually:
+
+```bash
+sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+    libgbm1 libasound2 libxrandr2 libxcomposite1 libxdamage1 \
+    libpango-1.0-0 libcairo2 libcups2 libdrm2 libxshmfence1
+```
+
+### 3. Database
+
+A running MySQL instance with the bgins test database:
+
+```
+mysql+pymysql://dbtalk:dbtalk@localhost:3306/bgins
+```
+
+Override by setting the `MCPDB_DATABASE_URL` environment variable. The test
+server reads this on startup.
+
+### 4. LLM API key
+
+Tests run real queries through the LLM. Set your Gemini API key:
+
+```bash
+export GEMINI_API_KEY="your-key-here"
+```
+
+Or configure a different provider in `mcpdb.yaml`. Without a valid API key,
+query tests will fail with LLM errors.
+
+### 5. Display server (headed mode only)
+
+To run tests in visual/headed mode, you need an X11 or Wayland display:
+
+```bash
+echo $DISPLAY    # should show :0, :1, etc.
+```
+
+Headless mode (the default) does not require a display and works in CI,
+SSH sessions, and containers.
+
+### Quick setup checklist
+
+```bash
+# 1. Install Python deps
+pip install -e ".[dev,web,mysql,gemini,sandbox]"
+
+# 2. Install browser
+playwright install chromium
+
+# 3. Set env vars (or use .run.sh / .env)
+export MCPDB_DATABASE_URL="mysql+pymysql://dbtalk:dbtalk@localhost:3306/bgins"
+export GEMINI_API_KEY="your-key"
+
+# 4. Verify
+pytest tests/web_qa/test_source_lifecycle.py -v   # ~25s, basic smoke test
+```
 
 ## Running Tests
 
