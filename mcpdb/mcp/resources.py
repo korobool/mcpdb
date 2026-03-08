@@ -197,16 +197,21 @@ def _build_mermaid_erd(tables: list, relationships: list[dict]) -> str:
     # --- Table names present in the schema -------------------------------
     table_names = {t.name for t in tables}
 
+    # --- Build sanitised name maps (original → mermaid-safe) -------------
+    table_safe: dict[str, str] = {t.name: _sanitize_mermaid_name(t.name) for t in tables}
+
     # --- Render tables with PK/FK markers --------------------------------
     lines = ["erDiagram"]
     for table in tables:
-        lines.append(f"    {table.name} {{")
+        tname = table_safe[table.name]
+        lines.append(f"    {tname} {{")
         for i, col in enumerate(table.columns):
             is_pk = col.name in table.primary_keys
             is_fk = (table.name, col.name) in fk_columns
             marker = "PK" if is_pk else ("FK" if is_fk else "")
             dtype = _sanitize_mermaid_type(col.dtype)
-            lines.append(f"        {dtype} {col.name} {marker}".rstrip())
+            cname = _sanitize_mermaid_name(col.name)
+            lines.append(f"        {dtype} {cname} {marker}".rstrip())
             if i >= 9:
                 remaining = len(table.columns) - 10
                 lines.append(f"        string _{remaining}_more_columns_ \"\"")
@@ -235,9 +240,30 @@ def _build_mermaid_erd(tables: list, relationships: list[dict]) -> str:
         # Use dotted line for inferred relationships
         rel_type = rel.get("type", "foreign_key")
         connector = "||..o{" if rel_type == "inferred" else "||--o{"
-        lines.append(f'    {tgt} {connector} {src} : "{label}"')
+        src_safe = table_safe.get(src, _sanitize_mermaid_name(src))
+        tgt_safe = table_safe.get(tgt, _sanitize_mermaid_name(tgt))
+        lines.append(f'    {tgt_safe} {connector} {src_safe} : "{label}"')
 
     return "\n".join(lines)
+
+
+def _sanitize_mermaid_name(name: str) -> str:
+    """Sanitize a column or table name for mermaid ER diagram compatibility.
+
+    Mermaid attribute names cannot contain dots, spaces, parentheses, or
+    other special characters.  Replace them with underscores and strip any
+    leading digits (mermaid identifiers must start with a letter).
+    """
+    import re
+
+    # Replace any non-alphanumeric/underscore character with underscore
+    sanitized = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    # Collapse multiple underscores
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    # Must start with a letter
+    if sanitized and not sanitized[0].isalpha():
+        sanitized = "c_" + sanitized
+    return sanitized or "col"
 
 
 def _sanitize_mermaid_type(dtype: str) -> str:
