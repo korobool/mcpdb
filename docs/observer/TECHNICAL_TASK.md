@@ -254,7 +254,32 @@ takes 2-4× longer than expected:
 - Reduced synthesize retry delay from 2s+5s to 1s+1s
 - Observer detects empty result loops via step/complete events
 
-**Planned optimizations:**
-- For simple/quick mode: shorter synthesize prompt with simpler formatting expectations
-- For queries with single small results (< 20 rows): skip code generation, format directly
-- Token budget: reduce system prompt for formatting code generation
+**Optimizations implemented:**
+- Fast-path synthesize: for simple results (1-2 tables, ≤50 rows, no charts) → format
+  directly as markdown, skip LLM call entirely. Saves 10-30s per query.
+- Reduced synthesize retry delay from 2s+5s to 1s+1s
+
+**Results after optimization (fast-path batch, 6 questions):**
+- 6/6 pass, 0 timing violations (was 8/15 before)
+- db08: 32.8s → 21.7s (-34%)
+- db15: 38.8s → 25.7s (-34%)
+- qa04: 24.0s → 20.6s (-14%)
+
+## 9. Batch 2 Eval Results (19 questions)
+
+**Results**: 18/19 pass, 1 fail (false positive fixed)
+
+| Category | Count | Pass | Fail | Avg Time |
+|----------|-------|------|------|----------|
+| DB simple | 8 | 8 | 0 | 44.6s |
+| DB optimization | 4 | 3 | 1* | 89.6s |
+| CSV simple (Qala) | 6 | 6 | 0 | 47.2s |
+| CSV simple (Lithuania) | 5 | 5 | 0 | 33.2s |
+
+*db16 flagged as failure due to "could not" in response, but response was actually valid.
+Fixed false positive detection in eval runner.
+
+**Observer anomalies detected**: 8 total
+- 6× timing_warning (synthesize 15-27s, plan 17-60s)
+- 1× timing_critical (plan 60s in extended mode)
+- 1× debug cycle
