@@ -374,58 +374,88 @@ with engine.connect() as _conn:
 # Jupyter server management
 # ---------------------------------------------------------------------------
 
+from pathlib import Path
+
+_JUPYTER_PORT = 18888  # Dedicated port — avoids conflicts with user's Jupyter
 _jupyter_proc = None
 
 
-def start_jupyter_and_open(notebook_bytes: bytes, filename: str = "") -> str:
-    """Save notebook to temp dir, start Jupyter if needed, return URL.
+def _upload_notebook_via_api(port: int, filename: str, nb_bytes: bytes) -> bool:
+    """Upload a notebook to a running Jupyter server via its REST API."""
+    try:
+        payload = _json.dumps({
+            "type": "notebook",
+            "content": _json.loads(nb_bytes.decode("utf-8")),
+        }).encode("utf-8")
+        url = f"http://127.0.0.1:{port}/api/contents/{filename}"
+        req = urllib.request.Request(
+            url, data=payload, method="PUT",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        logger.warning("Jupyter API upload failed: %s", e)
+        return False
 
-    Returns the URL for the browser to open.
+
+def start_jupyter_and_open(notebook_bytes: bytes, filename: str = "") -> str:
+    """Save notebook, start Jupyter if needed, return URL.
+
+    Uses a dedicated port (18888) so it never conflicts with the user's
+    own Jupyter instances. Uploads the notebook via the REST API if the
+    server is already running.
     """
-    import os
-    import signal
     import socket
     import subprocess
     import sys
-    import tempfile
+    import time
 
     global _jupyter_proc
 
-    # Save notebook
     nb_dir = Path.home() / ".mcpdb" / "jupyter"
     nb_dir.mkdir(parents=True, exist_ok=True)
 
     if not filename:
         filename = f"mcpdb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ipynb"
+
+    port = _JUPYTER_PORT
+
+    # Check if our tracked process is still alive
+    if _jupyter_proc is not None and _jupyter_proc.poll() is not None:
+        _jupyter_proc = None
+
+    # Check if something (our server or a leftover) is listening on our port
+    server_running = False
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            server_running = True
+    except OSError:
+        pass
+
+    if server_running:
+        # Upload notebook via REST API — works regardless of notebook-dir
+        if _upload_notebook_via_api(port, filename, notebook_bytes):
+            return f"http://localhost:{port}/notebooks/{filename}"
+        # API upload failed — fall back to saving to disk
+        logger.warning("API upload failed, saving to disk instead")
+
+    # Save notebook to disk
     nb_path = nb_dir / filename
     nb_path.write_bytes(notebook_bytes)
 
     # Sign notebook for trust
     try:
-        import nbformat
+        import nbformat as _nbformat
         from nbformat.sign import NotebookNotary
-        nb = nbformat.read(str(nb_path), as_version=4)
+        nb = _nbformat.read(str(nb_path), as_version=4)
         NotebookNotary().sign(nb)
-        nbformat.write(nb, str(nb_path))
+        _nbformat.write(nb, str(nb_path))
     except Exception as e:
         logger.warning("Failed to sign notebook: %s", e)
 
-    # Check if Jupyter is already running on port 8888
-    port = 8888
-    jupyter_running = False
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1):
-            jupyter_running = True
-    except OSError:
-        pass
-
-    # Also check our tracked process
-    if _jupyter_proc is not None:
-        if _jupyter_proc.poll() is not None:
-            _jupyter_proc = None  # Process died
-
-    if not jupyter_running and _jupyter_proc is None:
-        # Start Jupyter
+    if not server_running:
+        # Start our own Jupyter server
         _jupyter_proc = subprocess.Popen(
             [
                 sys.executable, "-m", "jupyter", "notebook",
@@ -434,12 +464,12 @@ def start_jupyter_and_open(notebook_bytes: bytes, filename: str = "") -> str:
                 f"--notebook-dir={nb_dir}",
                 "--NotebookApp.token=",
                 "--NotebookApp.password=",
+                "--NotebookApp.disable_check_xsrf=True",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         # Wait for startup
-        import time
         for _ in range(30):
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -448,9 +478,6 @@ def start_jupyter_and_open(notebook_bytes: bytes, filename: str = "") -> str:
                 time.sleep(0.5)
 
     return f"http://localhost:{port}/notebooks/{filename}"
-
-
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
