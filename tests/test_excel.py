@@ -792,3 +792,95 @@ class TestExcelRegistration:
         source_id = registry.add_source(source)
         registry.remove_source(source_id)
         assert len(registry.list_sources()) == 0
+
+
+# ---------------------------------------------------------------------------
+# QueryableSource interface tests (dual inheritance)
+# ---------------------------------------------------------------------------
+
+
+class TestExcelQueryable:
+    def test_is_queryable_source(self, simple_workbook):
+        from mcpdb.sources.base import QueryableSource, SpreadsheetSource
+        source = ExcelSource(simple_workbook)
+        assert isinstance(source, QueryableSource)
+        assert isinstance(source, SpreadsheetSource)
+        source.close()
+
+    def test_execute_query(self, simple_workbook):
+        source = ExcelSource(simple_workbook)
+        tables = source.get_metadata().tables
+        assert len(tables) >= 1
+        tname = tables[0].name
+        df = source.execute_query(f'SELECT * FROM "{tname}"')
+        assert len(df) > 0
+        source.close()
+
+    def test_execute_aggregate_query(self, simple_workbook):
+        source = ExcelSource(simple_workbook)
+        tables = source.get_metadata().tables
+        tname = tables[0].name
+        df = source.execute_query(f'SELECT COUNT(*) as cnt FROM "{tname}"')
+        assert df.iloc[0]["cnt"] > 0
+        source.close()
+
+    def test_get_sample(self, simple_workbook):
+        source = ExcelSource(simple_workbook)
+        tables = source.get_metadata().tables
+        tname = tables[0].name
+        df = source.get_sample(tname, limit=2)
+        assert len(df) <= 2
+        source.close()
+
+    def test_multi_sheet_join(self, multi_sheet_workbook):
+        source = ExcelSource(multi_sheet_workbook)
+        tables = source.get_metadata().tables
+        assert len(tables) >= 2
+        # Find table names
+        names = [t.name for t in tables]
+        # Should be able to query both tables
+        for tname in names:
+            df = source.execute_query(f'SELECT COUNT(*) as cnt FROM "{tname}"')
+            assert df.iloc[0]["cnt"] > 0
+        source.close()
+
+
+# ---------------------------------------------------------------------------
+# Context enrichment tests
+# ---------------------------------------------------------------------------
+
+
+class TestExcelContextEnrichment:
+    def test_context_includes_tables(self, simple_workbook):
+        source = ExcelSource(simple_workbook)
+        ctx = source.get_context_description()
+        assert "Queryable Tables" in ctx
+        assert "SQL" in ctx or "DuckDB" in ctx
+        source.close()
+
+    def test_context_includes_text_regions(self, mixed_workbook):
+        source = ExcelSource(mixed_workbook)
+        ctx = source.get_context_description()
+        assert "Text Context" in ctx
+        assert "Q4 2024" in ctx or "Sales Report" in ctx
+        source.close()
+
+    def test_context_includes_formula_logic(self, formula_workbook):
+        source = ExcelSource(formula_workbook)
+        ctx = source.get_context_description()
+        # Should mention business logic from formulas
+        assert "Business Logic" in ctx or "formula" in ctx.lower()
+        source.close()
+
+    def test_context_includes_sheet_overview(self, multi_sheet_workbook):
+        source = ExcelSource(multi_sheet_workbook)
+        ctx = source.get_context_description()
+        assert "Products" in ctx
+        assert "Orders" in ctx
+        source.close()
+
+    def test_capabilities_include_sql(self, simple_workbook):
+        source = ExcelSource(simple_workbook)
+        meta = source.get_metadata()
+        assert "sql" in meta.capabilities
+        source.close()

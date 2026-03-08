@@ -259,6 +259,60 @@ class TestCSVUpload:
         assert len(data["rows"]) == 2
 
 
+class TestExcelUpload:
+    def test_upload_excel(self, client, tmp_path):
+        import openpyxl
+        path = tmp_path / "test.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Name", "Value"])
+        ws.append(["Alpha", 10])
+        ws.append(["Beta", 20])
+        wb.save(path)
+
+        with open(path, "rb") as f:
+            resp = client.post(
+                "/api/sources/excel",
+                files=[("file", ("test.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
+                data={"display_name": "test-excel"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "source_id" in data
+        assert "metadata" in data
+
+        sources = client.get("/api/sources").json()
+        assert any(s["source_type"] == "excel" for s in sources)
+
+    def test_excel_is_queryable(self, client, tmp_path):
+        import openpyxl
+        path = tmp_path / "queryable.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Data"
+        ws.append(["Id", "Score"])
+        ws.append([1, 90])
+        ws.append([2, 85])
+        wb.save(path)
+
+        with open(path, "rb") as f:
+            resp = client.post(
+                "/api/sources/excel",
+                files=[("file", ("queryable.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
+            )
+        assert resp.status_code == 200
+        sid = resp.json()["source_id"]
+
+        # Should be able to get sample from extracted table
+        sources = client.get("/api/sources").json()
+        excel_source = [s for s in sources if s["source_id"] == sid][0]
+        tables = excel_source.get("tables", [])
+        if tables:
+            tname = tables[0]["name"]
+            sample = client.get(f"/api/sources/{sid}/sample/{tname}?limit=5")
+            assert sample.status_code == 200
+
+
 class TestLLMConfig:
     def test_get_config(self, client):
         resp = client.get("/api/config/llm")
