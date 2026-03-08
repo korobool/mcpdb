@@ -117,6 +117,9 @@ class ObserverReport:
             f"Observer Report: {self.question[:80]}",
             f"  Mode: {self.mode} | Total: {self.total_time:.1f}s | Steps: {self.step_count} | Debugs: {self.debug_count}",
         ]
+        if self.phase_times:
+            parts = [f"{k}: {v:.1f}s" for k, v in self.phase_times.items()]
+            lines.append(f"  Phases: {', '.join(parts)}")
         if self.anomalies:
             lines.append(f"  Anomalies ({len(self.anomalies)}):")
             for a in self.anomalies:
@@ -124,6 +127,28 @@ class ObserverReport:
         if self.observer_actions:
             lines.append(f"  Actions: {', '.join(self.observer_actions)}")
         return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for JSON storage."""
+        return {
+            "question": self.question,
+            "mode": self.mode,
+            "total_time": round(self.total_time, 2),
+            "phase_times": {k: round(v, 2) for k, v in self.phase_times.items()},
+            "anomalies": [
+                {
+                    "type": a.anomaly_type,
+                    "phase": a.phase,
+                    "message": a.message,
+                    "severity": a.severity,
+                }
+                for a in self.anomalies
+            ],
+            "step_count": self.step_count,
+            "debug_count": self.debug_count,
+            "was_cancelled": self.was_cancelled,
+            "actions": self.observer_actions,
+        }
 
 
 # ---------------------------------------------------------------------------
