@@ -30,6 +30,7 @@ Usage:
   mcpdb web --no-cache           Skip cache lookup, still populate
   mcpdb query <conn> <question>  One-shot query mode
   mcpdb query file.csv <question>  Query CSV file(s) (comma-separated)
+  mcpdb query file.xlsx <question> Query Excel workbook
   mcpdb query <conn> <question> --no-cache  Skip cache, still populate
   mcpdb clean_cache              Clear all experience cache data
   mcpdb clean_cache --source <fp>  Clear cache for one source
@@ -160,11 +161,16 @@ def main() -> None:
         connection_string = remaining[0]
         question = " ".join(remaining[1:])
 
-        # Detect CSV/TSV file paths (comma-separated for multi-file)
+        # Detect file-based sources by extension
         _CSV_EXTS = {".csv", ".tsv", ".tab"}
+        _EXCEL_EXTS = {".xlsx", ".xls"}
         candidate_paths = [p.strip() for p in connection_string.split(",")]
+        ext = Path(candidate_paths[0]).suffix.lower()
+
         if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(Path(p).exists() for p in candidate_paths):
             _oneshot_csv_query(candidate_paths, question, config, logger, no_cache=no_cache)
+        elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
+            _oneshot_excel_query(candidate_paths[0], question, config, logger, no_cache=no_cache)
         else:
             _oneshot_query(connection_string, question, config, logger, no_cache=no_cache)
 
@@ -295,6 +301,9 @@ class _ConsoleProgress:
             action = data.get("action", "")
             if action == "done":
                 msg = "Checkpoint: stopping early"
+        elif etype == "observer/warning":
+            warn_msg = data.get("message", "anomaly detected")
+            msg = f"⚠ {warn_msg}"
         elif etype in self.LABELS:
             msg = self.LABELS[etype]
         # None means skip (no status update for this event)
@@ -400,6 +409,55 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
             source = CsvSource(file_paths, display_name=display)
             registry.add_source(source)
             logger.info("Loaded CSV: %s", display)
+
+            llm_cfg = config.llm.reasoning
+            llm = create_provider(
+                llm_cfg.provider,
+                llm_cfg.model,
+                llm_cfg.api_key,
+            )
+
+            state = await run_agent(
+                question, registry, llm, callbacks,
+                experience_cache=service.cache,
+                staging_store=service.staging,
+                no_cache=no_cache,
+            )
+            response = state.get("response") or "No response generated."
+            progress.finish()
+            print(response)
+        except Exception as e:
+            progress.error(str(e))
+            raise
+        finally:
+            registry.close_all()
+
+    asyncio.run(run())
+
+
+def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache: bool = False) -> None:
+    """Run a one-shot query against an Excel workbook."""
+    import asyncio
+
+    async def run():
+        from mcpdb.sources.excel.source import ExcelSource
+        from mcpdb.sources.registry import SourceRegistry
+        from mcpdb.agent.graph import run_agent
+        from mcpdb.agent.callbacks import CallbackManager
+        from mcpdb.experience.service import ExperienceService
+        from mcpdb.llm.factory import create_provider
+
+        progress = _ConsoleProgress()
+        callbacks = CallbackManager()
+        callbacks.add_listener(progress.on_event)
+
+        service = ExperienceService(config.experience)
+
+        registry = SourceRegistry()
+        try:
+            source = ExcelSource(file_path, display_name=Path(file_path).name)
+            registry.add_source(source)
+            logger.info("Loaded Excel: %s", Path(file_path).name)
 
             llm_cfg = config.llm.reasoning
             llm = create_provider(
