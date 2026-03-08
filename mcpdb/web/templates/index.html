@@ -640,7 +640,8 @@ function sendQuestion(text) {
   setPhase('classifying');
   toggleInputState(true);
 
-  const mode = document.getElementById('mode-select').value;
+  let mode = document.getElementById('mode-select').value;
+  if (mode === 'optimization') mode = 'optimization_required';
   ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode }));
 }
 
