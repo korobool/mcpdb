@@ -262,11 +262,15 @@ async def run_question(
         if not response or len(response.strip()) < 10:
             status = "fail"
             error_message = "Empty or too-short response"
-        elif any(phrase in response.lower() for phrase in [
-            "could not", "unable to", "error:", "failed to",
-        ]):
-            status = "fail"
-            error_message = "Response indicates failure"
+        else:
+            # Only flag as failure if response is short AND contains failure phrases,
+            # or if failure phrases appear in the opening (first sentence/100 chars)
+            lower = response.lower()
+            failure_phrases = ["could not", "unable to", "error:", "failed to"]
+            opening = lower[:150]
+            if any(p in opening for p in failure_phrases) and len(response.strip()) < 200:
+                status = "fail"
+                error_message = "Response indicates failure"
 
     except asyncio.TimeoutError:
         status = "timeout"
