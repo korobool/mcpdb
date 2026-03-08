@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -17,9 +15,8 @@ def web_server():
     import subprocess
     import sys
 
-    port = 18765  # Use a non-standard port for testing
+    port = 18767
     env = os.environ.copy()
-    # Ensure MCPDB_DATABASE_URL is set for the server
     if "MCPDB_DATABASE_URL" not in env:
         env["MCPDB_DATABASE_URL"] = "mysql+pymysql://dbtalk:dbtalk@localhost:3306/bgins"
 
@@ -49,6 +46,12 @@ def web_server():
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+
+@pytest.fixture(scope="session")
+def browser_context_args():
+    """Configure browser to run headless."""
+    return {"ignore_https_errors": True}
 
 
 @pytest.fixture(scope="session")
