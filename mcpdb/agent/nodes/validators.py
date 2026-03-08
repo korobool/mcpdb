@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -48,9 +49,12 @@ async def validate_result(
     )
 
     try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a result validator. Respond with JSON only.",
+        result, usage = await asyncio.wait_for(
+            llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a result validator. Respond with JSON only.",
+            ),
+            timeout=30.0,
         )
 
         validation = result.get("result", "adequate")
@@ -107,9 +111,12 @@ async def replan(
     )
 
     try:
-        result, usage = await llm.generate_json(
-            [Message(role="user", content=prompt)],
-            system="You are a data analysis planner. Respond with JSON only.",
+        result, usage = await asyncio.wait_for(
+            llm.generate_json(
+                [Message(role="user", content=prompt)],
+                system="You are a data analysis planner. Respond with JSON only.",
+            ),
+            timeout=60.0,
         )
 
         steps = result.get("steps", [])

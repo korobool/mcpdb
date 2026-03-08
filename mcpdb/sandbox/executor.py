@@ -182,13 +182,12 @@ def execute_python(
 
     try:
         if context_df is not None:
-            ctx_file = tempfile.NamedTemporaryFile(
+            with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".json", delete=False
-            )
-            context_df.to_json(ctx_file, orient="split")
-            ctx_file.close()
-            context_path = ctx_file.name
-            tmp_files.append(ctx_file.name)
+            ) as ctx_file:
+                context_df.to_json(ctx_file, orient="split")
+                context_path = ctx_file.name
+                tmp_files.append(ctx_file.name)
 
         # Build resource limit code
         resource_limit_code = _build_resource_limit_code(memory_mb, cpu_seconds)
@@ -201,12 +200,12 @@ def execute_python(
         )
 
         # Write script to temp file
-        script_file = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False
-        )
-        script_file.write(script)
-        script_file.close()
-        tmp_files.append(script_file.name)
+        ) as script_file:
+            script_file.write(script)
+            script_path = script_file.name
+            tmp_files.append(script_path)
 
         # Execute in subprocess with controlled environment
         import os
@@ -216,7 +215,7 @@ def execute_python(
         env["NUMEXPR_NUM_THREADS"] = "1"
 
         proc = subprocess.run(
-            [sys.executable, script_file.name],
+            [sys.executable, script_path],
             capture_output=True,
             text=True,
             timeout=timeout,
