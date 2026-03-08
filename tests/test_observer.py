@@ -184,7 +184,7 @@ class TestPatternDetection:
         obs.start(question="test", mode="simple")
 
         for i in range(3):
-            cb.emit("step/done", result_summary="0 rows returned")
+            cb.emit("step/complete", result_preview="0 rows returned", rows=0)
 
         assert any(a.anomaly_type == "empty_loop" for a in obs._anomalies)
 
