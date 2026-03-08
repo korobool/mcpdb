@@ -305,9 +305,10 @@ class AsyncReasoningObserver:
                 self._check_debug_loop()
 
         # Empty result tracking
-        if etype == "step/done":
-            result = event.data.get("result_summary", "")
-            if "0 rows" in str(result) or "empty" in str(result).lower():
+        if etype in ("step/done", "step/complete"):
+            result = event.data.get("result_summary", event.data.get("result_preview", ""))
+            rows = event.data.get("rows", -1)
+            if rows == 0 or "0 rows" in str(result) or "empty" in str(result).lower():
                 self._empty_result_count += 1
                 self._check_empty_loop()
 

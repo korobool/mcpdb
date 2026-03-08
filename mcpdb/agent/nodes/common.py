@@ -720,7 +720,7 @@ async def synthesize(
 
         except Exception as e:
             if retry < 2:
-                delay = [2, 5][min(retry, 1)]
+                delay = 1  # Quick retry — failures are usually JSON parsing, not rate limits
                 logger.warning("Synthesis failed (retry %d), retrying in %ds: %s", retry + 1, delay, e)
                 await asyncio.sleep(delay)
             else:

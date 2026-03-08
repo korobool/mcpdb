@@ -264,6 +264,21 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
           <button class="btn btn-primary btn-sm" id="csv-upload-btn" onclick="uploadCSV()" disabled>Upload</button>
         </div>
       </details>
+      <details id="excel-details">
+        <summary style="font-size:12px; color:var(--fg2); cursor:pointer; margin-top:4px;">Add Excel workbook</summary>
+        <div class="connect-form" style="margin-top:8px;">
+          <label class="file-drop" id="excel-drop">
+            <input type="file" id="excel-file" accept=".xlsx,.xls" onchange="updateExcelLabel()">
+            <span id="excel-label">Drop Excel file here or click to browse</span>
+          </label>
+          <div id="excel-progress" class="upload-progress" style="display:none;">
+            <div class="upload-progress-bar"><div class="upload-progress-fill" id="excel-progress-fill"></div></div>
+            <span class="upload-progress-text" id="excel-progress-text">Uploading...</span>
+          </div>
+          <input type="text" id="excel-name" placeholder="Display name (optional)">
+          <button class="btn btn-primary btn-sm" id="excel-upload-btn" onclick="uploadExcel()" disabled>Upload</button>
+        </div>
+      </details>
     </div>
 
     <div class="sidebar-section">
@@ -518,6 +533,14 @@ function handleEvent(msg) {
   else if (et === 'cost_check/start') { addLog('Cost check...'); }
   else if (et === 'cost_check/complete') { addLog(`Cost check: ${d.decision || ''}`); }
   else if (et === 'optimize/start') { addLog(`Optimizing: ${d.strategy || ''}`); }
+
+  // Observer warnings
+  else if (et === 'observer/warning') {
+    addLog(`⚠ Observer: ${d.message || 'anomaly detected'}`);
+  }
+  else if (et === 'observer/report') {
+    if (d.anomaly_count > 0) addLog(`Observer: ${d.anomaly_count} anomalies detected`);
+  }
 
   // Agent done
   else if (et === 'agent/complete') { addLog(`Done (mode: ${d.mode || ''})`); }
@@ -1068,6 +1091,95 @@ document.addEventListener('DOMContentLoaded', () => {
         stagedFiles.push(f);
     }
     renderStagedFiles();
+  });
+});
+
+// ── Excel upload ────────────────────────────────────────
+function updateExcelLabel() {
+  const input = document.getElementById('excel-file');
+  const label = document.getElementById('excel-label');
+  const btn = document.getElementById('excel-upload-btn');
+  if (input.files.length) {
+    label.textContent = input.files[0].name;
+    btn.disabled = false;
+  } else {
+    label.textContent = 'Drop Excel file here or click to browse';
+    btn.disabled = true;
+  }
+}
+
+function uploadExcel() {
+  const input = document.getElementById('excel-file');
+  if (!input.files.length) return;
+  const btn = document.getElementById('excel-upload-btn');
+  const prog = document.getElementById('excel-progress');
+  const fill = document.getElementById('excel-progress-fill');
+  const text = document.getElementById('excel-progress-text');
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+  prog.style.display = '';
+  fill.style.width = '0%';
+  text.textContent = 'Uploading...';
+
+  const name = document.getElementById('excel-name').value.trim();
+  const form = new FormData();
+  form.append('file', input.files[0]);
+  if (name) form.append('display_name', name);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/sources/excel');
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      fill.style.width = pct + '%';
+      text.textContent = `Uploading... ${pct}%`;
+    }
+  };
+
+  xhr.onload = async () => {
+    if (xhr.status === 200) {
+      fill.style.width = '100%';
+      text.textContent = 'Processing...';
+      input.value = '';
+      document.getElementById('excel-name').value = '';
+      document.getElementById('excel-label').textContent = 'Drop Excel file here or click to browse';
+      prog.style.display = 'none';
+      document.getElementById('excel-details').removeAttribute('open');
+      btn.textContent = 'Upload';
+      btn.disabled = true;
+      await loadSources();
+    } else {
+      try { const e = JSON.parse(xhr.responseText); alert(e.detail); }
+      catch { alert('Upload failed: ' + xhr.statusText); }
+      btn.disabled = false;
+      btn.textContent = 'Upload';
+      prog.style.display = 'none';
+    }
+  };
+
+  xhr.onerror = () => {
+    alert('Upload failed: network error');
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+    prog.style.display = 'none';
+  };
+
+  xhr.send(form);
+}
+
+// Drag-and-drop for Excel
+document.addEventListener('DOMContentLoaded', () => {
+  const drop = document.getElementById('excel-drop');
+  if (!drop) return;
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault(); drop.classList.remove('dragover');
+    const input = document.getElementById('excel-file');
+    input.files = e.dataTransfer.files;
+    updateExcelLabel();
   });
 });
 
