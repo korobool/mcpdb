@@ -8,7 +8,9 @@ from typing import Any
 
 from mcpdb.agent.state import AgentState
 from mcpdb.agent.callbacks import CallbackManager
+from mcpdb.agent.cancellation import CancellationToken
 from mcpdb.agent.nodes.classify import classify
+from mcpdb.agent.observer import AsyncReasoningObserver
 from mcpdb.agent.nodes.common import execute_step, synthesize
 from mcpdb.agent.subgraphs.quick import run_quick
 from mcpdb.agent.subgraphs.simple import run_simple
@@ -37,6 +39,8 @@ async def run_agent(
     force_rethink: bool = False,
     staging_store: StagingStore | None = None,
     no_cache: bool = False,
+    cancellation_token: CancellationToken | None = None,
+    enable_observer: bool = True,
 ) -> AgentState:
     """Run the full agent pipeline for a question.
 
@@ -108,6 +112,11 @@ async def run_agent(
             experience_cache.invalidate(question, meta)
         callbacks.emit("experience/rethink", question=question)
 
+    # Start observer for parallel monitoring
+    observer: AsyncReasoningObserver | None = None
+    if enable_observer:
+        observer = AsyncReasoningObserver(callbacks, cancellation_token)
+
     # Apply mode override or classify
     if mode_override:
         state["query_mode"] = mode_override
@@ -116,6 +125,10 @@ async def run_agent(
         state = await classify(state, llm, callbacks)
 
     mode = state.get("query_mode", "simple")
+
+    # Start observer now that we know the mode
+    if observer is not None:
+        observer.start(question=question, mode=mode)
 
     # Route to subgraph
     if mode == "quick":
@@ -178,6 +191,19 @@ async def run_agent(
         elif experience_cache is not None:
             # Fallback: no staging store, write directly (legacy path)
             _store_experience(experience_cache, state, registry)
+
+    # Stop observer and collect report
+    observer_report = None
+    if observer is not None:
+        observer_report = observer.stop()
+        if observer_report.had_anomalies:
+            logger.info("Observer report:\n%s", observer_report.summary())
+            callbacks.emit(
+                "observer/report",
+                anomaly_count=len(observer_report.anomalies),
+                total_time=observer_report.total_time,
+                summary=observer_report.summary(),
+            )
 
     callbacks.emit("agent/complete", mode=mode, has_response=bool(state.get("response")))
     return state
