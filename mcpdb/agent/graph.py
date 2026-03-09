@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from typing import Any
 
@@ -28,6 +29,19 @@ from mcpdb.llm.provider import LLMProvider
 from mcpdb.sources.registry import SourceRegistry
 
 logger = logging.getLogger("mcpdb.agent.graph")
+
+_OFF_TOPIC_RESPONSES = [
+    "I'd love to chat, but I only speak fluent SQL. Ask me something about your data!",
+    "My talents are limited to crunching numbers and querying databases. Try me with a data question!",
+    "I'm basically a data detective — great with tables, terrible at small talk. Got a data question?",
+    "Interesting thought! But I'm a data assistant, not a philosopher. What would you like to know about your data?",
+    "I tried to answer that, but my inner JOIN couldn't find a match. Ask me about your data instead!",
+    "That's a bit outside my SELECT * FROM expertise. I'm here to help you explore your data!",
+    "I'm flattered, but I'm a one-trick pony — and that trick is data analysis. Fire away!",
+    "404: General knowledge not found. But I have 100% uptime on data questions!",
+    "My WHERE clause doesn't cover that topic. I'm built to help you talk with your data!",
+    "I appreciate the question, but my training data is... well, your actual data. What shall we explore?",
+]
 
 
 async def run_agent(
@@ -143,6 +157,20 @@ async def run_agent(
         observer.start(question=question, mode=mode)
 
     # Route to subgraph
+    if mode == "off_topic":
+        state["response"] = random.choice(_OFF_TOPIC_RESPONSES)
+        callbacks.emit("agent/complete", mode=mode, has_response=True)
+        # Store usage and return early — no observer, no caching
+        state["llm_usage"] = {
+            "calls": tracking_llm.usage.calls,
+            "input_tokens": tracking_llm.usage.input_tokens,
+            "output_tokens": tracking_llm.usage.output_tokens,
+            "total_tokens": tracking_llm.usage.input_tokens + tracking_llm.usage.output_tokens,
+        }
+        if observer is not None:
+            observer.stop()
+        return state
+
     if mode == "quick":
         state = await run_quick(state, llm, callbacks)
 

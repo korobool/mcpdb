@@ -226,6 +226,39 @@ class TestClassifyNode:
         assert result["query_mode"] == "simple"
 
     @pytest.mark.asyncio
+    async def test_classify_off_topic_fast_path(self):
+        """Greetings and chat should be classified as off_topic without LLM."""
+        llm = MockLLM()
+        cb = CallbackManager()
+        for question in ["hello", "Hi!", "who are you?", "thanks", "bye"]:
+            state: AgentState = {
+                "question": question,
+                "source_context": "...",
+                "active_source_ids": ["db_1"],
+            }
+            result = await classify(state, llm, cb)
+            assert result["query_mode"] == "off_topic", f"Expected off_topic for: {question}"
+
+    @pytest.mark.asyncio
+    async def test_classify_off_topic_llm(self):
+        """LLM can classify non-data questions as off_topic."""
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "off_topic",
+            "reasoning": "Not a data question",
+            "target_sources": [],
+            "key_entities": [],
+        })
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "What is the meaning of life?",
+            "source_context": "...",
+            "active_source_ids": ["db_1"],
+        }
+        result = await classify(state, llm, cb)
+        assert result["query_mode"] == "off_topic"
+
+    @pytest.mark.asyncio
     async def test_classify_invalid_mode_defaults_simple(self):
         llm = MockLLM()
         llm.set_response({"mode": "invalid_mode"})

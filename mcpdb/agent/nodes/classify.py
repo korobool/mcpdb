@@ -26,9 +26,10 @@ AVAILABLE MODES:
 3. **extended** — 3-10 steps for comprehensive analysis, EDA, root cause
 4. **optimization_required** — Large table operations (>1M rows, no narrow filters)
 5. **deep** — Multi-investigation research (e.g., "investigate customer churn", "comprehensive audit")
+6. **off_topic** — Question is NOT about the data, database, or domain. Greetings, general chat, trivia, coding help, jokes, philosophy, etc.
 
 Respond with JSON only:
-{{"mode": "quick|simple|extended|optimization_required|deep", "reasoning": "Why this mode", "target_sources": ["source_id"], "requires_cross_source": false, "key_entities": ["tables/columns mentioned"]}}
+{{"mode": "quick|simple|extended|optimization_required|deep|off_topic", "reasoning": "Why this mode", "target_sources": ["source_id"], "requires_cross_source": false, "key_entities": ["tables/columns mentioned"]}}
 """
 
 
@@ -43,12 +44,22 @@ _QUICK_PATTERNS = [
     _re.compile(r"\b(foreign\s*keys?|relationships?|primary\s*keys?)\b", _re.I),
 ]
 
+# Obvious off-topic — pure greetings / chat with no data-related words
+_OFF_TOPIC_PATTERNS = [
+    _re.compile(r"^(hi|hello|hey|howdy|yo|sup|hola|greetings|good\s*(morning|evening|afternoon|day)|what'?s?\s*up)\s*[!?.]*$", _re.I),
+    _re.compile(r"^(who\s+are\s+you|what\s+are\s+you|tell\s+me\s+(about\s+yourself|a\s+joke))\s*[?!.]*$", _re.I),
+    _re.compile(r"^(thanks?|thank\s*you|thx|bye|goodbye|see\s*ya|ciao)\s*[!?.]*$", _re.I),
+]
+
 
 def _fast_classify(question: str) -> str | None:
     """Return mode without LLM call for obvious patterns, or None to use LLM."""
     for pat in _QUICK_PATTERNS:
         if pat.search(question):
             return "quick"
+    for pat in _OFF_TOPIC_PATTERNS:
+        if pat.search(question.strip()):
+            return "off_topic"
     return None
 
 
@@ -90,7 +101,7 @@ async def classify(
             )
 
             mode = result.get("mode", "simple")
-            if mode not in ("quick", "simple", "extended", "optimization_required", "deep"):
+            if mode not in ("quick", "simple", "extended", "optimization_required", "deep", "off_topic"):
                 mode = "simple"
 
             state["query_mode"] = mode

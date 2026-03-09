@@ -89,6 +89,7 @@ MODE_COLORS = {
     "extended": "yellow",
     "optimization_required": "magenta",
     "deep": "red",
+    "off_topic": "dim",
 }
 
 
