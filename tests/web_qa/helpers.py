@@ -47,8 +47,8 @@ def remove_all_sources(page: Page):
         cards = page.locator("#sources-list .source-card")
         if cards.count() == 0:
             break
-        # Handle the confirm dialog
-        page.on("dialog", lambda d: d.accept())
+        # Handle the confirm dialog (use once to avoid stacking handlers)
+        page.once("dialog", lambda d: d.accept())
         cards.first.locator(".remove-btn").click()
         page.wait_for_timeout(500)
 
@@ -339,3 +339,63 @@ def select_mode(page: Page, mode: str):
 def get_selected_mode(page: Page) -> str:
     """Get the currently selected mode."""
     return page.locator("#mode-select").input_value()
+
+
+# ── File upload helpers ─────────────────────────────────────────────
+
+def upload_csv_files(
+    page: Page,
+    file_paths: list[str],
+    display_name: str = "",
+    timeout: float = 60_000,
+):
+    """Upload CSV files via the sidebar UI.
+
+    Uses set_input_files on the hidden file input, then clicks the upload
+    button and waits for the source card to appear.
+    """
+    # Open the CSV details section
+    details = page.locator("#csv-details")
+    if not details.get_attribute("open"):
+        details.locator("summary").click()
+        page.wait_for_timeout(300)
+
+    # Set files on the hidden input
+    page.locator("#csv-files").set_input_files(file_paths)
+    page.wait_for_timeout(500)
+
+    if display_name:
+        page.locator("#csv-name").fill(display_name)
+
+    # Click upload
+    page.locator("#csv-upload-btn").click()
+
+    # Wait for source card to appear
+    page.locator("#sources-list .source-card").first.wait_for(
+        state="visible", timeout=timeout,
+    )
+
+
+def upload_excel_file(
+    page: Page,
+    file_path: str,
+    display_name: str = "",
+    timeout: float = 60_000,
+):
+    """Upload an Excel file via the sidebar UI."""
+    details = page.locator("#excel-details")
+    if not details.get_attribute("open"):
+        details.locator("summary").click()
+        page.wait_for_timeout(300)
+
+    page.locator("#excel-file").set_input_files(file_path)
+    page.wait_for_timeout(500)
+
+    if display_name:
+        page.locator("#excel-name").fill(display_name)
+
+    page.locator("#excel-upload-btn").click()
+
+    page.locator("#sources-list .source-card").first.wait_for(
+        state="visible", timeout=timeout,
+    )

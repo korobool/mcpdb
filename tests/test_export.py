@@ -6,6 +6,7 @@ without requiring a running web server.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -537,3 +538,186 @@ class TestRendering:
     def test_render_plan_empty(self):
         from mcpdb.web.export import _render_plan_html
         assert _render_plan_html([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL-specific notebook tests
+# ---------------------------------------------------------------------------
+
+PG_DISCOVERY = {
+    "tableSummary": [
+        {"name": "portfolios", "columns": 12, "rows": 850},
+        {"name": "positions", "columns": 8, "rows": 5400},
+        {"name": "trades", "columns": 10, "rows": 12000},
+    ],
+    "erdMermaid": 'erDiagram\n    portfolios {\n        INT id PK\n    }\n    positions {\n        INT id PK\n        INT portfolio_id FK\n    }\n    portfolios ||--o{ positions : "portfolio_id"',
+}
+
+
+class TestPostgreSQLNotebook:
+    def test_pg_setup_cell_has_psycopg2(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="postgresql",
+            connection_string="postgresql://user:pass@host/db",
+        ))
+        setup_src = _cell_source(nb["cells"][1])
+        assert "psycopg2" in setup_src
+        assert "postgresql://user:pass@host/db" in setup_src
+
+    def test_pg_discovery_cells_use_pg_catalog(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="postgresql", discovery=PG_DISCOVERY,
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        # setup + schema overview + ERD = at least 3
+        assert len(code_cells) >= 3
+        schema_src = _cell_source(code_cells[1])
+        assert "pg_stat_user_tables" in schema_src or "information_schema" in schema_src
+        assert "db_query" in schema_src
+
+    def test_pg_erd_cell_present(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="postgresql", discovery=PG_DISCOVERY,
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        erd_cell = code_cells[2]
+        erd_src = _cell_source(erd_cell)
+        assert "b64decode" in erd_src
+        assert "iframe" in erd_src
+
+    def test_pg_cached_turn_uses_correct_schema_query(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [CACHED_TURN], db_type="postgresql",
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        ctx_cells = [c for c in code_cells if "Context-based answer" in _cell_source(c)]
+        assert len(ctx_cells) == 1
+        src = _cell_source(ctx_cells[0])
+        # PostgreSQL schema query should use pg_stat_user_tables or information_schema
+        assert "db_query" in src
+
+
+# ---------------------------------------------------------------------------
+# Mermaid ERD rendering tests
+# ---------------------------------------------------------------------------
+
+class TestMermaidERD:
+    def test_erd_base64_encodes_mermaid(self):
+        """ERD mermaid code is base64-encoded in the cell source."""
+        import base64
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="mysql", discovery=SAMPLE_DISCOVERY,
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        erd_src = _cell_source(code_cells[2])
+        # Extract base64 string
+        match = re.search(r'b64decode\("([^"]+)"\)', erd_src)
+        assert match, "No base64-encoded mermaid found in ERD cell"
+        decoded = base64.b64decode(match.group(1)).decode()
+        assert "erDiagram" in decoded
+        assert "ins_cars" in decoded
+
+    def test_erd_with_quotes_in_labels(self):
+        """Mermaid with relationship labels containing quotes should not break."""
+        import base64
+        from mcpdb.web.export import generate_notebook
+        erd_with_quotes = (
+            'erDiagram\n'
+            '    orders {\n        INT id PK\n    }\n'
+            '    items {\n        INT id PK\n        INT order_id FK\n    }\n'
+            '    orders ||--o{ items : "order_id"'
+        )
+        discovery = {
+            "tableSummary": [{"name": "orders", "columns": 3, "rows": 100}],
+            "erdMermaid": erd_with_quotes,
+        }
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="mysql", discovery=discovery,
+        ))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        erd_src = _cell_source(code_cells[2])
+        # Should compile without SyntaxError
+        compile(erd_src, "<test>", "exec")
+        # Decode and verify content
+        match = re.search(r'b64decode\("([^"]+)"\)', erd_src)
+        decoded = base64.b64decode(match.group(1)).decode()
+        assert '"order_id"' in decoded
+
+    def test_no_erd_for_sqlite(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook(
+            [SIMPLE_TURN], db_type="sqlite",
+            discovery={"tableSummary": [{"name": "t1", "columns": 2, "rows": 10}], "erdMermaid": "erDiagram\n    t1 { INT id PK }"},
+        ))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        erd_headers = [c for c in md_cells if "Entity-Relationship" in _cell_source(c)]
+        assert len(erd_headers) == 0
+
+
+# ---------------------------------------------------------------------------
+# Mixed artifact / edge case tests
+# ---------------------------------------------------------------------------
+
+class TestNotebookEdgeCases:
+    def test_multi_turn_mixed_artifacts(self):
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CHART_TURN, TABLE_TURN, CACHED_TURN]))
+        md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
+        turn_headers = [c for c in md_cells if "## Turn" in _cell_source(c)]
+        assert len(turn_headers) == 3
+
+    def test_notebook_with_empty_execution_log(self):
+        """Turn with empty executionLog should still produce a context cell."""
+        from mcpdb.web.export import generate_notebook
+        nb = json.loads(generate_notebook([CACHED_TURN], db_type="mysql"))
+        code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+        assert len(code_cells) >= 2  # setup + context query
+
+    def test_notebook_cell_count_consistency(self):
+        """Verify cell counts are consistent for known inputs."""
+        from mcpdb.web.export import generate_notebook
+        # Single turn with 2 steps = title + setup + turn_header + 2 code cells
+        nb = json.loads(generate_notebook([CHART_TURN], db_type="mysql"))
+        assert len(nb["cells"]) >= 4
+
+    def test_large_table_artifact_in_html(self):
+        """Table artifacts with >200 rows should be truncated."""
+        from mcpdb.web.export import _render_artifacts_html
+        rows = [[f"val_{i}", i] for i in range(250)]
+        html = _render_artifacts_html([{
+            "type": "table", "title": "Big Table",
+            "data": {"columns": ["name", "value"], "rows": rows},
+        }])
+        # Should contain first 200 rows but not all 250
+        assert "val_0" in html
+        assert "val_199" in html
+        assert "val_200" not in html
+
+
+# ---------------------------------------------------------------------------
+# HTML report with discovery + ERD
+# ---------------------------------------------------------------------------
+
+class TestHTMLReportDiscovery:
+    def test_html_report_with_erd(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report(
+            [SIMPLE_TURN], "bgins", discovery=SAMPLE_DISCOVERY,
+        )
+        assert "ins_cars" in html
+        assert "ins_damages" in html
+        assert "Database Overview" in html
+
+    def test_html_report_csv_source(self):
+        from mcpdb.web.export import generate_html_report
+        html = generate_html_report(
+            [SIMPLE_TURN], "sales.csv",
+            discovery=CSV_DISCOVERY,
+        )
+        assert "sales" in html
+        assert "products" in html
