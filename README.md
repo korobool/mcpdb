@@ -1,67 +1,92 @@
-# MCPDB
+# MCPDB — Ask Questions, Get Answers from Any Data
 
-**MCP server for natural language database exploration and analysis.**
+**Version 5.3.0** | [GitHub](https://github.com/korobool/mcpdb) | MIT License
 
-MCPDB lets you connect databases, CSVs, and Excel files to AI assistants (like Claude Desktop) through the [Model Context Protocol](https://modelcontextprotocol.io). Ask questions in plain English — MCPDB generates SQL, runs it, visualizes results, and explains findings.
+MCPDB is an MCP server and standalone tool for natural language data analysis. Point it at a database, CSV, or Excel file — ask questions in plain English — and get answers with tables, charts, ER diagrams, and exportable Jupyter notebooks.
 
-## Features
+Supports **PostgreSQL, MySQL, SQLite, SQL Server, Oracle, CSV, and Excel**. Connects to Claude Desktop as an MCP server, or runs standalone via a **web UI**, **CLI**, **REPL**, or **TUI**.
 
-- **5 Thinking Modes** — Quick (schema-only), Simple (plan-execute), Extended (with checkpoints), Optimization (cost-aware sampling), Deep Analysis (multi-investigation research)
-- **5 Database Dialects** — PostgreSQL, MySQL, SQLite, MSSQL, Oracle
-- **CSV & Excel Support** — Load files into DuckDB for SQL querying, cross-source federation
-- **33 MCP Tools** — Session management, querying, discovery, profiling, relationships, Excel operations, analysis, export, experience management, execution control
-- **Python Sandbox** — Secure code execution for data transformations and chart generation
-- **Experience System** — Caches successful queries, learns from failures, transfers knowledge across sources
-- **Cost Gate** — EXPLAIN-based cost estimation with user approval for expensive queries
-- **Streaming** — Real-time token streaming and step-by-step execution progress
-- **Web Client** — FastAPI + WebSocket web app with 3-panel layout, real-time execution monitor, chart rendering, and markdown
-- **Export** — Conversations to HTML, PDF, or Jupyter notebooks
+---
+
+## Web Client
+
+The built-in web client provides a full-featured browser UI with real-time query execution, an execution monitor, and inline chart rendering.
+
+```bash
+mcpdb web
+```
+
+### Deep Analysis with Charts
+
+The agent automatically generates charts when the question calls for visual analysis. Deep mode runs multiple parallel investigations and synthesizes findings.
+
+![Web UI — Deep mode analysis with bar/line chart and execution monitor](docs/images/web-deep-analysis.png)
+
+### ER Diagram Visualization
+
+Ask about relationships and MCPDB renders interactive ER diagrams using Mermaid, with inferred foreign keys and relationship descriptions.
+
+![Web UI — Entity-relationship diagram with detailed relationship descriptions](docs/images/web-erd-diagram.png)
+
+### Table Overview
+
+Connect a database and immediately see table statistics: row counts, column counts, indexes, and primary keys.
+
+![Web UI — Table details overview](docs/images/web-table-details.png)
+
+### Jupyter Notebook Export
+
+Export any conversation to a Jupyter notebook. The notebook includes setup cells, SQL queries as executable `db_query()` calls, chart code, and markdown commentary — ready to run and modify.
+
+![Exported Jupyter notebook with setup cell and db_query helper](docs/images/web-jupyter-export.png)
+
+---
+
+## CLI Query Mode
+
+Run queries directly from the terminal. Results are formatted with Rich: colored tables, structured output, and mode/timing indicators.
+
+```bash
+mcpdb query "mysql+pymysql://user:pass@localhost:3306/mydb" "Show claims frequency by quarter"
+```
+
+![CLI query — tabular results with mode indicator and timing](docs/images/cli-query-results.png)
+
+### Jupyter Notebooks with Charts
+
+Exported notebooks contain executable Python code, including matplotlib/seaborn visualizations that reproduce the analysis step by step.
+
+![Jupyter notebook — pie chart generated from exported analysis](docs/images/jupyter-notebook-chart.png)
+
+---
 
 ## Installation
 
-Requires Python 3.10+.
+### Quick Install
 
 ```bash
 pip install mcpdb
 ```
 
-### Optional Dependencies
+### With Database Drivers
 
-Install only what you need:
-
-**Database drivers** (install for your database type):
 ```bash
-pip install mcpdb[postgresql]  # PostgreSQL (psycopg2-binary)
-pip install mcpdb[mysql]       # MySQL / MariaDB (PyMySQL)
-pip install mcpdb[mssql]       # SQL Server (pyodbc)
-pip install mcpdb[oracle]      # Oracle (cx_Oracle)
-# SQLite — built-in, no extra install needed
+pip install mcpdb[postgresql]   # PostgreSQL (psycopg2-binary)
+pip install mcpdb[mysql]        # MySQL (PyMySQL)
+pip install mcpdb[mssql]        # SQL Server (pyodbc)
+pip install mcpdb[oracle]       # Oracle (cx_Oracle)
+# SQLite is built-in
 ```
 
-**Data sources & features**:
-```bash
-pip install mcpdb[csv]         # CSV support (DuckDB, chardet)
-pip install mcpdb[excel]       # Excel support (openpyxl)
-pip install mcpdb[web]         # Web client (FastAPI + Uvicorn)
-pip install mcpdb[export]      # PDF/notebook export (weasyprint, nbformat)
-pip install mcpdb[sandbox]     # Charts & ML (matplotlib, seaborn, scikit-learn, scipy)
-```
+### With All Features
 
-**LLM providers** (Gemini is the default; Anthropic is included):
-```bash
-pip install mcpdb[gemini]      # Google Gemini models (google-genai SDK, default provider)
-pip install mcpdb[openai]      # OpenAI GPT models
-pip install mcpdb[ollama]      # Ollama local models (httpx)
-```
-
-**Install everything** (except Oracle):
 ```bash
 pip install mcpdb[all]
 ```
 
-You can combine extras: `pip install mcpdb[postgresql,mysql,csv,excel]`
+This includes: CSV/Excel support, web client, charts (matplotlib, seaborn), PDF/notebook export, and all LLM providers.
 
-### Development Install
+### Development
 
 ```bash
 git clone https://github.com/korobool/mcpdb.git
@@ -69,554 +94,443 @@ cd mcpdb
 pip install -e ".[dev,all]"
 ```
 
-## Quick Start
+### Environment Variables
 
-### 1. With Claude Desktop (recommended)
+| Variable | Purpose |
+|----------|---------|
+| `GEMINI_API_KEY` | Google Gemini API key (default LLM provider) |
+| `OPENAI_API_KEY` | OpenAI API key (alternative provider) |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key (alternative provider) |
+| `MCPDB_DATABASE_URL` | Auto-connect database on startup |
+| `MCPDB_CONFIG` | Path to `mcpdb.yaml` config file |
+| `MCPDB_LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`) |
 
-Add to your Claude Desktop configuration (`~/.claude/claude_desktop_config.json`):
+---
+
+## Usage
+
+### Web Client (Recommended)
+
+```bash
+export GEMINI_API_KEY="your-key"
+mcpdb web                    # Opens browser automatically
+mcpdb web --port 8080        # Custom port
+mcpdb web --no-browser       # Start server only
+mcpdb web --no-cache         # Skip experience cache lookup
+```
+
+Features: database/CSV/Excel connections from the browser, real-time execution pipeline, inline charts, follow-up suggestions, export to HTML/PDF/Jupyter.
+
+### One-Shot Query
+
+```bash
+mcpdb query "postgresql://user:pass@host/db" "How many users signed up this month?"
+mcpdb query sales.csv "Total revenue by region"
+mcpdb query report.xlsx "Average order value per customer"
+mcpdb query "sqlite:///app.db" "Show the top 10 products" --no-cache
+```
+
+### Interactive REPL
+
+```bash
+mcpdb repl "mysql+pymysql://user:pass@host/db"
+mcpdb repl data.csv
+mcpdb repl financials.xlsx
+```
+
+REPL commands: `/help`, `/mode <mode|auto>`, `/schema [table]`, `/history`, `/export <markdown|json>`, `/cache`, `/quit`. Type a number (1, 2, 3) to pick a follow-up suggestion.
+
+### Textual TUI
+
+```bash
+pip install mcpdb[tui]
+mcpdb tui "postgresql://user:pass@host/db"
+```
+
+Windowed terminal UI with source panel, pipeline progress bar, and scrollable result log.
+
+### MCP Server
+
+```bash
+mcpdb serve                          # stdio transport (for Claude Desktop)
+mcpdb serve --transport sse          # SSE transport (for web/remote clients)
+mcpdb serve --transport sse --port 8765
+```
+
+---
+
+## Query Modes
+
+MCPDB automatically classifies each question into the best execution mode:
+
+| Mode | Steps | Use Case | Example |
+|------|-------|----------|---------|
+| **quick** | 0 | Schema info, metadata | "What tables are in the database?" |
+| **simple** | 1–5 | Standard analytical queries | "Top 10 customers by revenue" |
+| **extended** | 3–10 | Comprehensive analysis with iterative refinement | "Perform an EDA on the sales table" |
+| **optimization** | 1–5 | Large tables (>1M rows), cost-gated | "Analyze all 50M transactions" |
+| **deep** | 2–5 investigations | Multi-faceted research, blueprint-based | "Investigate customer churn patterns" |
+
+Override in the REPL: `/mode simple` (or `/mode auto` to reset). In the web UI, select from the dropdown.
+
+---
+
+## MCP Integration Guide
+
+MCPDB implements the [Model Context Protocol](https://modelcontextprotocol.io/) and exposes **33 tools** across 10 categories. Any MCP-compatible client can connect.
+
+### Claude Desktop
+
+Add to `~/.config/claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "mcpdb": {
       "command": "mcpdb",
-      "args": ["serve"]
+      "args": ["serve"],
+      "env": {
+        "GEMINI_API_KEY": "your-gemini-key"
+      }
     }
   }
 }
 ```
 
-Restart Claude Desktop. You can now ask Claude to connect a database and explore it:
+Then ask Claude: *"Connect to postgresql://user:pass@localhost/mydb and show me the tables."*
 
-> "Connect to postgresql://user:pass@localhost/mydb and show me the top 10 customers by revenue"
+### VS Code (Cline / Continue / MCP extensions)
 
-### 2. One-shot Query
+VS Code extensions that support MCP servers use the same configuration format. Add to your extension's MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "mcpdb": {
+      "command": "mcpdb",
+      "args": ["serve"],
+      "env": {
+        "GEMINI_API_KEY": "your-gemini-key"
+      }
+    }
+  }
+}
+```
+
+For **Cline**, add this to `~/.cline/mcp_settings.json`. For **Continue**, add to your `.continue/config.json` under `mcpServers`.
+
+### SSE Transport (OpenWebUI, Remote Clients)
+
+For clients that connect over HTTP (OpenWebUI, custom web apps, remote integrations):
 
 ```bash
-mcpdb query "sqlite:///mydata.db" "What are the top 5 products by sales?"
-```
-
-### 3. Web Client
-
-```bash
-mcpdb web
-# Auto-selects a free port, opens browser
-```
-
-The web client is a 3-panel interface: data sources & schema on the left, chat in the center, and execution monitor on the right. It auto-selects an available port (starting from 8080), auto-connects to a database if `MCPDB_DATABASE_URL` is set, and picks up the Gemini API key from `GEMINI_API_KEY`.
-
-```bash
-# Quick start — export your env vars and launch
-export GEMINI_API_KEY="your-key"
-export MCPDB_DATABASE_URL="postgresql://user:pass@localhost/mydb"
-mcpdb web
-```
-
-## CLI Reference
-
-```
-mcpdb                          Print version
-mcpdb serve                    Start MCP server (stdio, for Claude Desktop)
-mcpdb serve --transport sse    Start MCP server (SSE, for web clients)
-mcpdb serve --port 8765        Start SSE server on custom port
-mcpdb web                      Start web client (recommended)
-mcpdb web --port 8080          Web client on custom port
-mcpdb web --no-browser         Start without opening browser
-mcpdb query <conn> <question>  One-shot query mode
-mcpdb --help                   Show help
-mcpdb --version                Show version
-```
-
-### Starting & Stopping
-
-**MCP stdio server** (for Claude Desktop):
-```bash
-mcpdb serve
-# Runs in foreground, reads/writes on stdin/stdout
-# Stop with Ctrl+C
-```
-
-**SSE server** (for web clients):
-```bash
+# Start the SSE server
 mcpdb serve --transport sse --port 8765
-# Stop with Ctrl+C
 ```
 
-**Web client** (recommended):
-```bash
-mcpdb web
-# Auto-selects a free port (starting from 8080), opens browser
-# Auto-connects to MCPDB_DATABASE_URL if set
-# Uses GEMINI_API_KEY (or other provider keys) from environment
-# Stop with Ctrl+C
+Connect from the client using the SSE endpoint:
+```
+http://localhost:8765/sse
 ```
 
-To run as a background service:
-```bash
-nohup mcpdb serve --transport sse --port 8765 > mcpdb.log 2>&1 &
-# Stop with: kill $(pgrep -f "mcpdb serve")
+In **OpenWebUI**, add MCPDB as a tool provider with the SSE URL. The server exposes all 33 tools over the SSE transport, compatible with any MCP client that supports server-sent events.
+
+### Custom Clients (Python, C++, Java, etc.)
+
+MCPDB speaks standard MCP over **stdio** or **SSE**. Any language with an MCP SDK can connect.
+
+#### Python Client
+
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+server_params = StdioServerParameters(
+    command="mcpdb",
+    args=["serve"],
+    env={"GEMINI_API_KEY": "your-key"}
+)
+
+async with stdio_client(server_params) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+
+        # List available tools
+        tools = await session.list_tools()
+        print(f"{len(tools.tools)} tools available")
+
+        # Connect a database
+        result = await session.call_tool("connect_database", {
+            "connection_string": "sqlite:///mydata.db"
+        })
+
+        # Ask a natural language question
+        result = await session.call_tool("ask_question", {
+            "question": "How many rows in each table?"
+        })
+        print(result.content[0].text)
 ```
+
+#### C++ Client
+
+Use the [MCP C++ SDK](https://github.com/modelcontextprotocol/cpp-sdk) to spawn `mcpdb serve` as a subprocess communicating over stdio:
+
+```cpp
+#include <mcp/client.h>
+
+int main() {
+    // Spawn mcpdb as a child process with stdio transport
+    mcp::StdioTransport transport("mcpdb", {"serve"});
+    mcp::Client client(transport);
+    client.initialize();
+
+    // List tools
+    auto tools = client.list_tools();
+
+    // Connect and query
+    client.call_tool("connect_database", {
+        {"connection_string", "postgresql://user:pass@host/db"}
+    });
+
+    auto result = client.call_tool("ask_question", {
+        {"question", "What are the top 5 products by sales?"}
+    });
+
+    std::cout << result.text() << std::endl;
+}
+```
+
+#### Java / Kotlin Client
+
+Use the [MCP Java SDK](https://github.com/modelcontextprotocol/java-sdk):
+
+```java
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.transport.StdioClientTransport;
+
+public class McpdbExample {
+    public static void main(String[] args) {
+        // Launch mcpdb as subprocess
+        var transport = new StdioClientTransport("mcpdb", List.of("serve"));
+        var client = McpClient.sync(transport).build();
+        client.initialize();
+
+        // Connect to database
+        client.callTool("connect_database", Map.of(
+            "connection_string", "mysql://user:pass@host/db"
+        ));
+
+        // Natural language query
+        var result = client.callTool("ask_question", Map.of(
+            "question", "Show monthly revenue trends"
+        ));
+        System.out.println(result.getText());
+    }
+}
+```
+
+#### Any Language (stdio Protocol)
+
+If no MCP SDK exists for your language, communicate directly over stdin/stdout:
+
+1. Spawn `mcpdb serve` as a subprocess
+2. Send JSON-RPC 2.0 messages to its stdin
+3. Read JSON-RPC 2.0 responses from its stdout
+
+```
+→ {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+← {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}}}}
+
+→ {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"connect_database","arguments":{"connection_string":"sqlite:///test.db"}}}
+← {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Connected to test.db (3 tables)"}]}}
+
+→ {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask_question","arguments":{"question":"How many rows in each table?"}}}
+← {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"...results..."}]}}
+```
+
+The protocol is [JSON-RPC 2.0](https://www.jsonrpc.org/specification) with messages delimited by newlines. See the [MCP specification](https://spec.modelcontextprotocol.io/) for the full protocol reference.
+
+---
+
+## MCP Tools Reference
+
+MCPDB exposes 33 tools organized into 10 categories:
+
+### Session Management
+| Tool | Description |
+|------|-------------|
+| `connect_database` | Connect to SQL databases (PostgreSQL, MySQL, SQLite, SQL Server, Oracle) |
+| `load_csv_files` | Load CSV files with auto-detection of encoding, delimiters, headers |
+| `list_sources` | List all connected data sources |
+| `remove_source` | Disconnect a data source |
+| `get_source_schema` | Get full schema description of a data source |
+| `get_session_status` | Get current session status including active sources and metadata |
+
+### Querying
+| Tool | Description |
+|------|-------------|
+| `execute_sql` | Execute SQL queries on connected data sources |
+| `get_table_sample` | Get sample rows from a table |
+| `validate_sql` | Check SQL syntax without executing |
+| `cross_source_query` | Execute SQL spanning multiple sources with DuckDB federation |
+
+### Discovery
+| Tool | Description |
+|------|-------------|
+| `search_schema` | Search tables and columns by keyword |
+| `explain_query` | Show EXPLAIN plan for SQL queries |
+| `render_erd` | Generate Mermaid ER diagrams |
+
+### Profiling
+| Tool | Description |
+|------|-------------|
+| `profile_table` | Table statistics: row count, nulls, distinct values, min/max, indexes |
+| `profile_column` | Column profiling: data type, top values, distribution |
+
+### Relationships
+| Tool | Description |
+|------|-------------|
+| `find_relationships` | Discover relationships (explicit FKs + inferred joins) |
+| `suggest_joins` | Suggest JOIN conditions based on FK and column relationships |
+
+### Excel
+| Tool | Description |
+|------|-------------|
+| `load_excel` | Load Excel workbooks with automatic table detection |
+| `list_sheets` | List sheets with structure info |
+| `read_range` | Read cell ranges (e.g., `A1:D10`) |
+| `extract_excel_table` | Extract rectangular regions as tables |
+| `explain_formula` | Explain Excel formulas in natural language |
+
+### Analysis
+| Tool | Description |
+|------|-------------|
+| `ask_question` | Natural language questions — agent classifies, plans, executes, synthesizes |
+| `suggest_followups` | Generate 3–5 context-aware follow-up questions |
+
+### Export
+| Tool | Description |
+|------|-------------|
+| `export_conversation` | Export to HTML, PDF, or Jupyter notebook |
+
+### Experience Management
+| Tool | Description |
+|------|-------------|
+| `get_experience_stats` | Cache hit statistics and learned patterns |
+| `list_cached_queries` | List cached queries for a source |
+| `invalidate_cache_entry` | Invalidate specific cached responses |
+| `clear_experience` | Clear all experience data for a source |
+| `vote_response` | Vote on response quality (positive/negative) |
+
+### Execution Control
+| Tool | Description |
+|------|-------------|
+| `cancel_execution` | Cancel in-progress agent execution |
+| `add_context` | Add context or instructions to a running execution |
+| `submit_strategy` | Submit strategy for expensive queries (SAMPLE, FULL, CANCEL) |
+
+---
 
 ## Configuration
 
-MCPDB loads configuration from YAML. Search order:
-
-1. Explicit path via `MCPDB_CONFIG` environment variable
-2. `./mcpdb.yaml` in the current directory
-3. Built-in defaults (no file needed)
-
-### Example `mcpdb.yaml`
+MCPDB looks for `mcpdb.yaml` in: `$MCPDB_CONFIG` → `./mcpdb.yaml` → built-in defaults.
 
 ```yaml
 llm:
   reasoning:
-    provider: gemini              # gemini, openai, anthropic, ollama
-    model: gemini-2.5-pro
-    api_key: ${GEMINI_API_KEY}    # Environment variable resolution
-  fast:
-    model: gemini-2.5-flash
-  temperature: 0.0
-  timeout: 120
-  budget_per_question_usd: 2.00
+    provider: gemini          # gemini | openai | anthropic | ollama
+    model: gemini-2.5-pro     # Model name
+    api_key: ${GEMINI_API_KEY}
 
 server:
-  transport: stdio                # stdio or sse
-  host: localhost
+  transport: stdio            # stdio | sse
+  host: 0.0.0.0
   port: 8765
 
 execution:
-  query_timeout: 30               # SQL timeout in seconds
-  python_timeout: 60              # Sandbox timeout in seconds
-  max_rows_display: 100
-  read_only: true                 # Block INSERT/UPDATE/DELETE/DROP
-
-cost_gate:
-  enabled: true
-  auto_mode: false                # true = auto-select strategy without asking
-  large_table_threshold: 1000000  # Rows before cost gate triggers
-
-duckdb:
-  memory_limit: 2GB
-  threads: 4
+  query_timeout: 600          # SQL query timeout (seconds)
+  python_timeout: 30          # Sandbox execution timeout
+  max_rows: 10000             # Maximum rows returned
 
 experience:
-  enabled: true
   storage_dir: ~/.mcpdb/experience
-  cache_max_age_days: 30
-
-sandbox:
-  allowed_modules: []             # Extra modules to allow (added to defaults)
-  blocked_modules: []             # Extra modules to block (added to defaults)
-  allow_all: false                # true = allow all imports except blocklist
-  memory_mb: 2048                 # Subprocess memory limit
-  cpu_seconds: 60                 # Subprocess CPU time limit
+  max_age_days: 30
 ```
 
-Environment variables are resolved with `${VAR_NAME}` syntax — use this for API keys.
+Environment variables are expanded with `${VAR_NAME}` syntax.
 
-### Using Google Gemini
-
-1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
-
-2. Install the Gemini extra:
-   ```bash
-   pip install mcpdb[gemini]   # installs google-genai SDK
-   ```
-
-3. Set your API key as an environment variable:
-   ```bash
-   export GEMINI_API_KEY="your-key-here"
-   ```
-
-4. Gemini is the default provider. If you want to customize:
-   ```yaml
-   llm:
-     reasoning:
-       provider: gemini
-       model: gemini-2.5-pro         # or gemini-2.5-flash, gemini-2.0-flash
-       api_key: ${GEMINI_API_KEY}
-     fast:
-       provider: gemini
-       model: gemini-2.5-flash
-       api_key: ${GEMINI_API_KEY}
-   ```
-
-   Or for Claude Desktop, pass the key via environment in your MCP config:
-   ```json
-   {
-     "mcpServers": {
-       "mcpdb": {
-         "command": "mcpdb",
-         "args": ["serve"],
-         "env": {
-           "GEMINI_API_KEY": "your-key-here",
-           "MCPDB_CONFIG": "/path/to/mcpdb.yaml"
-         }
-       }
-     }
-   }
-   ```
-
-### Using OpenAI
-
-```bash
-export OPENAI_API_KEY="sk-..."
-pip install mcpdb[openai]
-```
-
-```yaml
-llm:
-  reasoning:
-    provider: openai
-    model: gpt-4.1
-    api_key: ${OPENAI_API_KEY}
-```
-
-### Using Ollama (local models)
-
-```bash
-pip install mcpdb[ollama]
-ollama pull llama3.1        # Download a model first
-```
-
-```yaml
-llm:
-  reasoning:
-    provider: ollama
-    model: llama3.1          # Any model available in your Ollama instance
-```
-
-No API key needed — Ollama runs locally on `http://localhost:11434`.
-
-## Debug / Development Mode
-
-### Logging
-
-MCPDB logs to stderr. Control verbosity with the `MCPDB_LOG_LEVEL` environment variable:
-
-```bash
-# Debug logging — shows all LLM calls, SQL execution, agent state transitions
-MCPDB_LOG_LEVEL=DEBUG mcpdb serve
-
-# Warning only
-MCPDB_LOG_LEVEL=WARNING mcpdb serve
-```
-
-Log format: `2025-01-15 10:30:45 [DEBUG] mcpdb.agent.graph: classify → simple mode`
-
-### Running Tests
-
-```bash
-# Run all tests
-python -m pytest
-
-# Run a specific test file
-python -m pytest tests/test_agent.py
-
-# Run with verbose output
-python -m pytest -v
-
-# Run tests matching a pattern
-python -m pytest -k "test_cost"
-```
-
-The test suite has 900+ tests covering all modules. Tests use pytest with `pytest-asyncio` for async code.
-
-### Development Workflow
-
-```bash
-# Install in editable mode with dev dependencies
-pip install -e ".[dev,all]"
-
-# Run tests continuously during development
-python -m pytest --tb=short -q
-
-# Check a specific module
-python -m pytest tests/test_security.py -v
-```
-
-### Debugging the Agent
-
-To trace agent execution step by step:
-
-```bash
-MCPDB_LOG_LEVEL=DEBUG mcpdb query "sqlite:///test.db" "How many rows in users?"
-```
-
-This will print:
-- Classification result (which thinking mode was selected)
-- Planning output (SQL/Python steps)
-- Each execution step with timing
-- Synthesis and final response
-
-### Debugging MCP Communication
-
-For stdio transport, the MCP protocol messages go through stdin/stdout. To inspect them:
-
-```bash
-# Use the MCP Inspector tool
-npx @modelcontextprotocol/inspector mcpdb serve
-```
+---
 
 ## Architecture
 
 ```
 mcpdb/
-├── __main__.py          # CLI entry point
-├── config.py            # YAML config loader with env var resolution
-├── logging.py           # Logging setup
-├── agent/               # LangGraph agent orchestration
-│   ├── graph.py         # Main agent graph (classify → mode → synthesize)
-│   ├── state.py         # AgentState TypedDict
-│   ├── nodes/           # Individual graph nodes
-│   │   ├── classify.py  # Question → mode routing
-│   │   ├── common.py    # Plan, execute, debug, synthesize factories
-│   │   └── validators.py# Result validation, replanning
-│   ├── subgraphs/       # Mode-specific subgraphs
-│   │   ├── quick.py     # Schema-only answers
-│   │   ├── simple.py    # Plan → execute → synthesize
-│   │   ├── extended.py  # With checkpoints + reflection
-│   │   └── optimization.py # Cost-aware with sampling
-│   ├── deep_analysis.py # Multi-investigation research mode
-│   └── cancellation.py  # CancellationToken, mid-execution abort
-├── sources/             # Data source abstraction layer
-│   ├── base.py          # DataSource, QueryableSource, SpreadsheetSource ABCs
-│   ├── registry.py      # SourceRegistry (add/remove/get sources)
-│   ├── database/        # SQL database support
-│   │   ├── source.py    # DatabaseSource implementation
-│   │   ├── connector.py # SQLAlchemy engine + connection pooling
-│   │   ├── schema_explorer.py # Introspection (tables, columns, PKs, FKs)
-│   │   └── dialects/    # PostgreSQL, MySQL, SQLite, MSSQL, Oracle
-│   ├── csv/             # CSV → DuckDB support
-│   │   ├── source.py    # CsvSource implementation
-│   │   ├── loader.py    # Encoding/delimiter detection
-│   │   └── duckdb_backend.py
-│   └── excel/           # Excel workbook support
-│       ├── source.py    # ExcelSource implementation
-│       ├── workbook_reader.py  # openpyxl reader
-│       ├── structure_analyzer.py # Table vs text region detection
-│       ├── formula_deps.py     # Formula dependency graphs
-│       ├── formula_clusters.py # Similar formula detection
-│       └── multi_workbook.py   # Multi-file management
-├── mcp/                 # MCP protocol layer
-│   ├── server.py        # Server creation + stdio/SSE transport
-│   ├── resources.py     # MCP resources (schema://, erd://, session://)
-│   ├── prompts.py       # MCP prompts (explore_source, deep_table_analysis)
-│   └── tools/           # 33 MCP tools across 10 categories
-│       ├── session.py   # connect_database, list_sources, remove_source, ...
-│       ├── querying.py  # execute_sql, get_table_sample, validate_sql, ...
-│       ├── discovery.py # search_schema, explain_query, render_erd
-│       ├── profiling.py # profile_table, profile_column
-│       ├── relationships.py # find_relationships, suggest_joins
-│       ├── excel.py     # load_excel, list_sheets, read_range, ...
-│       ├── analysis.py  # ask_question, ask_deep_question
-│       ├── export.py    # export_conversation
-│       ├── experience.py # get_experience_stats, vote_response, ...
-│       └── control.py   # cancel_execution, add_context, submit_strategy
-├── llm/                 # LLM provider abstraction
-│   ├── provider.py      # LLMProvider ABC, _extract_json()
-│   ├── gemini_provider.py  # Google Gemini (default)
-│   ├── openai_provider.py  # OpenAI GPT
-│   ├── anthropic_provider.py # Anthropic Claude
-│   ├── ollama_provider.py  # Ollama local models
-│   └── factory.py       # create_provider() factory
-├── sandbox/             # Secure Python execution
-│   ├── executor.py      # Subprocess-based execution
-│   └── security.py      # Configurable import allowlist/blocklist, resource limits
-├── security/            # Security hardening
-│   ├── sql_safety.py    # Read-only enforcement, injection detection
-│   ├── credentials.py   # Connection string redaction
-│   └── rate_limiter.py  # Rate/concurrency limits, circuit breaker
-├── experience/          # Learning system
-│   ├── store.py         # JSONL storage per source
-│   ├── cache.py         # Exact-match response cache
-│   ├── fingerprint.py   # Source identity hashing
-│   ├── retriever.py     # Semantic similarity search
-│   ├── embeddings.py    # Embedding providers
-│   ├── strategy_records.py  # Cost gate strategy tracking
-│   ├── cross_dialect.py     # Cross-source pattern sharing
-│   └── schema_drift.py     # Schema change detection
-├── web/                 # Web client (FastAPI + WebSocket)
-│   ├── app.py           # FastAPI REST + WebSocket + event streaming
-│   └── templates/       # Single-page HTML template
-├── session/             # Session lifecycle
-│   └── session_manager.py # Persistent sessions with disk storage
-└── export/              # Conversation export
-    ├── html_export.py   # Standalone HTML rendering
-    ├── pdf_export.py    # PDF via weasyprint
-    └── notebook_export.py # Jupyter notebook generation
+├── mcp/                    MCP protocol layer (33 tools, resources, prompts)
+│   ├── server.py           Server creation + stdio/SSE transport
+│   └── tools/              Tool implementations across 10 categories
+├── agent/                  LangGraph agent orchestration
+│   ├── graph.py            Main graph: classify → mode → synthesize
+│   ├── nodes/              Plan, execute, debug, synthesize, validate
+│   ├── subgraphs/          Mode-specific: quick, simple, extended, optimization, deep
+│   └── observer.py         Async execution monitoring + cancellation
+├── sources/                Data source abstraction
+│   ├── database/           SQL databases (5 dialects)
+│   ├── csv/                CSV → DuckDB
+│   └── excel/              Excel workbooks
+├── llm/                    LLM provider abstraction
+│   ├── factory.py          create_provider() — Gemini, OpenAI, Anthropic, Ollama
+│   └── provider.py         Base class + JSON extraction/repair
+├── sandbox/                Secure Python execution (subprocess-based)
+├── security/               SQL safety, credential redaction, rate limiting
+├── experience/             Two-tier cache (exact + semantic), quality evaluation
+├── web/                    FastAPI + WebSocket web client
+│   ├── app.py              REST + WebSocket + 20+ event types
+│   ├── export.py           HTML/PDF/notebook generation
+│   └── templates/          Single-page HTML (CSS + JS inline)
+└── cli/                    Rich terminal UI, REPL, Textual TUI
 ```
 
-## Web Client
+### Key Design Decisions
 
-The web client is an interactive interface for exploring your data. It runs a FastAPI backend with WebSocket event streaming and serves a single-page HTML template — no build step, no npm.
+- **Single MCP dispatcher** — one `list_tools`/`call_tool` pair routes to all 33 tools
+- **LLM-agnostic** — pluggable providers (Gemini default, OpenAI/Anthropic/Ollama alternatives)
+- **Safe by default** — SQL is read-only enforced, Python runs in a subprocess sandbox, credentials are redacted in logs
+- **5 thinking modes** — from instant schema lookups (quick) to multi-investigation research (deep)
+- **Experience learning** — successful queries cached with exact + semantic matching, mode-aware filtering, automatic schema drift detection
 
-### Features
-
-- **3-panel layout** — Data sources & schema (left), chat (center), execution monitor (right)
-- **Source management** — Connect databases, upload CSV/Excel files from the UI
-- **Schema browser** — Expandable tree of tables/columns with inline data preview and ERD
-- **6 query modes** — Auto, Quick, Simple, Optimize, Extended, Deep — selectable per query
-- **Real-time execution monitor** — Watch classification, planning, step execution, and synthesis as they happen
-- **Chart rendering** — Python-generated matplotlib/seaborn charts displayed as images
-- **Deep mode streaming** — Investigation results streamed as they complete
-- **Markdown responses** — Syntax-highlighted code blocks, Mermaid diagrams, GFM tables
-- **Follow-up suggestions** — Context-aware follow-up questions after every response
-
-### Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `GEMINI_API_KEY` | Auto-used by default Gemini provider |
-| `OPENAI_API_KEY` | Used when switching to OpenAI provider |
-| `ANTHROPIC_API_KEY` | Used when switching to Anthropic provider |
-| `MCPDB_DATABASE_URL` | Auto-connects this database on startup |
-
-### Quick Start
-
-```bash
-# Set your API key and database
-export GEMINI_API_KEY="your-key"
-export MCPDB_DATABASE_URL="postgresql://user:pass@localhost/mydb"
-
-# Install and launch
-pip install mcpdb[web,gemini]
-mcpdb web
-```
-
-The browser opens automatically with your database already connected. Start asking questions.
-
-## Thinking Modes
-
-MCPDB automatically classifies your question and routes to the appropriate mode:
-
-| Mode | When Used | Steps |
-|------|-----------|-------|
-| **Quick** | Metadata questions ("How many tables?") | Answer from schema context only |
-| **Simple** | Standard queries ("Top 10 customers") | Plan → Execute → Synthesize |
-| **Extended** | Complex analysis ("Comprehensive churn analysis") | Plan → Execute with checkpoints → Reflect → Synthesize |
-| **Optimization** | Large table queries (>1M rows) | Cost check → Strategy gate → Sample/Full → Execute |
-| **Deep** | Research questions ("Investigate revenue patterns") | Blueprint → Multiple investigations → Reasoning → Report |
-
-## MCP Tools
-
-### Session (6 tools)
-`connect_database`, `connect_csv`, `connect_excel`, `list_sources`, `remove_source`, `get_source_schema`
-
-### Querying (4 tools)
-`execute_sql`, `get_table_sample`, `validate_sql`, `search_data`
-
-### Discovery (3 tools)
-`search_schema`, `explain_query`, `render_erd`
-
-### Profiling (2 tools)
-`profile_table`, `profile_column`
-
-### Relationships (2 tools)
-`find_relationships`, `suggest_joins`
-
-### Excel (5 tools)
-`load_excel`, `list_sheets`, `read_range`, `extract_excel_table`, `explain_formula`
-
-### Analysis (2 tools)
-`ask_question`, `ask_deep_question`
-
-### Export (1 tool)
-`export_conversation` — HTML, PDF, or Jupyter notebook
-
-### Experience (5 tools)
-`get_experience_stats`, `list_cached_queries`, `invalidate_cache_entry`, `clear_experience`, `vote_response`
-
-### Control (3 tools)
-`cancel_execution`, `add_context`, `submit_strategy`
+---
 
 ## Supported Data Sources
 
-### Databases
+| Source | Connection Format | Notes |
+|--------|------------------|-------|
+| PostgreSQL | `postgresql://user:pass@host:5432/db` | Requires `psycopg2-binary` |
+| MySQL | `mysql+pymysql://user:pass@host:3306/db` | Requires `PyMySQL` |
+| SQLite | `sqlite:///path/to/file.db` | Built-in, no extra driver |
+| SQL Server | `mssql+pyodbc://user:pass@host/db?driver=ODBC+Driver+17+for+SQL+Server` | Requires `pyodbc` |
+| Oracle | `oracle://user:pass@host:1521/service` | Requires `cx_Oracle` |
+| CSV | `data.csv` or `a.csv,b.csv` | Auto-detects encoding, delimiters |
+| Excel | `report.xlsx` | Dual mode: queryable tables + spreadsheet operations |
 
-Each database type requires its driver extra to be installed:
+---
 
-| Database   | Connection String | Install |
-|------------|-------------------|---------|
-| PostgreSQL | `postgresql://user:pass@host:5432/dbname` | `pip install mcpdb[postgresql]` |
-| MySQL      | `mysql://user:pass@host:3306/dbname` | `pip install mcpdb[mysql]` |
-| SQLite     | `sqlite:///path/to/database.db` | Built-in |
-| SQL Server | `mssql+pyodbc://user:pass@host/dbname?driver=ODBC+Driver+17+for+SQL+Server` | `pip install mcpdb[mssql]` |
-| Oracle     | `oracle://user:pass@host:1521/service` | `pip install mcpdb[oracle]` |
+## Export Formats
 
-### CSV Files
+From the web client, export any conversation:
 
-Loaded via the `connect_csv` tool or `load_csv_files` — auto-detects encoding, delimiters, and headers. Multiple CSVs can be loaded into the same DuckDB session for cross-file joins.
+| Format | Description |
+|--------|-------------|
+| **HTML** | Self-contained single-file report with styling, tables, and embedded chart images |
+| **PDF** | Downloadable PDF document with full conversation |
+| **Jupyter Notebook** | `.ipynb` with setup cell, executable `db_query()` calls, chart code, and ERD diagrams |
 
-### Excel Files
+CSV and Excel sources export as data-focused notebooks with pandas DataFrames.
 
-Loaded via the `load_excel` tool. Supports:
-- Multi-sheet workbooks
-- Automatic table detection vs. text regions
-- Formula extraction and explanation
-- Cell grid rendering for non-tabular layouts
-- Multiple workbooks with cross-workbook references
+---
 
-## Python Sandbox
+## Further Reading
 
-The agent can execute Python code for data transformations, visualizations, and ML tasks. Code runs in an isolated subprocess with configurable security.
-
-### Default Allowed Libraries
-
-Out of the box, the sandbox allows a broad data science stack:
-
-- **Data**: pandas, numpy, polars, pyarrow, duckdb, sqlalchemy
-- **ML/Science**: scikit-learn, torch, xgboost, lightgbm, catboost, scipy
-- **Visualization**: matplotlib, seaborn, plotly
-- **NLP**: nltk, spacy, transformers
-- **Geo/Image**: geopandas, shapely, PIL
-- **Standard library**: json, re, math, datetime, collections, itertools, statistics, csv, io, random, hashlib, and more
-
-### Blocked by Default
-
-`os`, `sys`, `subprocess`, `shutil`, `pathlib`, `socket`, `http`, `urllib`, `requests`, `pickle`, `ctypes`, `threading`, `multiprocessing`
-
-### Sandbox Configuration
-
-```yaml
-# mcpdb.yaml
-sandbox:
-  # Add extra modules to the allowlist
-  allowed_modules:
-    - tensorflow
-    - keras
-    - networkx
-
-  # Add extra modules to the blocklist
-  blocked_modules:
-    - some_dangerous_module
-
-  # Allow ALL imports (only blocklist is enforced)
-  allow_all: false
-
-  # Resource limits for sandbox subprocess
-  memory_mb: 2048
-  cpu_seconds: 60
-```
-
-**Disable security entirely** (allow everything, block nothing):
-
-```yaml
-sandbox:
-  allow_all: true
-  blocked_modules: []
-```
-
-The LLM planner automatically sees which libraries are available and adjusts its code generation accordingly.
-
-## Security
-
-- **Read-only mode** (default): Blocks INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE
-- **SQL injection detection**: Flags suspicious patterns (stacked queries, INTO OUTFILE, etc.)
-- **Python sandbox**: Subprocess isolation with configurable import allowlist/blocklist, resource limits (memory, CPU)
-- **Credential redaction**: Connection strings and API keys are stripped from logs
-- **Rate limiting**: Configurable per-session query rate and concurrency limits
-- **Circuit breaker**: Automatic backoff on repeated LLM or database failures
+- [Development & Configuration Guide](docs/DEVELOPMENT.md) — LLM providers, sandbox security, YAML config reference, debugging, testing, architecture
 
 ## License
 
