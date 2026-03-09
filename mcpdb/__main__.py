@@ -21,7 +21,7 @@ mcpdb v{__version__} — MCP server for natural language database exploration
 
 Usage:
   mcpdb                          Print version
-  mcpdb serve                    Start MCP server (stdio, for Claude Desktop)
+  mcpdb serve                    Start MCP server (stdio, for MCP clients)
   mcpdb serve --transport sse    Start MCP server (SSE, for web clients)
   mcpdb serve --port 8765        Start SSE server on custom port
   mcpdb web                      Start web client (recommended)
@@ -58,8 +58,8 @@ MANUAL = f"""\
   into SQL, executes safely, and returns formatted answers with charts.
 
   Works with PostgreSQL, MySQL, SQLite, SQL Server, Oracle, CSV, and
-  Excel files. Connects to Claude Desktop as an MCP server or runs
-  standalone via web UI, REPL, TUI, or one-shot CLI.
+  Excel files. Runs standalone via web UI, REPL, TUI, one-shot CLI,
+  or as an MCP server for any MCP-compatible client.
 
 {'─' * 72}
   QUICK START
@@ -76,7 +76,7 @@ MANUAL = f"""\
   Interactive REPL:
     mcpdb repl "mysql+pymysql://user:pass@host/db"
 
-  MCP server for Claude Desktop:
+  MCP server (for any MCP-compatible client):
     mcpdb serve
 
 {'─' * 72}
@@ -168,22 +168,12 @@ MANUAL = f"""\
   MCP SERVER — mcpdb serve
 {'─' * 72}
 
-  Runs MCPDB as a Model Context Protocol server for Claude Desktop
-  or other MCP-compatible clients.
+  Runs MCPDB as a Model Context Protocol server for any
+  MCP-compatible client.
 
   Options:
     --transport stdio|sse   Transport protocol (default: stdio)
     --port PORT             Port for SSE transport (default: 8765)
-
-  Claude Desktop config (~/.config/claude/claude_desktop_config.json):
-    {{
-      "mcpServers": {{
-        "mcpdb": {{
-          "command": "mcpdb",
-          "args": ["serve"]
-        }}
-      }}
-    }}
 
   Provides 30+ tools including: connect_database, execute_sql,
   ask_question, search_schema, render_erd, profile_table,
@@ -307,7 +297,7 @@ MANUAL = f"""\
 
   GEMINI_API_KEY        API key for Google Gemini (default provider)
   OPENAI_API_KEY        API key for OpenAI models
-  ANTHROPIC_API_KEY     API key for Anthropic Claude models
+  ANTHROPIC_API_KEY     API key for Anthropic models
   MCPDB_CONFIG          Path to mcpdb.yaml config file
   MCPDB_DATABASE_URL    Pre-fill database URL in web UI
 

@@ -59,9 +59,9 @@ class MockProvider(LLMProvider):
 class TestModelConfig:
     def test_defaults(self):
         cfg = ModelConfig()
-        assert cfg.reasoning_provider == "anthropic"
-        assert cfg.reasoning_model == "claude-sonnet-4-6"
-        assert cfg.fast_model == "claude-haiku-4-5-20251001"
+        assert cfg.reasoning_provider == "gemini"
+        assert cfg.reasoning_model == "gemini-2.5-pro"
+        assert cfg.fast_model == "gemini-2.5-flash"
         assert cfg.temperature == 0.0
         assert cfg.max_tokens == 16384
 
@@ -80,8 +80,8 @@ class TestTokenUsage:
 class TestLLMUsage:
     def test_add(self):
         usage = LLMUsage()
-        usage.add("plan", TokenUsage(input_tokens=100, output_tokens=50), model="claude-sonnet-4-6")
-        usage.add("synthesize", TokenUsage(input_tokens=200, output_tokens=30), model="claude-haiku-4-5-20251001")
+        usage.add("plan", TokenUsage(input_tokens=100, output_tokens=50), model="gemini-2.5-pro")
+        usage.add("synthesize", TokenUsage(input_tokens=200, output_tokens=30), model="gemini-2.5-flash")
         assert usage.calls == 2
         assert usage.input_tokens == 300
         assert usage.output_tokens == 80
@@ -257,5 +257,9 @@ class TestAnthropicProvider:
 
     def test_lazy_client(self):
         provider = AnthropicProvider(api_key="sk-test")
-        # Client not created until first use
         assert provider._client is None
+
+    def test_top_models(self):
+        for model in ("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"):
+            p = AnthropicProvider(model=model, api_key="sk-test")
+            assert p.model == model

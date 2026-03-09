@@ -1,4 +1,4 @@
-"""LLM provider abstraction and Anthropic implementation."""
+"""LLM provider abstraction."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ class LLMProvider(ABC):
 
 
 class AnthropicProvider(LLMProvider):
-    """Claude via Anthropic API."""
+    """Anthropic API provider (Claude Opus, Sonnet, Haiku)."""
 
     def __init__(self, model: str = "claude-sonnet-4-6", api_key: str = "") -> None:
         self.model = model

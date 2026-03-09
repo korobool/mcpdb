@@ -35,7 +35,7 @@ def create_provider(
 ) -> LLMProvider:
     """Create an LLM provider by name.
 
-    Supported providers: anthropic, openai, gemini, ollama.
+    Supported providers: gemini, openai, anthropic, ollama.
     Automatically resolves API keys from environment variables if not provided.
     """
     name = provider_name.lower()

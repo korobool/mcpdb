@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 class ModelConfig:
     """LLM configuration for the agent."""
 
-    reasoning_provider: str = "anthropic"
-    reasoning_model: str = "claude-sonnet-4-6"
-    fast_provider: str = "anthropic"
-    fast_model: str = "claude-haiku-4-5-20251001"
+    reasoning_provider: str = "gemini"
+    reasoning_model: str = "gemini-2.5-pro"
+    fast_provider: str = "gemini"
+    fast_model: str = "gemini-2.5-flash"
     temperature: float = 0.0
     max_tokens: int = 16384
     timeout: int = 120

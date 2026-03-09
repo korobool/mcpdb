@@ -23,6 +23,12 @@ class TestCreateProvider:
         p = create_provider("anthropic", model="claude-haiku-4-5-20251001")
         assert p.model == "claude-haiku-4-5-20251001"
 
+    def test_gemini(self):
+        from mcpdb.llm.gemini_provider import GeminiProvider
+        p = create_provider("gemini")
+        assert isinstance(p, GeminiProvider)
+        assert p.model == "gemini-2.5-pro"
+
     def test_openai(self):
         from mcpdb.llm.openai_provider import OpenAIProvider
         p = create_provider("openai")
@@ -34,12 +40,6 @@ class TestCreateProvider:
         p = create_provider("openai", model="gpt-4-turbo", api_key="sk-test")
         assert p.model == "gpt-4-turbo"
         assert p._api_key == "sk-test"
-
-    def test_gemini(self):
-        from mcpdb.llm.gemini_provider import GeminiProvider
-        p = create_provider("gemini")
-        assert isinstance(p, GeminiProvider)
-        assert p.model == "gemini-2.5-pro"
 
     def test_ollama(self):
         from mcpdb.llm.ollama_provider import OllamaProvider
@@ -166,11 +166,11 @@ class TestImports:
         from mcpdb.llm.ollama_provider import OllamaProvider
         assert callable(OllamaProvider)
 
+    def test_import_anthropic_provider(self):
+        from mcpdb.llm.provider import AnthropicProvider
+        assert callable(AnthropicProvider)
+
     def test_import_factory(self):
         from mcpdb.llm.factory import create_provider, FallbackProvider
         assert callable(create_provider)
         assert callable(FallbackProvider)
-
-    def test_anthropic_provider_model(self):
-        p = AnthropicProvider(model="claude-opus-4-6")
-        assert p.model == "claude-opus-4-6"

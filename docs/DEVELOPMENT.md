@@ -92,22 +92,6 @@ llm:
     api_key: ${GEMINI_API_KEY}
 ```
 
-For Claude Desktop, pass the key in MCP config:
-```json
-{
-  "mcpServers": {
-    "mcpdb": {
-      "command": "mcpdb",
-      "args": ["serve"],
-      "env": {
-        "GEMINI_API_KEY": "your-key-here",
-        "MCPDB_CONFIG": "/path/to/mcpdb.yaml"
-      }
-    }
-  }
-}
-```
-
 ### OpenAI
 
 ```bash
@@ -121,6 +105,20 @@ llm:
     provider: openai
     model: gpt-4.1
     api_key: ${OPENAI_API_KEY}
+```
+
+### Anthropic
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+```yaml
+llm:
+  reasoning:
+    provider: anthropic
+    model: claude-sonnet-4-6     # or claude-opus-4-6, claude-haiku-4-5-20251001
+    api_key: ${ANTHROPIC_API_KEY}
 ```
 
 ### Ollama (Local Models)
@@ -285,8 +283,8 @@ mcpdb/
 ├── llm/                 # LLM provider abstraction
 │   ├── provider.py      # LLMProvider ABC, _extract_json(), _repair_json()
 │   ├── factory.py       # create_provider() factory
-│   ├── gemini_provider.py, openai_provider.py
-│   ├── anthropic_provider.py, ollama_provider.py
+│   ├── gemini_provider.py, openai_provider.py, ollama_provider.py
+│   ├── provider.py             # Base class + AnthropicProvider
 ├── sandbox/             # Secure Python execution (subprocess-based)
 ├── security/            # SQL safety, credential redaction, rate limiting
 ├── experience/          # Two-tier cache, quality evaluation, anti-patterns

@@ -35,7 +35,7 @@
 
 ## 1. System Overview
 
-MCPDB is a production-grade agentic system that enables natural language interaction with **databases**, **CSV files**, and **Excel workbooks**. It is built as a **LangGraph-based agent** exposed through the **Model Context Protocol (MCP)**, making it usable from any MCP-compatible client (Claude Desktop, VS Code extensions, custom frontends).
+MCPDB is a production-grade agentic system that enables natural language interaction with **databases**, **CSV files**, and **Excel workbooks**. It is built as a **LangGraph-based agent** exposed through the **Model Context Protocol (MCP)**, making it usable from any MCP-compatible client (VS Code extensions, custom frontends, etc.).
 
 ### 1.1 Functional Capabilities
 
@@ -75,14 +75,15 @@ MCPDB is a production-grade agentic system that enables natural language interac
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           MCP CLIENTS                               │
 │  ┌──────────┐  ┌──────────────┐  ┌─────┐  ┌────────────────────┐   │
-│  │ Claude   │  │ VS Code /    │  │ CLI │  │ MCPDB Web Client   │   │
-│  │ Desktop  │  │ IDE plugins  │  │     │  │ (FastAPI+WebSocket) │   │
+│  ┌──────────┐  ┌──────────────┐  ┌─────┐  ┌────────────────────┐   │
+│  │ VS Code /│  │ Custom MCP   │  │ CLI │  │ MCPDB Web Client   │   │
+│  │ IDE ext  │  │ clients      │  │     │  │ (FastAPI+WebSocket) │   │
 │  └────┬─────┘  └──────┬───────┘  └──┬──┘  └────────┬───────────┘   │
 │       │               │             │               │               │
 │       └───────────────┴──────┬──────┴───────────────┘               │
 │                              │                                      │
 │                     ┌────────┴────────┐                             │
-│                     │   MCP Protocol  │  stdio (Claude Desktop)     │
+│                     │   MCP Protocol  │  stdio / SSE               │
 │                     │   (JSON-RPC)    │  SSE (web/remote clients)   │
 │                     └────────┬────────┘                             │
 └──────────────────────────────┼──────────────────────────────────────┘
@@ -1128,7 +1129,7 @@ Creates an MCP server with:
 3. Resources (schema, ERD)
 4. Prompts (explore_source, deep_table_analysis)
 
-**Transport:** stdio (Claude Desktop) or SSE (web/remote clients).
+**Transport:** stdio (MCP clients) or SSE (web/remote clients).
 
 ### 16.2 Tool Dispatcher (`tools/__init__.py`)
 
@@ -1655,7 +1656,6 @@ mcpdb/
 │   ├── factory.py           # create_provider(), FallbackProvider
 │   ├── gemini_provider.py
 │   ├── openai_provider.py
-│   ├── anthropic_provider.py
 │   └── ollama_provider.py
 │
 ├── sandbox/                 # Secure Python execution

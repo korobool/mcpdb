@@ -4,7 +4,7 @@
 
 MCPDB is an MCP server and standalone tool for natural language data analysis. Point it at a database, CSV, or Excel file — ask questions in plain English — and get answers with tables, charts, ER diagrams, and exportable Jupyter notebooks.
 
-Supports **PostgreSQL, MySQL, SQLite, SQL Server, Oracle, CSV, and Excel**. Connects to Claude Desktop as an MCP server, or runs standalone via a **web UI**, **CLI**, **REPL**, or **TUI**.
+Supports **PostgreSQL, MySQL, SQLite, SQL Server, Oracle, CSV, and Excel**. Runs standalone via a **web UI**, **CLI**, **REPL**, **TUI**, or as an **MCP server** for any MCP-compatible client.
 
 ---
 
@@ -100,7 +100,7 @@ pip install -e ".[dev,all]"
 |----------|---------|
 | `GEMINI_API_KEY` | Google Gemini API key (default LLM provider) |
 | `OPENAI_API_KEY` | OpenAI API key (alternative provider) |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key (alternative provider) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (alternative provider) |
 | `MCPDB_DATABASE_URL` | Auto-connect database on startup |
 | `MCPDB_CONFIG` | Path to `mcpdb.yaml` config file |
 | `MCPDB_LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`) |
@@ -152,7 +152,7 @@ Windowed terminal UI with source panel, pipeline progress bar, and scrollable re
 ### MCP Server
 
 ```bash
-mcpdb serve                          # stdio transport (for Claude Desktop)
+mcpdb serve                          # stdio transport (for MCP clients)
 mcpdb serve --transport sse          # SSE transport (for web/remote clients)
 mcpdb serve --transport sse --port 8765
 ```
@@ -179,29 +179,9 @@ Override in the REPL: `/mode simple` (or `/mode auto` to reset). In the web UI, 
 
 MCPDB implements the [Model Context Protocol](https://modelcontextprotocol.io/) and exposes **33 tools** across 10 categories. Any MCP-compatible client can connect.
 
-### Claude Desktop
+### MCP Client Configuration
 
-Add to `~/.config/claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "mcpdb": {
-      "command": "mcpdb",
-      "args": ["serve"],
-      "env": {
-        "GEMINI_API_KEY": "your-gemini-key"
-      }
-    }
-  }
-}
-```
-
-Then ask Claude: *"Connect to postgresql://user:pass@localhost/mydb and show me the tables."*
-
-### VS Code (Cline / Continue / MCP extensions)
-
-VS Code extensions that support MCP servers use the same configuration format. Add to your extension's MCP settings:
+Any MCP-compatible client (VS Code extensions like Cline/Continue, custom frontends, etc.) can connect using standard MCP configuration:
 
 ```json
 {
