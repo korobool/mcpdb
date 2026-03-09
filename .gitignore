@@ -20,3 +20,6 @@ venv/
 .claude/
 .run.sh
 .secret.txt
+tests/web_qa/artifacts/
+tests/eval/auto_eval_*.json
+tests/productization/web/screenshots/
