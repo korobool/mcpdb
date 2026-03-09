@@ -92,7 +92,8 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
     _experience_service = ExperienceService(_config.experience)
 
     # Pass env DB URL to template for pre-filling (don't auto-connect)
-    _prefill_db_url = os.environ.get("MCPDB_DATABASE_URL", "")
+    from mcpdb.secrets import resolve_secret
+    _prefill_db_url = resolve_secret("MCPDB_DATABASE_URL")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

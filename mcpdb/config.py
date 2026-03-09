@@ -115,9 +115,10 @@ def _resolve_env_vars(value: str) -> str:
     if not isinstance(value, str):
         return value
     import re
+    from mcpdb.secrets import resolve_secret
     def _replace(match: re.Match) -> str:
         var_name = match.group(1)
-        return os.environ.get(var_name, "")
+        return resolve_secret(var_name)
     return re.sub(r"\$\{(\w+)\}", _replace, value)
 
 

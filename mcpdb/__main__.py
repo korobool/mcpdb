@@ -359,6 +359,9 @@ def _apply_sandbox_config(config) -> None:
 
 
 def main() -> None:
+    from mcpdb.secrets import load_dotenv_if_available
+    load_dotenv_if_available()
+
     logger = setup_logging()
     config = load_config()
     _apply_sandbox_config(config)

@@ -1,6 +1,6 @@
 # MCPDB — Ask Questions, Get Answers from Any Data
 
-**Version 5.3.0** | [GitHub](https://github.com/korobool/mcpdb) | MIT License
+**Version 5.4.0** | [GitHub](https://github.com/korobool/mcpdb) | MIT License
 
 MCPDB is an MCP server and standalone tool for natural language data analysis. Point it at a database, CSV, or Excel file — ask questions in plain English — and get answers with tables, charts, ER diagrams, and exportable Jupyter notebooks.
 
@@ -411,6 +411,122 @@ MCPDB exposes 33 tools organized into 10 categories:
 
 ---
 
+## Docker
+
+The Docker image ships all modes (web, query, repl, tui, serve) and most database drivers pre-installed.
+
+### Quick Start
+
+```bash
+# Build the image
+docker build -t mcpdb .
+
+# Run web client (default) — opens on http://localhost:8080
+docker run --rm -p 8080:8080 -e GEMINI_API_KEY=your-key mcpdb
+```
+
+### Docker Compose
+
+```bash
+export GEMINI_API_KEY=your-key
+docker compose up -d        # Start in background
+docker compose logs -f      # Follow logs
+docker compose down          # Stop
+```
+
+Edit `docker-compose.yml` to add database URLs, mount config files, or switch LLM providers.
+
+### All CLI Modes
+
+Every mode works inside the container, not just web:
+
+```bash
+# One-shot query against a remote database
+docker run --rm -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb query "postgresql://user:pass@host/db" "How many customers?"
+
+# Query a local CSV file (mount it into the container)
+docker run --rm -e GEMINI_API_KEY=your-key -v /path/to/data:/data mcpdb \
+  mcpdb query /data/sales.csv "Top 10 products by revenue"
+
+# Interactive REPL
+docker run --rm -it -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb repl "mysql+pymysql://user:pass@host/db"
+
+# Textual TUI
+docker run --rm -it -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb tui "sqlite:///data/my.db"
+
+# MCP server (SSE transport for remote clients)
+docker run --rm -p 8765:8765 -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb serve --transport sse --port 8765
+```
+
+### Connecting to Host Databases
+
+To reach databases running on the host machine:
+
+```bash
+# Linux: use --network host
+docker run --rm --network host -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb query "mysql+pymysql://user:pass@localhost:3306/db" "Show tables"
+
+# macOS / Windows: use host.docker.internal
+docker run --rm -e GEMINI_API_KEY=your-key mcpdb \
+  mcpdb query "postgresql://user:pass@host.docker.internal:5432/db" "Show tables"
+```
+
+### Persistent Data
+
+Mount a volume to keep the experience cache and exported charts across restarts:
+
+```bash
+docker run --rm -p 8080:8080 -e GEMINI_API_KEY=your-key \
+  -v mcpdb-data:/data mcpdb
+```
+
+### API Keys and Secrets
+
+MCPDB resolves API keys in priority order:
+
+1. **Explicit value** — passed in config or code
+2. **Environment variable** — `GEMINI_API_KEY=xxx`
+3. **File-based secret** (`_FILE` suffix) — `GEMINI_API_KEY_FILE=/run/secrets/gemini_key`
+4. **`.env` file** — loaded automatically if `python-dotenv` is installed
+
+The `_FILE` convention is the Docker/Kubernetes standard — the value is read from the file at that path. This works with Docker secrets, Kubernetes secrets mounted as volumes, and manual file mounts.
+
+```bash
+# Environment variable (simplest)
+docker run --rm -p 8080:8080 -e GEMINI_API_KEY=your-key mcpdb
+
+# File-based secret (production)
+echo "your-key" > ./secrets/gemini_key.txt
+docker run --rm -p 8080:8080 \
+  -v ./secrets:/run/secrets:ro \
+  -e GEMINI_API_KEY_FILE=/run/secrets/gemini_key.txt \
+  mcpdb
+
+# Docker Swarm secrets
+docker secret create gemini_key ./secrets/gemini_key.txt
+# Then in docker-compose.yml, reference the secret (see comments in file)
+
+# .env file (local development)
+cp .env.example .env    # Edit with your keys
+mcpdb web               # Keys loaded automatically
+```
+
+### Custom Configuration
+
+Mount a `mcpdb.yaml` (see `mcpdb.yaml.example` for all options):
+
+```bash
+docker run --rm -p 8080:8080 -e GEMINI_API_KEY=your-key \
+  -v ./mcpdb.yaml:/app/mcpdb.yaml:ro mcpdb
+```
+
+---
+
 ## Configuration
 
 MCPDB looks for `mcpdb.yaml` in: `$MCPDB_CONFIG` → `./mcpdb.yaml` → built-in defaults.
@@ -448,7 +564,7 @@ mcpdb/
 ├── mcp/                    MCP protocol layer (33 tools, resources, prompts)
 │   ├── server.py           Server creation + stdio/SSE transport
 │   └── tools/              Tool implementations across 10 categories
-├── agent/                  LangGraph agent orchestration
+├── agent/                  Agent orchestration (custom graph)
 │   ├── graph.py            Main graph: classify → mode → synthesize
 │   ├── nodes/              Plan, execute, debug, synthesize, validate
 │   ├── subgraphs/          Mode-specific: quick, simple, extended, optimization, deep

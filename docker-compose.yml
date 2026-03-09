@@ -1,0 +1,33 @@
+services:
+  mcpdb:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Uncomment for other providers:
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Database connection (pre-fills web UI):
+      # - MCPDB_DATABASE_URL=mysql+pymysql://user:pass@host:3306/db
+    volumes:
+      - mcpdb-data:/data           # Experience cache + charts
+      # Mount config file if customized:
+      # - ./mcpdb.yaml:/app/mcpdb.yaml:ro
+    restart: unless-stopped
+
+    # --- Docker Secrets (Swarm / Compose v2) ---
+    # Use _FILE suffix to read keys from mounted secret files.
+    # Uncomment the lines below to use file-based secrets instead of env vars.
+    #
+    # environment:
+    #   - GEMINI_API_KEY_FILE=/run/secrets/gemini_key
+    # secrets:
+    #   - gemini_key
+
+volumes:
+  mcpdb-data:
+
+# secrets:
+#   gemini_key:
+#     file: ./secrets/gemini_key.txt

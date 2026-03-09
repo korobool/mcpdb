@@ -1,0 +1,52 @@
+# MCPDB Configuration Example
+# Copy to mcpdb.yaml and customize.
+# Environment variables can be used: ${VAR_NAME}
+
+llm:
+  reasoning:
+    provider: gemini           # gemini | openai | anthropic | ollama
+    model: gemini-2.5-pro
+    api_key: ${GEMINI_API_KEY}
+  fast:
+    provider: gemini
+    model: gemini-2.5-flash
+    api_key: ${GEMINI_API_KEY}
+  temperature: 0.0
+  timeout: 120
+  budget_per_question_usd: 2.00
+
+server:
+  transport: stdio             # stdio | sse
+  host: localhost
+  port: 8765
+
+execution:
+  query_timeout: 30
+  python_timeout: 60
+  max_rows_display: 100
+  read_only: true
+
+cost_gate:
+  enabled: true
+  auto_mode: false
+  large_table_threshold: 1000000
+
+duckdb:
+  memory_limit: 2GB
+  threads: 4
+
+experience:
+  enabled: true
+  storage_dir: ~/.mcpdb/experience
+  cache_max_age_days: 30
+
+ui:
+  theme: dark
+  port: 8080
+
+sandbox:
+  allowed_modules: []
+  blocked_modules: []
+  allow_all: false
+  memory_mb: 2048
+  cpu_seconds: 60

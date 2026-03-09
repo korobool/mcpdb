@@ -12,19 +12,17 @@ logger = logging.getLogger("mcpdb.llm.factory")
 
 
 def _resolve_api_key(provider_name: str, api_key: str) -> str:
-    """Resolve API key, falling back to environment variables if empty."""
-    if api_key:
-        return api_key
-    import os
+    """Resolve API key via env var, _FILE secret, or .env file."""
+    from mcpdb.secrets import resolve_secret
     env_keys = {
         "gemini": "GEMINI_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
     }
     env_var = env_keys.get(provider_name.lower(), "")
-    if env_var:
-        return os.environ.get(env_var, "")
-    return ""
+    if not env_var:
+        return api_key or ""
+    return resolve_secret(env_var, explicit_value=api_key)
 
 
 def create_provider(
