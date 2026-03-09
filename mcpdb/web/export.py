@@ -30,6 +30,58 @@ logger = logging.getLogger("mcpdb.web.export")
 
 MERMAID_PATTERN = re.compile(r"```mermaid\s*([\s\S]*?)```")
 
+_MERMAID_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
+_MULTI_UNDERSCORE = re.compile(r"_+")
+
+
+def _sanitize_mermaid_id(name: str) -> str:
+    """Sanitize identifier for mermaid erDiagram (alphanumeric + underscore)."""
+    name = name.replace(" ", "_").replace("-", "_")
+    name = _MERMAID_UNSAFE.sub("", name)
+    name = _MULTI_UNDERSCORE.sub("_", name)
+    return name or "unnamed"
+
+
+def _sanitize_mermaid_erd(code: str) -> str:
+    """Sanitize an erDiagram block so identifiers are mermaid-safe."""
+    if not re.search(r"^\s*erDiagram\b", code, re.M):
+        return code
+    lines: list[str] = []
+    for line in code.split("\n"):
+        # Entity definition: "    EntityName {"
+        m = re.match(r"^(\s*)(\S+)(\s*\{)\s*$", line)
+        if m:
+            lines.append(m.group(1) + _sanitize_mermaid_id(m.group(2)) + m.group(3))
+            continue
+        # Closing brace
+        if re.match(r"^\s*\}\s*$", line):
+            lines.append(line)
+            continue
+        # Attribute: "        type name PK/FK"
+        m = re.match(r"^(\s+)(\S+)\s+(.+?)(\s+(?:PK|FK))?\s*$", line)
+        if m and "|" not in line and "{" not in line:
+            indent = m.group(1)
+            dtype = re.sub(r"[\s(),'\"]+", "_", m.group(2)).strip("_") or "unknown"
+            raw_name = re.sub(r'\s*"[^"]*"\s*$', "", m.group(3)).strip()
+            safe_name = _sanitize_mermaid_id(raw_name)
+            marker = m.group(4) or ""
+            lines.append(f"{indent}{dtype} {safe_name}{marker}")
+            continue
+        # Relationship with quoted label
+        m = re.match(
+            r'^(\s*)(\S+)(\s*(?:[\|\.o\{}\<\>])+(?:--?|\.\.)(?:[\|\.o\{}\<\>])+\s*)(\S+)(\s*:\s*)"([^"]*)"(.*)$',
+            line,
+        )
+        if m:
+            lines.append(
+                m.group(1) + _sanitize_mermaid_id(m.group(2)) + m.group(3)
+                + _sanitize_mermaid_id(m.group(4)) + m.group(5)
+                + '"' + _sanitize_mermaid_id(m.group(6)) + '"' + m.group(7)
+            )
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
 
 def _mermaid_to_base64_uri(mermaid_code: str, timeout: float = 10.0) -> str | None:
     """Render mermaid code to a PNG via kroki.io (fallback: mermaid.ink)."""
@@ -85,7 +137,7 @@ def _markdown_to_html(text: str) -> str:
         return f"<p>{html_escape(text)}</p>"
 
     def _replace_mermaid(m):
-        code = m.group(1).strip()
+        code = _sanitize_mermaid_erd(m.group(1).strip())
         uri = _mermaid_to_base64_uri(code)
         if uri:
             return f'<div class="mermaid-diagram"><img src="{uri}" alt="Diagram"></div>'

@@ -746,6 +746,10 @@ function renderMessage(msg) {
     el.classList.add('mermaid');
     el.textContent = code;
   });
+  // Sanitize erDiagram identifiers (CSV column names with spaces/parens break mermaid)
+  div.querySelectorAll('.mermaid').forEach(el => {
+    el.textContent = sanitizeMermaidERD(el.textContent);
+  });
   mermaid.run({ nodes: div.querySelectorAll('.mermaid') });
 
   // Highlight code blocks
@@ -1322,8 +1326,11 @@ async function renderWelcome() {
   // Store in messages array so it persists conceptually
   messages.push({ role: 'assistant', content, meta: { isWelcome: true } });
 
-  // Render mermaid
-  div.querySelectorAll('.mermaid').forEach(node => { mermaid.run({ nodes: [node] }); });
+  // Render mermaid (sanitize erDiagram identifiers for CSV column names)
+  div.querySelectorAll('.mermaid').forEach(node => {
+    node.textContent = sanitizeMermaidERD(node.textContent);
+    mermaid.run({ nodes: [node] });
+  });
   // Highlight code
   div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
 
@@ -1389,6 +1396,48 @@ customRenderer.image = function({ href, title, text }) {
 marked.setOptions({ renderer: customRenderer });
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+
+// ── Mermaid sanitization ─────────────────────────────────
+// Mermaid erDiagram identifiers must be alphanumeric + underscores.
+// LLM-generated mermaid often contains raw CSV column names with spaces,
+// parentheses, hyphens, etc. that break the parser.
+function _mermaidSanitizeId(name) {
+  return name.replace(/[\s\-]+/g, '_').replace(/[^A-Za-z0-9_]/g, '').replace(/_+/g, '_') || 'unnamed';
+}
+
+function sanitizeMermaidERD(code) {
+  // Only sanitize erDiagram blocks
+  if (!/^\s*erDiagram\b/m.test(code)) return code;
+  return code.split('\n').map(line => {
+    // Entity definition: "    EntityName {"
+    const entityDef = line.match(/^(\s*)(\S+)(\s*\{)\s*$/);
+    if (entityDef) return entityDef[1] + _mermaidSanitizeId(entityDef[2]) + entityDef[3];
+    // Closing brace — pass through
+    if (/^\s*\}\s*$/.test(line)) return line;
+    // Attribute line: "        type name PK/FK" or "        type name"
+    const attr = line.match(/^(\s+)(\S+)\s+(.+?)(\s+(?:PK|FK))?\s*$/);
+    if (attr && !/\|/.test(line) && !/\{/.test(line)) {
+      const indent = attr[1];
+      const dtype = attr[2].replace(/[\s(),"]+/g, '_').replace(/_+/g, '_') || 'unknown';
+      // Preserve trailing "comment" (valid mermaid syntax), only sanitize the name part
+      const nameAndComment = attr[3];
+      const commentMatch = nameAndComment.match(/^(.*?)\s*("[^"]*")\s*$/);
+      const rawName = commentMatch ? commentMatch[1].trim() : nameAndComment.trim();
+      const comment = commentMatch ? ' ' + commentMatch[2] : '';
+      const safeName = _mermaidSanitizeId(rawName);
+      const marker = attr[4] || '';
+      return indent + dtype + ' ' + safeName + comment + marker;
+    }
+    // Relationship: "    A ||--o{ B : "label""
+    const rel = line.match(/^(\s*)(\S+)(\s*(?:\|\|?|\.\.?|[{}o|])+(?:--?|\.\.?)(?:\|\|?|\.\.?|[{}o|])+\s*)(\S+)(\s*:\s*)"([^"]*)"(.*)$/);
+    if (rel) return rel[1] + _mermaidSanitizeId(rel[2]) + rel[3] + _mermaidSanitizeId(rel[4]) + rel[5] + '"' + _mermaidSanitizeId(rel[6]) + '"' + rel[7];
+    // Relationship without quotes on label
+    const rel2 = line.match(/^(\s*)(\S+)(\s*(?:\|\|?|\.\.?|[{}o|])+(?:--?|\.\.?)(?:\|\|?|\.\.?|[{}o|])+\s*)(\S+)(\s*:\s*)(\S+)\s*$/);
+    if (rel2) return rel2[1] + _mermaidSanitizeId(rel2[2]) + rel2[3] + _mermaidSanitizeId(rel2[4]) + rel2[5] + _mermaidSanitizeId(rel2[6]);
+    return line;
+  }).join('\n');
+}
+
 
 // ── Export functions ──────────────────────────────────────
 function updateExportVisibility() {

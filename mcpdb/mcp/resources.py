@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from dataclasses import dataclass
@@ -200,13 +201,15 @@ def _build_mermaid_erd(tables: list, relationships: list[dict]) -> str:
     # --- Render tables with PK/FK markers --------------------------------
     lines = ["erDiagram"]
     for table in tables:
-        lines.append(f"    {table.name} {{")
+        safe_table = _sanitize_mermaid_name(table.name)
+        lines.append(f"    {safe_table} {{")
         for i, col in enumerate(table.columns):
             is_pk = col.name in table.primary_keys
             is_fk = (table.name, col.name) in fk_columns
             marker = "PK" if is_pk else ("FK" if is_fk else "")
             dtype = _sanitize_mermaid_type(col.dtype)
-            lines.append(f"        {dtype} {col.name} {marker}".rstrip())
+            safe_name = _sanitize_mermaid_name(col.name)
+            lines.append(f"        {dtype} {safe_name} {marker}".rstrip())
             if i >= 9:
                 remaining = len(table.columns) - 10
                 lines.append(f"        string _{remaining}_more_columns_ \"\"")
@@ -229,15 +232,47 @@ def _build_mermaid_erd(tables: list, relationships: list[dict]) -> str:
 
         # Label: the FK column name
         src_cols = rel.get("source_columns", [])
-        label = src_cols[0] if src_cols else ""
+        label = _sanitize_mermaid_label(src_cols[0]) if src_cols else ""
 
         # Cardinality: parent ||--o{ child (one-to-many)
         # Use dotted line for inferred relationships
         rel_type = rel.get("type", "foreign_key")
         connector = "||..o{" if rel_type == "inferred" else "||--o{"
-        lines.append(f'    {tgt} {connector} {src} : "{label}"')
+        safe_src = _sanitize_mermaid_name(src)
+        safe_tgt = _sanitize_mermaid_name(tgt)
+        lines.append(f'    {safe_tgt} {connector} {safe_src} : "{label}"')
 
     return "\n".join(lines)
+
+
+def _sanitize_mermaid_name(name: str) -> str:
+    """Sanitize a table or column name for mermaid ER diagram identifiers.
+
+    Mermaid erDiagram identifiers must be alphanumeric (plus underscores).
+    Spaces, parentheses, quotes, hyphens, and other special characters
+    cause parse errors.  E.g. ``Order Date (UTC)`` → ``Order_Date_UTC``.
+    """
+    # Replace spaces and hyphens with underscores
+    name = name.replace(" ", "_").replace("-", "_")
+    # Remove all characters that aren't alphanumeric or underscore
+    name = re.sub(r"[^A-Za-z0-9_]", "", name)
+    # Collapse multiple underscores
+    name = re.sub(r"_+", "_", name)
+    return name or "unnamed"
+
+
+def _sanitize_mermaid_label(label: str) -> str:
+    """Sanitize a relationship label for mermaid ER diagram.
+
+    Labels appear inside double quotes, so we only need to escape
+    quotes and remove characters that could break the mermaid parser.
+    """
+    label = label.replace('"', "'")
+    label = label.replace(" ", "_").replace("-", "_")
+    # Remove problematic chars but keep underscores and alphanumerics
+    label = re.sub(r"[^A-Za-z0-9_]", "", label)
+    label = re.sub(r"_+", "_", label)
+    return label
 
 
 def _sanitize_mermaid_type(dtype: str) -> str:
