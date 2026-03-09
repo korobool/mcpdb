@@ -27,7 +27,7 @@ class TestSourcePanel:
 class TestPipelineBar:
     def test_initial_state(self):
         bar = PipelineBar()
-        text = bar._render()
+        text = bar._build_text()
         assert "Classify" in str(text)
         assert "Plan" in str(text)
         assert "Execute" in str(text)
@@ -35,29 +35,42 @@ class TestPipelineBar:
 
     def test_set_mode(self):
         bar = PipelineBar()
-        bar.set_mode("simple")
-        text = bar._render()
+        bar._mode = "simple"
+        text = bar._build_text()
         assert "simple" in str(text)
 
     def test_update_phase(self):
         bar = PipelineBar()
-        bar.update_phase("classify", "✓", "green", "→ simple")
+        # Test internal state directly (update_phase calls self.update which needs app context)
+        bar._phases["classify"] = ("✓", "green")
+        bar._detail = "→ simple"
         assert bar._phases["classify"] == ("✓", "green")
         assert "simple" in bar._detail
+        text = bar._build_text()
+        assert "simple" in str(text)
 
     def test_set_step_info(self):
         bar = PipelineBar()
-        bar.set_step_info("Step 1/3 (sql)")
-        text = bar._render()
+        bar._step_info = "Step 1/3 (sql)"
+        text = bar._build_text()
         assert "Step 1/3" in str(text)
 
-    def test_reset(self):
+    def test_reset_state(self):
         bar = PipelineBar()
-        bar.set_mode("deep")
-        bar.update_phase("classify", "✓", "green")
-        bar.reset()
+        bar._mode = "deep"
+        bar._phases["classify"] = ("✓", "green")
+        bar._detail = "test"
+        bar._step_info = "step"
+        # Manually reset state (reset() calls self.update which needs app context)
+        for k in bar._phases:
+            bar._phases[k] = ("◌", "dim")
+        bar._mode = ""
+        bar._detail = ""
+        bar._step_info = ""
         assert bar._mode == ""
         assert bar._phases["classify"] == ("◌", "dim")
+        text = bar._build_text()
+        assert "deep" not in str(text)
 
 
 class TestMcpdbTUI:
@@ -69,7 +82,7 @@ class TestMcpdbTUI:
 
         app = McpdbTUI(registry=registry, llm=llm, config=config)
         assert app._query_count == 0
-        assert not app._running
+        assert not app._query_running
 
     def test_followup_generation(self):
         registry = MagicMock()

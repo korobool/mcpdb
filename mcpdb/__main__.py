@@ -695,6 +695,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
             progress.finish(state)
             renderer = ResultRenderer()
             renderer.render_response(response)
+            renderer.render_artifacts(state.get("artifacts", []))
         except Exception as e:
             progress.error(str(e))
             raise
@@ -754,6 +755,7 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
             progress.finish(state)
             renderer = ResultRenderer()
             renderer.render_response(response)
+            renderer.render_artifacts(state.get("artifacts", []))
         except Exception as e:
             progress.error(str(e))
             raise
@@ -809,6 +811,7 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
             progress.finish(state)
             renderer = ResultRenderer()
             renderer.render_response(response)
+            renderer.render_artifacts(state.get("artifacts", []))
         except Exception as e:
             progress.error(str(e))
             raise

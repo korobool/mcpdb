@@ -275,6 +275,20 @@ class Repl:
         followups = self._generate_followups(question, response, state)
 
         self._renderer.render_response(response, followups)
+        self._renderer.render_artifacts(state.get("artifacts", []))
+
+        # Show token usage
+        usage = state.get("llm_usage")
+        if usage and usage.get("calls"):
+            from mcpdb.cli.progress import fmt_tokens
+            total = usage.get("total_tokens", 0)
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            self._console.print(
+                f"[dim]{usage['calls']} LLM calls · "
+                f"{fmt_tokens(inp)} in / {fmt_tokens(out)} out · "
+                f"{elapsed:.1f}s[/dim]"
+            )
 
         # Store history
         self._history.append({
@@ -282,12 +296,14 @@ class Repl:
             "mode": state.get("query_mode", "?"),
             "elapsed": elapsed,
             "response": response,
+            "llm_usage": usage,
         })
         self._last_result = {
             "question": question,
             "response": response,
             "query_mode": state.get("query_mode"),
             "artifacts": state.get("artifacts", []),
+            "llm_usage": usage,
         }
         self._last_followups = followups
 

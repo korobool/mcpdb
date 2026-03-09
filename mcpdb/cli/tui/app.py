@@ -10,6 +10,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.worker import Worker, WorkerState
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
     Footer,
@@ -35,12 +36,12 @@ class SourcePanel(Static):
     }
     """
 
-    def __init__(self, sources: list[Any] | None = None) -> None:
-        super().__init__()
+    def __init__(self, sources: list[Any] | None = None, **kwargs: Any) -> None:
+        super().__init__("", **kwargs)
         self._sources = sources or []
 
-    def compose(self) -> ComposeResult:
-        yield Static(self._render_sources(), id="source-list")
+    def on_mount(self) -> None:
+        self.update(self._render_sources())
 
     def _render_sources(self) -> Text:
         text = Text()
@@ -58,10 +59,7 @@ class SourcePanel(Static):
 
     def update_sources(self, sources: list[Any]) -> None:
         self._sources = sources
-        try:
-            self.query_one("#source-list", Static).update(self._render_sources())
-        except Exception:
-            pass
+        self.update(self._render_sources())
 
 
 class PipelineBar(Static):
@@ -77,8 +75,8 @@ class PipelineBar(Static):
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__("", **kwargs)
         self._phases = {
             "classify": ("◌", "dim"),
             "plan": ("◌", "dim"),
@@ -89,10 +87,10 @@ class PipelineBar(Static):
         self._detail = ""
         self._step_info = ""
 
-    def compose(self) -> ComposeResult:
-        yield Static(self._render(), id="pipeline-display")
+    def on_mount(self) -> None:
+        self.update(self._build_text())
 
-    def _render(self) -> Text:
+    def _build_text(self) -> Text:
         text = Text()
 
         if self._mode:
@@ -118,15 +116,15 @@ class PipelineBar(Static):
             self._phases[phase] = (icon, style)
         if detail:
             self._detail = detail
-        self._refresh()
+        self.update(self._build_text())
 
     def set_mode(self, mode: str) -> None:
         self._mode = mode
-        self._refresh()
+        self.update(self._build_text())
 
     def set_step_info(self, info: str) -> None:
         self._step_info = info
-        self._refresh()
+        self.update(self._build_text())
 
     def reset(self) -> None:
         for k in self._phases:
@@ -134,13 +132,7 @@ class PipelineBar(Static):
         self._mode = ""
         self._detail = ""
         self._step_info = ""
-        self._refresh()
-
-    def _refresh(self) -> None:
-        try:
-            self.query_one("#pipeline-display", Static).update(self._render())
-        except Exception:
-            pass
+        self.update(self._build_text())
 
 
 class McpdbTUI(App):
@@ -207,13 +199,13 @@ class McpdbTUI(App):
         no_cache: bool = False,
     ) -> None:
         super().__init__()
-        self._registry = registry
+        self._source_registry = registry
         self._llm = llm
         self._config = config
         self._experience = experience_service
         self._no_cache = no_cache
         self._query_count = 0
-        self._running = False
+        self._query_running = False
         self._cancellation_token = None
         self._history: list[str] = []
         self._last_followups: list[str] = []
@@ -223,9 +215,10 @@ class McpdbTUI(App):
         with Vertical(id="main-container"):
             with Horizontal(id="top-row"):
                 yield SourcePanel(
-                    self._registry.list_sources(),
-                ).with_id("source-panel")
-                yield PipelineBar().with_id("pipeline-panel")
+                    self._source_registry.list_sources(),
+                    id="source-panel",
+                )
+                yield PipelineBar(id="pipeline-panel")
             yield RichLog(highlight=True, markup=True, id="result-log")
             yield RichLog(highlight=False, markup=True, max_lines=100, id="event-log")
         yield Input(placeholder="Type a question, number for suggestion, or /help", id="query-input")
@@ -235,9 +228,15 @@ class McpdbTUI(App):
     def on_mount(self) -> None:
         self.title = "mcpdb"
         self.sub_title = "Interactive Analysis"
-        sources = self._registry.list_sources()
+        sources = self._source_registry.list_sources()
         if sources:
             self.sub_title = f"{len(sources)} source(s) connected"
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if event.state == WorkerState.ERROR:
+            self._query_running = False
+            error = event.worker.error
+            self._log_event(f"[red]Worker error: {error}[/red]")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         user_input = event.value.strip()
@@ -284,7 +283,7 @@ class McpdbTUI(App):
             else:
                 result_log.write("Usage: /mode <quick|simple|extended|deep|auto>")
         elif command == "/source":
-            sources = self._registry.list_sources()
+            sources = self._source_registry.list_sources()
             for s in sources:
                 result_log.write(f"[green]●[/green] {s.display_name}")
         elif command == "/clear":
@@ -295,72 +294,72 @@ class McpdbTUI(App):
     @work(thread=False)
     async def _run_query(self, question: str) -> None:
         """Run a query asynchronously."""
-        if self._running:
+        if self._query_running:
             self._log_event("[yellow]Query already running[/yellow]")
             return
 
-        self._running = True
+        self._query_running = True
         self._query_count += 1
-
-        result_log = self.query_one("#result-log", RichLog)
-        pipeline = self.query_one("#pipeline-panel", PipelineBar)
-        stats = self.query_one("#stats-bar", Static)
-
-        pipeline.reset()
-        result_log.write(f"\n[bold]Q: {question}[/bold]\n")
-        stats.update(f"Running query #{self._query_count}...")
-
-        from mcpdb.agent.callbacks import CallbackManager
-        from mcpdb.agent.graph import run_agent
-
-        callbacks = CallbackManager()
-
-        def on_event(event: Any) -> None:
-            etype = event.type
-            data = event.data
-
-            if etype == "classify/complete":
-                mode = data.get("mode", "")
-                pipeline.set_mode(mode)
-                pipeline.update_phase("classify", "✓", "green", f"→ {mode}")
-                self._log_event(f"Mode: {mode}")
-            elif etype == "classify/start":
-                pipeline.update_phase("classify", "●", "bold cyan")
-            elif etype == "plan/start":
-                pipeline.update_phase("plan", "●", "bold cyan")
-            elif etype == "plan/ready":
-                count = data.get("step_count", 0)
-                pipeline.update_phase("plan", "✓", "green", f"→ {count} steps")
-                self._log_event(f"Plan: {count} steps")
-            elif etype == "step/start":
-                num = data.get("step_number", "?")
-                action = data.get("action", "")
-                pipeline.update_phase("execute", "●", "bold cyan")
-                pipeline.set_step_info(f"Step {num} ({action})")
-                self._log_event(f"Step {num}/{data.get('step_number', '?')} ({action})")
-            elif etype == "step/complete":
-                num = data.get("step_number", "?")
-                rows = data.get("rows", 0)
-                ms = data.get("time_ms", 0)
-                pipeline.set_step_info(f"Step {num} done ({rows} rows, {ms}ms)")
-            elif etype == "synthesize/start":
-                pipeline.update_phase("execute", "✓", "green")
-                pipeline.update_phase("synthesize", "●", "bold cyan")
-            elif etype == "synthesize/complete":
-                pipeline.update_phase("synthesize", "✓", "green")
-            elif etype == "debug/start":
-                self._log_event("[yellow]Debug: fixing error[/yellow]")
-            elif etype == "observer/warning":
-                msg = data.get("message", "")
-                self._log_event(f"[yellow]⚠ {msg}[/yellow]")
-
-        callbacks.add_listener(on_event)
-
         start = time.time()
+
         try:
+            result_log = self.query_one("#result-log", RichLog)
+            pipeline = self.query_one("#pipeline-panel", PipelineBar)
+            stats = self.query_one("#stats-bar", Static)
+
+            pipeline.reset()
+            result_log.write(f"\n[bold]Q: {question}[/bold]\n")
+            stats.update(f"Running query #{self._query_count}...")
+
+            from mcpdb.agent.callbacks import CallbackManager
+            from mcpdb.agent.graph import run_agent
+
+            callbacks = CallbackManager()
+
+            def on_event(event: Any) -> None:
+                etype = event.type
+                data = event.data
+
+                if etype == "classify/complete":
+                    mode = data.get("mode", "")
+                    pipeline.set_mode(mode)
+                    pipeline.update_phase("classify", "✓", "green", f"→ {mode}")
+                    self._log_event(f"Mode: {mode}")
+                elif etype == "classify/start":
+                    pipeline.update_phase("classify", "●", "bold cyan")
+                elif etype == "plan/start":
+                    pipeline.update_phase("plan", "●", "bold cyan")
+                elif etype == "plan/ready":
+                    count = data.get("step_count", 0)
+                    pipeline.update_phase("plan", "✓", "green", f"→ {count} steps")
+                    self._log_event(f"Plan: {count} steps")
+                elif etype == "step/start":
+                    num = data.get("step_number", "?")
+                    action = data.get("action", "")
+                    pipeline.update_phase("execute", "●", "bold cyan")
+                    pipeline.set_step_info(f"Step {num} ({action})")
+                    self._log_event(f"Step {num}/{data.get('step_number', '?')} ({action})")
+                elif etype == "step/complete":
+                    num = data.get("step_number", "?")
+                    rows = data.get("rows", 0)
+                    ms = data.get("time_ms", 0)
+                    pipeline.set_step_info(f"Step {num} done ({rows} rows, {ms}ms)")
+                elif etype == "synthesize/start":
+                    pipeline.update_phase("execute", "✓", "green")
+                    pipeline.update_phase("synthesize", "●", "bold cyan")
+                elif etype == "synthesize/complete":
+                    pipeline.update_phase("synthesize", "✓", "green")
+                elif etype == "debug/start":
+                    self._log_event("[yellow]Debug: fixing error[/yellow]")
+                elif etype == "observer/warning":
+                    msg = data.get("message", "")
+                    self._log_event(f"[yellow]⚠ {msg}[/yellow]")
+
+            callbacks.add_listener(on_event)
+
             state = await run_agent(
                 question,
-                self._registry,
+                self._source_registry,
                 self._llm,
                 callbacks,
                 experience_cache=(
@@ -379,6 +378,14 @@ class McpdbTUI(App):
             from rich.markdown import Markdown
             result_log.write(Markdown(response))
 
+            # Save charts to files and show paths in TUI log
+            from mcpdb.cli.renderer import save_chart_artifact
+            for art in state.get("artifacts", []):
+                if art.get("type") == "chart":
+                    path = save_chart_artifact(art)
+                    if path:
+                        result_log.write(f"  [bold green]📊 Chart saved:[/bold green] {path}")
+
             # Follow-ups
             followups = self._generate_followups(question, response, state)
             self._last_followups = followups
@@ -389,17 +396,29 @@ class McpdbTUI(App):
                     result_log.write(f"  [cyan]\\[{i}][/cyan] {f}")
 
             mode = state.get("query_mode", "?")
+            usage = state.get("llm_usage", {})
+            tok_str = ""
+            if usage.get("calls"):
+                from mcpdb.cli.progress import fmt_tokens
+                total = usage.get("total_tokens", 0)
+                tok_str = f" | {usage['calls']} calls, {fmt_tokens(total)} tokens"
             stats.update(
-                f"✓ {mode} | {elapsed:.1f}s | Queries: {self._query_count}"
+                f"✓ {mode} | {elapsed:.1f}s{tok_str} | Queries: {self._query_count}"
             )
             self._history.append(question)
 
         except Exception as e:
             elapsed = time.time() - start
-            result_log.write(f"[red]Error: {e}[/red]")
-            stats.update(f"✗ Error ({elapsed:.1f}s)")
+            self._log_event(f"[red]Error: {e}[/red]")
+            try:
+                result_log = self.query_one("#result-log", RichLog)
+                result_log.write(f"[red]Error: {e}[/red]")
+                stats = self.query_one("#stats-bar", Static)
+                stats.update(f"✗ Error ({elapsed:.1f}s)")
+            except Exception:
+                pass
         finally:
-            self._running = False
+            self._query_running = False
 
     def _generate_followups(
         self, question: str, response: str, state: dict[str, Any]
@@ -423,7 +442,7 @@ class McpdbTUI(App):
             pass
 
     def action_cancel_query(self) -> None:
-        if self._running and self._cancellation_token:
+        if self._query_running and self._cancellation_token:
             self._cancellation_token.cancel()
             self._log_event("[red]Query cancelled[/red]")
 

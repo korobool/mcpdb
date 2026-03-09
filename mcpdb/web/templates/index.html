@@ -365,6 +365,7 @@ let mon = {
   replanCount: 0,
   // LLM
   llmActive: false, llmLabel: '',
+  llmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0,
   // Deep mode
   deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
   deepReasoningStatus: '',
@@ -504,7 +505,13 @@ function handleEvent(msg) {
 
   // LLM streaming
   else if (et === 'llm/start') { mon.llmActive = true; mon.llmLabel = d.label || 'llm'; }
-  else if (et === 'llm/complete' || et === 'llm/cancelled') { mon.llmActive = false; mon.llmLabel = ''; }
+  else if (et === 'llm/complete') {
+    mon.llmActive = false; mon.llmLabel = '';
+    mon.llmCalls = d.total_calls || (mon.llmCalls + 1);
+    mon.llmInputTokens = d.total_input_tokens || mon.llmInputTokens;
+    mon.llmOutputTokens = d.total_output_tokens || mon.llmOutputTokens;
+  }
+  else if (et === 'llm/cancelled') { mon.llmActive = false; mon.llmLabel = ''; }
 
   // Mode-level
   else if (et === 'simple/start') { addLog('Simple mode started'); }
@@ -600,6 +607,7 @@ function resetMonitor() {
     validationStatus: '', validationReason: '',
     replanCount: 0,
     llmActive: false, llmLabel: '',
+    llmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0,
     deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
     deepReasoningStatus: '',
     log: [], startTime: 0, elapsed: 0,
@@ -620,7 +628,7 @@ function handleResult(msg) {
   if (msg.query_mode === 'deep' && mon.deepInvestigations.length > 0) {
     resultArtifacts = resultArtifacts.filter(a => a.type !== 'chart');
   }
-  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [] };
+  const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [], llmUsage: msg.llm_usage || null };
   addMessage('assistant', msg.response, meta);
 
   // Track structured turn for export
@@ -631,6 +639,7 @@ function handleResult(msg) {
     executionLog: msg.execution_log || [],
     mode: msg.query_mode || '',
     elapsed: mon.elapsed,
+    llmUsage: msg.llm_usage || null,
   });
   updateExportVisibility();
   toggleInputState(false);
@@ -722,6 +731,11 @@ function renderMessage(msg) {
     const parts = [];
     if (msg.meta.mode) parts.push(`Mode: ${msg.meta.mode}`);
     if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
+    if (msg.meta.llmUsage && msg.meta.llmUsage.calls) {
+      const u = msg.meta.llmUsage;
+      parts.push(`${u.calls} LLM calls`);
+      parts.push(`${fmtTokens(u.input_tokens)} in / ${fmtTokens(u.output_tokens)} out`);
+    }
     if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
 
     // Follow-up suggestions
@@ -961,7 +975,12 @@ function renderMonitor() {
   }
 
   // ── Elapsed ──
-  h += `<div class="mon-elapsed" id="mon-elapsed"><span class="time">${fmtElapsed(mon.elapsed)}</span> elapsed</div>`;
+  h += `<div class="mon-elapsed" id="mon-elapsed"><span class="time">${fmtElapsed(mon.elapsed)}</span> elapsed`;
+  if (mon.llmCalls > 0) {
+    const total = mon.llmInputTokens + mon.llmOutputTokens;
+    h += ` · ${mon.llmCalls} LLM calls · ${fmtTokens(total)} tokens`;
+  }
+  h += `</div>`;
 
   // ── Activity log ──
   if (mon.log.length) {
@@ -978,8 +997,12 @@ function renderMonitor() {
 function renderMonitorElapsed() {
   const el = document.getElementById('mon-elapsed');
   if (el) {
-    const time = el.querySelector('.time');
-    if (time) time.textContent = fmtElapsed(mon.elapsed);
+    let text = `<span class="time">${fmtElapsed(mon.elapsed)}</span> elapsed`;
+    if (mon.llmCalls > 0) {
+      const total = mon.llmInputTokens + mon.llmOutputTokens;
+      text += ` · ${mon.llmCalls} LLM calls · ${fmtTokens(total)} tokens`;
+    }
+    el.innerHTML = text;
   }
 }
 
@@ -992,6 +1015,13 @@ function fmtElapsed(s) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}m ${sec}s`;
+}
+
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return n.toString();
 }
 
 // ── Source management ──────────────────────────────────

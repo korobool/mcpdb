@@ -536,6 +536,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
                     "execution_log": _sanitize_list(state.get("execution_log", [])),
                     "query_mode": state.get("query_mode", ""),
                     "followups": followups,
+                    "llm_usage": state.get("llm_usage"),
                 })
             except asyncio.TimeoutError:
                 event_queue.put_nowait({

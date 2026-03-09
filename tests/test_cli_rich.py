@@ -393,12 +393,51 @@ class TestResultRenderer:
         output = c.file.getvalue()
         assert "..." in output  # Truncation indicator
 
-    def test_render_chart_artifact(self):
+    def test_render_chart_artifact_empty(self):
         c = self._make_console()
         r = ResultRenderer(c)
         r.render_artifacts([{"type": "chart"}])
         output = c.file.getvalue()
-        assert "web client" in output.lower()
+        assert "empty" in output.lower()
+
+    def test_render_chart_artifact_saves_file(self, tmp_path, monkeypatch):
+        import mcpdb.cli.renderer as renderer_mod
+        monkeypatch.setattr(renderer_mod, "_CHART_DIR", tmp_path)
+        c = self._make_console()
+        r = ResultRenderer(c)
+        import base64
+        b64 = base64.b64encode(b"\x89PNG fake image data").decode()
+        r.render_artifacts([{
+            "type": "chart",
+            "title": "Test Chart",
+            "data": {"image_base64": b64, "format": "png"},
+        }])
+        output = c.file.getvalue()
+        assert "chart saved" in output.lower()
+        # Verify file was written
+        files = list(tmp_path.glob("*.png"))
+        assert len(files) == 1
+        assert "Test_Chart" in files[0].name
+
+    def test_save_chart_artifact_function(self, tmp_path, monkeypatch):
+        import mcpdb.cli.renderer as renderer_mod
+        from mcpdb.cli.renderer import save_chart_artifact
+        monkeypatch.setattr(renderer_mod, "_CHART_DIR", tmp_path)
+        import base64
+        b64 = base64.b64encode(b"test data").decode()
+        path = save_chart_artifact({
+            "type": "chart",
+            "title": "my chart",
+            "data": {"image_base64": b64, "format": "png"},
+        })
+        assert path is not None
+        assert path.exists()
+        assert path.read_bytes() == b"test data"
+
+    def test_save_chart_artifact_empty(self):
+        from mcpdb.cli.renderer import save_chart_artifact
+        assert save_chart_artifact({"type": "chart"}) is None
+        assert save_chart_artifact({"type": "chart", "data": {}}) is None
 
 
 # --- MODE_COLORS ---

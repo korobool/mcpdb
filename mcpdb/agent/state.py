@@ -61,3 +61,6 @@ class AgentState(TypedDict, total=False):
 
     # --- Response ---
     response: str | None
+
+    # --- Token Usage ---
+    llm_usage: dict | None

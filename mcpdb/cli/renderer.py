@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
@@ -9,6 +12,38 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+_CHART_DIR = Path.home() / ".mcpdb" / "charts"
+
+
+def save_chart_artifact(artifact: dict[str, Any]) -> Path | None:
+    """Save a chart artifact to disk and return the file path (or None).
+
+    Charts are saved as PNG files under ``~/.mcpdb/charts/``.
+    """
+    import json as _json
+
+    data = artifact.get("data", {})
+    if isinstance(data, str):
+        try:
+            data = _json.loads(data)
+        except (_json.JSONDecodeError, ValueError):
+            data = {}
+
+    b64 = data.get("image_base64", "")
+    if not b64:
+        return None
+
+    fmt = data.get("format", "png")
+    title = artifact.get("title", "chart")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_title = "".join(c if c.isalnum() or c in "_-" else "_" for c in title)[:60]
+    filename = f"{ts}_{safe_title}.{fmt}"
+
+    _CHART_DIR.mkdir(parents=True, exist_ok=True)
+    path = _CHART_DIR / filename
+    path.write_bytes(base64.b64decode(b64))
+    return path
 
 
 class ResultRenderer:
@@ -49,13 +84,21 @@ class ResultRenderer:
         self._console.print(Panel(body, title="Error", border_style="red"))
 
     def render_artifacts(self, artifacts: list[dict[str, Any]]) -> None:
-        """Render execution artifacts (tables, charts)."""
+        """Render execution artifacts (tables, charts).
+
+        Charts are saved as PNG files under ``~/.mcpdb/charts/`` and the
+        full path is printed so the user can open them manually.
+        """
         for artifact in artifacts:
             atype = artifact.get("type", "")
             if atype == "table":
                 self._render_table_artifact(artifact)
             elif atype == "chart":
-                self._console.print("[dim](Chart generated — view in web client)[/dim]")
+                path = save_chart_artifact(artifact)
+                if path:
+                    self._console.print(f"  [bold green]📊 Chart saved:[/bold green] {path}")
+                else:
+                    self._console.print("[dim](Empty chart artifact)[/dim]")
 
     def _render_table_artifact(self, artifact: dict[str, Any]) -> None:
         """Render a table artifact using Rich Table."""

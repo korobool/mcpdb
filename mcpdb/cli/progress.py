@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
@@ -11,6 +12,15 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+
+def fmt_tokens(n: int) -> str:
+    """Format token count readably: 1234 → '1.2k', 1234567 → '1.2M'."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
 
 
 class Phase:
@@ -115,12 +125,21 @@ class RichProgress:
         self._warnings: list[str] = []
         self._cache_hit = False
 
+        # Token tracking (updated via llm/complete events)
+        self._llm_calls = 0
+        self._llm_input_tokens = 0
+        self._llm_output_tokens = 0
+
         # Live display
         self._live: Live | None = None
 
     def start(self) -> None:
         """Start the live display."""
         self._start_time = time.time()
+        # Suppress logging to stderr while Live is active to prevent
+        # cursor corruption (both write to stderr without coordination).
+        self._prev_log_level = logging.getLogger().level
+        logging.getLogger().setLevel(logging.CRITICAL)
         self._live = Live(
             self._build_display(),
             console=self._console,
@@ -280,6 +299,12 @@ class RichProgress:
         elif etype == "quick/complete":
             self._phases["synthesize"].complete()
 
+        # LLM usage
+        elif etype == "llm/complete":
+            self._llm_calls = data.get("total_calls", self._llm_calls + 1)
+            self._llm_input_tokens = data.get("total_input_tokens", self._llm_input_tokens)
+            self._llm_output_tokens = data.get("total_output_tokens", self._llm_output_tokens)
+
         # Observer
         elif etype == "observer/warning":
             warn_msg = data.get("message", "anomaly detected")
@@ -358,10 +383,16 @@ class RichProgress:
         if self._debug_count > 0:
             parts.append(Text(f"  Debug attempts: {self._debug_count}", style="dim yellow"))
 
-        # Timing footer
+        # Timing & token footer
         elapsed = time.time() - self._start_time if self._start_time else 0
         footer = Text()
         footer.append(f"  Elapsed: {elapsed:.1f}s", style="dim")
+        if self._llm_calls > 0:
+            total_tok = self._llm_input_tokens + self._llm_output_tokens
+            footer.append(
+                f"  |  {self._llm_calls} LLM calls, {fmt_tokens(total_tok)} tokens",
+                style="dim",
+            )
         parts.append(footer)
 
         # Build panel
@@ -387,8 +418,16 @@ class RichProgress:
         if self._live:
             self._live.stop()
             self._live = None
+        logging.getLogger().setLevel(getattr(self, "_prev_log_level", logging.WARNING))
 
         elapsed = time.time() - self._start_time if self._start_time else 0
+
+        # Use state-level usage if available (more accurate), else callback totals
+        usage = (state or {}).get("llm_usage") or {}
+        llm_calls = usage.get("calls", self._llm_calls)
+        total_tokens = usage.get("total_tokens", self._llm_input_tokens + self._llm_output_tokens)
+        input_tok = usage.get("input_tokens", self._llm_input_tokens)
+        output_tok = usage.get("output_tokens", self._llm_output_tokens)
 
         # Print summary line
         parts = []
@@ -401,6 +440,9 @@ class RichProgress:
             parts.append(f"[yellow]{self._debug_count} debug[/yellow]")
         if self._cache_hit:
             parts.append("[green]cached[/green]")
+        if llm_calls:
+            parts.append(f"[dim]{llm_calls} LLM calls[/dim]")
+            parts.append(f"[dim]{fmt_tokens(input_tok)} in / {fmt_tokens(output_tok)} out[/dim]")
         parts.append(f"[dim]{elapsed:.1f}s[/dim]")
 
         self._console.print(" | ".join(parts))
@@ -410,5 +452,6 @@ class RichProgress:
         if self._live:
             self._live.stop()
             self._live = None
+        logging.getLogger().setLevel(getattr(self, "_prev_log_level", logging.WARNING))
 
         self._console.print(f"[bold red]✗[/bold red] {msg}")

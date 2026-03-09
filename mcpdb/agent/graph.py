@@ -23,6 +23,7 @@ from mcpdb.experience.fingerprint import (
 )
 from mcpdb.experience.records import CodeStep, StagedRecord, SuccessRecord
 from mcpdb.experience.staging import StagingStore
+from mcpdb.agent.tracking import TrackingLLMProvider
 from mcpdb.llm.provider import LLMProvider
 from mcpdb.sources.registry import SourceRegistry
 
@@ -59,6 +60,10 @@ async def run_agent(
     """
     if callbacks is None:
         callbacks = CallbackManager()
+
+    # Wrap LLM for automatic token tracking
+    tracking_llm = TrackingLLMProvider(llm, callbacks)
+    llm = tracking_llm  # type: ignore[assignment]
 
     # Build initial state
     source_context = registry.get_combined_context()
@@ -105,6 +110,12 @@ async def run_agent(
                     cached, state, llm, callbacks, registry,
                 )
                 if result is not None:
+                    result["llm_usage"] = {
+                        "calls": tracking_llm.usage.calls,
+                        "input_tokens": tracking_llm.usage.input_tokens,
+                        "output_tokens": tracking_llm.usage.output_tokens,
+                        "total_tokens": tracking_llm.usage.input_tokens + tracking_llm.usage.output_tokens,
+                    }
                     return result
 
     # If rethinking, invalidate old cache entry so the new run replaces it
@@ -206,6 +217,14 @@ async def run_agent(
                 total_time=observer_report.total_time,
                 summary=observer_report.summary(),
             )
+
+    # Store accumulated token usage
+    state["llm_usage"] = {
+        "calls": tracking_llm.usage.calls,
+        "input_tokens": tracking_llm.usage.input_tokens,
+        "output_tokens": tracking_llm.usage.output_tokens,
+        "total_tokens": tracking_llm.usage.input_tokens + tracking_llm.usage.output_tokens,
+    }
 
     callbacks.emit("agent/complete", mode=mode, has_response=bool(state.get("response")))
     return state
