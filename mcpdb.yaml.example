@@ -50,3 +50,13 @@ sandbox:
   allow_all: false
   memory_mb: 2048
   cpu_seconds: 60
+
+knowledge:
+  enabled: true
+  embedding: none               # none | llm | local | auto
+  directories:
+    - ~/.mcpdb/knowledge         # Default RAG directory
+  # Per-source knowledge directories:
+  # sources:
+  #   bgins: ~/rag/bgins
+  #   my_db: ~/rag/my_db

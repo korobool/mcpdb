@@ -142,9 +142,10 @@ def get_analysis_tools() -> list[Tool]:
 async def handle_analysis_tool(
     name: str, args: dict[str, Any], registry: SourceRegistry, llm: Any,
     experience_service: Any = None,
+    knowledge_manager: Any = None,
 ) -> list[TextContent]:
     if name == "ask_question":
-        return await _ask_question(registry, args, llm, experience_service=experience_service)
+        return await _ask_question(registry, args, llm, experience_service=experience_service, knowledge_manager=knowledge_manager)
     elif name == "suggest_followups":
         return await _suggest_followups(registry, args, llm)
     return [TextContent(type="text", text=f"Unknown analysis tool: {name}")]
@@ -153,6 +154,7 @@ async def handle_analysis_tool(
 async def _ask_question(
     registry: SourceRegistry, args: dict[str, Any], llm: Any,
     experience_service: Any = None,
+    knowledge_manager: Any = None,
 ) -> list[TextContent]:
     from mcpdb.agent.graph import run_agent
     from mcpdb.agent.callbacks import CallbackManager
@@ -188,6 +190,7 @@ async def _ask_question(
         experience_cache=experience_cache,
         force_rethink=force_rethink,
         staging_store=staging_store,
+        knowledge_manager=knowledge_manager,
     )
 
     response = state.get("response", "No response generated.")

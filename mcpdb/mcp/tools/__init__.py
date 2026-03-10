@@ -29,6 +29,7 @@ def register_all_tools(
     registry: SourceRegistry,
     llm: Any = None,
     experience_service: Any = None,
+    knowledge_manager: Any = None,
 ) -> None:
     """Register all MCP tools on the server via a single list_tools/call_tool pair."""
     from mcpdb.mcp.tools.session import get_session_tools, handle_session_tool
@@ -68,7 +69,7 @@ def register_all_tools(
     for tool in get_excel_tools():
         handlers[tool.name] = lambda args, r=registry, l=llm: handle_excel_tool(args["_name"], args, r, l)
     for tool in get_analysis_tools():
-        handlers[tool.name] = lambda args, r=registry, l=llm, es=experience_service: handle_analysis_tool(args["_name"], args, r, l, experience_service=es)
+        handlers[tool.name] = lambda args, r=registry, l=llm, es=experience_service, km=knowledge_manager: handle_analysis_tool(args["_name"], args, r, l, experience_service=es, knowledge_manager=km)
     for tool in get_export_tools():
         handlers[tool.name] = lambda args: handle_export_tool(args["_name"], args)
     for tool in get_experience_tools():

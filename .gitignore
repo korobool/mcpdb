@@ -24,3 +24,6 @@ tests/web_qa/artifacts/
 tests/eval/auto_eval_*.json
 tests/productization/web/screenshots/
 mcpdb.yaml
+presentation*/
+tmp/
+docs/proposals/

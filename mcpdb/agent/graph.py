@@ -56,6 +56,7 @@ async def run_agent(
     no_cache: bool = False,
     cancellation_token: CancellationToken | None = None,
     enable_observer: bool = True,
+    knowledge_manager: Any = None,
 ) -> AgentState:
     """Run the full agent pipeline for a question.
 
@@ -114,6 +115,19 @@ async def run_agent(
                     break
         except Exception as e:
             logger.debug("Failed to build anti-pattern context: %s", e)
+
+    # Inject knowledge context from RAG
+    if knowledge_manager is not None:
+        try:
+            knowledge_ctx = knowledge_manager.retrieve(
+                question,
+                injection_point="plan",
+            )
+            if knowledge_ctx:
+                state["knowledge_context"] = knowledge_ctx
+                logger.info("Knowledge context injected: %d chars", len(knowledge_ctx))
+        except Exception as e:
+            logger.debug("Failed to retrieve knowledge context: %s", e)
 
     # Check experience cache before doing any LLM work
     if experience_cache is not None and not force_rethink and not no_cache:

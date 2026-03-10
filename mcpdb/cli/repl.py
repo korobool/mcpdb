@@ -37,12 +37,14 @@ class Repl:
         config: Any,
         experience_service: Any | None = None,
         no_cache: bool = False,
+        knowledge_manager: Any = None,
     ) -> None:
         self._registry = registry
         self._llm = llm
         self._config = config
         self._experience = experience_service
         self._no_cache = no_cache
+        self._knowledge_manager = knowledge_manager
         self._console = Console()
         self._renderer = ResultRenderer(self._console)
         self._history: list[dict[str, Any]] = []
@@ -259,6 +261,7 @@ class Repl:
                     self._experience.staging if self._experience else None
                 ),
                 no_cache=self._no_cache,
+                knowledge_manager=self._knowledge_manager,
             )
         except KeyboardInterrupt:
             progress.error("Cancelled by user")

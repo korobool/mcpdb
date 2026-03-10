@@ -138,6 +138,10 @@ async def make_plan(
     if experience_context:
         prompt = prompt + "\n\n" + experience_context
 
+    knowledge_ctx = state.get("knowledge_context")
+    if knowledge_ctx:
+        prompt = prompt + "\n\n## DOMAIN KNOWLEDGE\n" + knowledge_ctx
+
     # Attempt 1: Normal plan prompt
     plan_result = await _try_plan(llm, prompt, callbacks, attempt=1)
 

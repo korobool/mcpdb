@@ -411,6 +411,8 @@ def main() -> None:
         port = None
         no_browser = False
         no_cache = False
+        knowledge_dirs: list[str] = []
+        knowledge_embedding: str | None = None
 
         i = 1
         while i < len(args):
@@ -423,6 +425,12 @@ def main() -> None:
             elif args[i] == "--no-cache":
                 no_cache = True
                 i += 1
+            elif args[i] == "--knowledge" and i + 1 < len(args):
+                knowledge_dirs.append(args[i + 1])
+                i += 2
+            elif args[i] == "--knowledge-embedding" and i + 1 < len(args):
+                knowledge_embedding = args[i + 1]
+                i += 2
             else:
                 i += 1
 
@@ -435,8 +443,14 @@ def main() -> None:
         if port is None:
             port = find_available_port()
 
+        # Initialize knowledge manager
+        knowledge_mgr = _create_knowledge_manager(
+            config, knowledge_dirs, knowledge_embedding, logger,
+        )
+
         logger.info("mcpdb v%s web client starting on port %d", __version__, port)
-        run_web(config=config, port=port, open_browser=not no_browser, no_cache=no_cache)
+        run_web(config=config, port=port, open_browser=not no_browser,
+                no_cache=no_cache, knowledge_manager=knowledge_mgr)
 
     elif command in ("ui", "webchat", "playground"):
         print(f"The '{command}' command has been removed. Use 'mcpdb web' instead.")
@@ -458,11 +472,30 @@ def main() -> None:
         # Also suppress google SDK info messages
         _logging.getLogger("google_genai").setLevel(_logging.WARNING)
 
-        # Parse --no-cache flag from remaining args
+        # Parse flags from remaining args
         no_cache = "--no-cache" in args
-        remaining = [a for a in args[1:] if a != "--no-cache"]
+        query_knowledge_dirs: list[str] = []
+        filtered_args: list[str] = []
+        skip_next = False
+        for j, a in enumerate(args[1:]):
+            if skip_next:
+                skip_next = False
+                continue
+            if a == "--no-cache":
+                continue
+            if a == "--knowledge" and j + 2 < len(args):
+                query_knowledge_dirs.append(args[j + 2])
+                skip_next = True
+                continue
+            filtered_args.append(a)
+
+        remaining = filtered_args
         connection_string = remaining[0]
         question = " ".join(remaining[1:])
+
+        knowledge_mgr = _create_knowledge_manager(
+            config, query_knowledge_dirs, None, logger,
+        )
 
         # Detect file-based sources by extension
         _CSV_EXTS = {".csv", ".tsv", ".tab"}
@@ -471,11 +504,11 @@ def main() -> None:
         ext = Path(candidate_paths[0]).suffix.lower()
 
         if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(Path(p).exists() for p in candidate_paths):
-            _oneshot_csv_query(candidate_paths, question, config, logger, no_cache=no_cache)
+            _oneshot_csv_query(candidate_paths, question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
         elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
-            _oneshot_excel_query(candidate_paths[0], question, config, logger, no_cache=no_cache)
+            _oneshot_excel_query(candidate_paths[0], question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
         else:
-            _oneshot_query(connection_string, question, config, logger, no_cache=no_cache)
+            _oneshot_query(connection_string, question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
 
     elif command == "repl":
         if len(args) < 2:
@@ -490,10 +523,24 @@ def main() -> None:
         _logging.getLogger("google_genai").setLevel(_logging.WARNING)
 
         no_cache = "--no-cache" in args
-        remaining = [a for a in args[1:] if a != "--no-cache"]
+        repl_knowledge_dirs: list[str] = []
+        remaining = []
+        skip_next = False
+        for j, a in enumerate(args[1:]):
+            if skip_next:
+                skip_next = False
+                continue
+            if a == "--no-cache":
+                continue
+            if a == "--knowledge" and j + 1 < len(args) - 1:
+                repl_knowledge_dirs.append(args[j + 2])
+                skip_next = True
+                continue
+            remaining.append(a)
         connection_string = remaining[0]
 
-        _start_repl(connection_string, config, logger, no_cache=no_cache)
+        knowledge_mgr = _create_knowledge_manager(config, repl_knowledge_dirs, None, logger)
+        _start_repl(connection_string, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
 
     elif command == "tui":
         if len(args) < 2:
@@ -508,10 +555,24 @@ def main() -> None:
         _logging.getLogger("google_genai").setLevel(_logging.WARNING)
 
         no_cache = "--no-cache" in args
-        remaining = [a for a in args[1:] if a != "--no-cache"]
+        tui_knowledge_dirs: list[str] = []
+        remaining = []
+        skip_next = False
+        for j, a in enumerate(args[1:]):
+            if skip_next:
+                skip_next = False
+                continue
+            if a == "--no-cache":
+                continue
+            if a == "--knowledge" and j + 1 < len(args) - 1:
+                tui_knowledge_dirs.append(args[j + 2])
+                skip_next = True
+                continue
+            remaining.append(a)
         connection_string = remaining[0]
 
-        _start_tui(connection_string, config, logger, no_cache=no_cache)
+        knowledge_mgr = _create_knowledge_manager(config, tui_knowledge_dirs, None, logger)
+        _start_tui(connection_string, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
 
     elif command == "experience":
         if len(args) < 2:
@@ -549,6 +610,40 @@ def main() -> None:
         print(f"Unknown command: {command}")
         print(USAGE)
         sys.exit(1)
+
+
+def _create_knowledge_manager(config, knowledge_dirs: list[str] | None = None,
+                               embedding_mode: str | None = None, logger=None):
+    """Create a KnowledgeManager from CLI flags and config."""
+    from mcpdb.knowledge.manager import KnowledgeManager
+    from mcpdb.knowledge.file_provider import FileKnowledgeProvider
+    from mcpdb.knowledge.embeddings import resolve_embedding_provider
+
+    dirs = knowledge_dirs or []
+    if not dirs and config.knowledge.enabled:
+        import os
+        dirs = [os.path.expanduser(d) for d in config.knowledge.directories]
+        # Add per-source directories
+        for source_id, path in config.knowledge.sources.items():
+            dirs.append(os.path.expanduser(path))
+
+    # Filter to existing directories
+    existing_dirs = [d for d in dirs if Path(d).expanduser().exists()]
+    if not existing_dirs:
+        return None
+
+    mode = embedding_mode or config.knowledge.embedding
+    embed_provider = resolve_embedding_provider(mode)
+
+    mgr = KnowledgeManager()
+    mgr.add_file_provider(FileKnowledgeProvider(existing_dirs, embedding_provider=embed_provider))
+    count = mgr.load()
+
+    if logger and count > 0:
+        logger.info("Knowledge: %d chunks loaded from %s (embedding=%s)",
+                     count, ", ".join(existing_dirs), mode)
+
+    return mgr if count > 0 else None
 
 
 def _create_source_and_registry(connection_string: str, logger):
@@ -589,7 +684,7 @@ def _create_source_and_registry(connection_string: str, logger):
     return registry
 
 
-def _start_tui(connection_string: str, config, logger, no_cache: bool = False) -> None:
+def _start_tui(connection_string: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
     """Start the Textual TUI."""
     try:
         from mcpdb.cli.tui.app import run_tui
@@ -618,12 +713,13 @@ def _start_tui(connection_string: str, config, logger, no_cache: bool = False) -
             config=config,
             experience_service=service,
             no_cache=no_cache,
+            knowledge_manager=knowledge_manager,
         )
     finally:
         registry.close_all()
 
 
-def _start_repl(connection_string: str, config, logger, no_cache: bool = False) -> None:
+def _start_repl(connection_string: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
     """Start the interactive REPL."""
     from mcpdb.experience.service import ExperienceService
     from mcpdb.llm.factory import create_provider
@@ -647,13 +743,15 @@ def _start_repl(connection_string: str, config, logger, no_cache: bool = False) 
             config=config,
             experience_service=service,
             no_cache=no_cache,
+            knowledge_manager=knowledge_manager,
         )
         repl.run()
     finally:
         registry.close_all()
 
 
-def _oneshot_query(connection_string: str, question: str, config, logger, no_cache: bool = False) -> None:
+def _oneshot_query(connection_string: str, question: str, config, logger,
+                    no_cache: bool = False, knowledge_manager=None) -> None:
     """Run a one-shot query and print the result."""
     import asyncio
 
@@ -693,6 +791,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
+                knowledge_manager=knowledge_manager,
             )
             response = state.get("response") or "No response generated."
             progress.finish(state)
@@ -708,7 +807,7 @@ def _oneshot_query(connection_string: str, question: str, config, logger, no_cac
     asyncio.run(run())
 
 
-def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_cache: bool = False) -> None:
+def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
     """Run a one-shot query against CSV/TSV file(s)."""
     import asyncio
 
@@ -753,6 +852,7 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
+                knowledge_manager=knowledge_manager,
             )
             response = state.get("response") or "No response generated."
             progress.finish(state)
@@ -768,7 +868,7 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
     asyncio.run(run())
 
 
-def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache: bool = False) -> None:
+def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
     """Run a one-shot query against an Excel workbook."""
     import asyncio
 
@@ -809,6 +909,7 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
+                knowledge_manager=knowledge_manager,
             )
             response = state.get("response") or "No response generated."
             progress.finish(state)

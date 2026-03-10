@@ -99,6 +99,21 @@ class SandboxConfig:
 
 
 @dataclass
+class KnowledgeConfig:
+    """Knowledge augmentation configuration.
+
+    embedding: Embedding mode — "auto", "llm", "local", or "none".
+    directories: Default knowledge directories to scan.
+    sources: Per-source knowledge paths (source_id → directory).
+    """
+
+    enabled: bool = True
+    embedding: str = "none"
+    directories: list[str] = field(default_factory=lambda: ["~/.mcpdb/knowledge"])
+    sources: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class McpdbConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -108,6 +123,7 @@ class McpdbConfig:
     experience: ExperienceConfig = field(default_factory=ExperienceConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
 
 
 def _resolve_env_vars(value: str) -> str:
@@ -151,7 +167,7 @@ def _build_dataclass(cls: type, data: dict[str, Any]) -> Any:
         if isinstance(ftype, str):
             ftype = eval(ftype, {**globals(), **{cls.__name__: cls for cls in [
                 LLMModelConfig, LLMConfig, ServerConfig, ExecutionConfig,
-                CostGateConfig, DuckDBConfig, ExperienceConfig, UIConfig, SandboxConfig, McpdbConfig,
+                CostGateConfig, DuckDBConfig, ExperienceConfig, UIConfig, SandboxConfig, KnowledgeConfig, McpdbConfig,
             ]}})
         if dataclasses.is_dataclass(ftype) and isinstance(val, dict):
             kwargs[fname] = _build_dataclass(ftype, val)

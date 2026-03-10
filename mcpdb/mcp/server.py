@@ -31,6 +31,7 @@ def create_llm_from_config(config: McpdbConfig) -> LLMProvider:
 def create_server(
     config: McpdbConfig | None = None,
     experience_service: ExperienceService | None = None,
+    knowledge_manager: Any = None,
 ) -> tuple[Server, SourceRegistry]:
     """Create and configure the MCP server with all tools."""
     if config is None:
@@ -40,7 +41,7 @@ def create_server(
     registry = SourceRegistry()
     llm = create_llm_from_config(config)
 
-    register_all_tools(server, registry, llm=llm, experience_service=experience_service)
+    register_all_tools(server, registry, llm=llm, experience_service=experience_service, knowledge_manager=knowledge_manager)
     register_resources(server, registry)
     register_prompts(server, registry)
 
@@ -55,7 +56,11 @@ async def run_stdio_server(config: McpdbConfig | None = None) -> None:
         config = load_config()
 
     experience_service = ExperienceService(config.experience)
-    server, registry = create_server(config, experience_service=experience_service)
+
+    # Initialize knowledge manager from config
+    knowledge_manager = _create_knowledge_from_config(config)
+
+    server, registry = create_server(config, experience_service=experience_service, knowledge_manager=knowledge_manager)
     logger.info("Starting mcpdb v%s (stdio transport)", __version__)
 
     # Start background quality evaluation worker
@@ -71,3 +76,35 @@ async def run_stdio_server(config: McpdbConfig | None = None) -> None:
         await experience_service.stop()
         registry.close_all()
         logger.info("MCP server shut down")
+
+
+def _create_knowledge_from_config(config: McpdbConfig) -> Any:
+    """Create a KnowledgeManager from config if enabled and directories exist."""
+    if not config.knowledge.enabled:
+        return None
+
+    import os
+    from pathlib import Path
+
+    dirs = [os.path.expanduser(d) for d in config.knowledge.directories]
+    for source_id, path in config.knowledge.sources.items():
+        dirs.append(os.path.expanduser(path))
+
+    existing = [d for d in dirs if Path(d).exists()]
+    if not existing:
+        return None
+
+    from mcpdb.knowledge.manager import KnowledgeManager
+    from mcpdb.knowledge.file_provider import FileKnowledgeProvider
+    from mcpdb.knowledge.embeddings import resolve_embedding_provider
+
+    embed_provider = resolve_embedding_provider(config.knowledge.embedding)
+    mgr = KnowledgeManager()
+    mgr.add_file_provider(FileKnowledgeProvider(existing, embedding_provider=embed_provider))
+    count = mgr.load()
+
+    if count > 0:
+        logger.info("Knowledge: %d chunks loaded from %s (embedding=%s)",
+                     count, ", ".join(existing), config.knowledge.embedding)
+        return mgr
+    return None

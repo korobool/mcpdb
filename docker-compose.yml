@@ -14,6 +14,8 @@ services:
       - mcpdb-data:/data           # Experience cache + charts
       # Mount config file if customized:
       # - ./mcpdb.yaml:/app/mcpdb.yaml:ro
+      # Mount knowledge RAG directory:
+      # - ./my_rag:/data/knowledge:ro
     restart: unless-stopped
 
     # --- Docker Secrets (Swarm / Compose v2) ---

@@ -19,8 +19,8 @@ COPY mcpdb/ mcpdb/
 # Install package with extras
 RUN pip install --no-cache-dir ".[web,cli,tui,sandbox,csv,excel,export,gemini,mysql,postgresql]"
 
-# Experience cache and chart output
-RUN mkdir -p /data/experience /data/charts
+# Experience cache, chart output, and knowledge RAG
+RUN mkdir -p /data/experience /data/charts /data/knowledge
 ENV MCPDB_EXPERIENCE_DIR=/data/experience
 ENV MCPDB_CHARTS_DIR=/data/charts
 

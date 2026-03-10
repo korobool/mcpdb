@@ -59,6 +59,9 @@ class AgentState(TypedDict, total=False):
     observer_report: dict | None
     cancellation_token: Any  # CancellationToken (avoid circular import)
 
+    # --- Knowledge ---
+    knowledge_context: str | None
+
     # --- Response ---
     response: str | None
 

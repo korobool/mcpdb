@@ -67,12 +67,14 @@ _experience_service: Any = None
 _active_tasks: dict[int, asyncio.Task] = {}  # ws_id → task (per-connection)
 _ws_counter: int = 0
 _no_cache: bool = False
+_knowledge_manager: Any = None
 
 
-def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> FastAPI:
+def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowledge_manager: Any = None) -> FastAPI:
     """Create and configure the FastAPI app."""
-    global _registry, _config, _llm, _experience_service, _no_cache
+    global _registry, _config, _llm, _experience_service, _no_cache, _knowledge_manager
     _no_cache = no_cache
+    _knowledge_manager = knowledge_manager
 
     from mcpdb.config import load_config
     _config = config or load_config()
@@ -521,6 +523,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False) -> Fas
                         staging_store=exp_staging,
                         no_cache=query_no_cache,
                         cancellation_token=cancellation_token,
+                        knowledge_manager=_knowledge_manager,
                     ),
                     timeout=600.0,  # 10-minute hard timeout per query
                 )
@@ -658,11 +661,11 @@ def find_available_port(start: int = 8080, end: int = 8180) -> int:
     raise RuntimeError(f"No available port in range {start}-{end}")
 
 
-def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True, no_cache: bool = False) -> None:
+def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True, no_cache: bool = False, knowledge_manager: Any = None) -> None:
     """Start the MCPDB web client."""
     import uvicorn
 
-    app = create_app(config, no_cache=no_cache)
+    app = create_app(config, no_cache=no_cache, knowledge_manager=knowledge_manager)
 
     if open_browser:
         import threading

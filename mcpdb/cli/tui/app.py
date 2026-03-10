@@ -197,6 +197,7 @@ class McpdbTUI(App):
         config: Any,
         experience_service: Any | None = None,
         no_cache: bool = False,
+        knowledge_manager: Any = None,
     ) -> None:
         super().__init__()
         self._source_registry = registry
@@ -204,6 +205,7 @@ class McpdbTUI(App):
         self._config = config
         self._experience = experience_service
         self._no_cache = no_cache
+        self._knowledge_manager = knowledge_manager
         self._query_count = 0
         self._query_running = False
         self._cancellation_token = None
@@ -369,6 +371,7 @@ class McpdbTUI(App):
                     self._experience.staging if self._experience else None
                 ),
                 no_cache=self._no_cache,
+                knowledge_manager=self._knowledge_manager,
             )
 
             elapsed = time.time() - start
@@ -459,6 +462,7 @@ def run_tui(
     config: Any,
     experience_service: Any | None = None,
     no_cache: bool = False,
+    knowledge_manager: Any = None,
 ) -> None:
     """Launch the TUI application."""
     app = McpdbTUI(
@@ -467,5 +471,6 @@ def run_tui(
         config=config,
         experience_service=experience_service,
         no_cache=no_cache,
+        knowledge_manager=knowledge_manager,
     )
     app.run()
