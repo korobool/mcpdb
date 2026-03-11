@@ -53,12 +53,15 @@ RULES:
 - For Python: Use `plt.show()` to capture charts. Set `result_df = ...` to return a new DataFrame. Do NOT import os, sys, subprocess, or networking libraries.
 - Plan steps as SQL→Python pairs: each SQL step fetches data, then the next Python step visualizes/analyzes it. Do NOT use variable names like `df1`, `df2` — only `df` is available.
 - When counting rows, use SQL COUNT(*) — do not rely on schema metadata row counts which may be approximate.
-- When computing ratios or percentages, use SQL directly for precision.
+- When computing ratios or percentages, use SQL directly for precision. When SQL already multiplies by 100 (e.g., `* 100.0`), name the column with a `_pct` suffix so Python and response text do NOT multiply by 100 again.
+- Deviation formula: When computing deviation between estimated and actual values, use `(actual - estimated) / NULLIF(estimated, 0)` as the signed deviation. Divide by the estimated (baseline) value, not by the actual.
 - For date calculations, use the actual date columns in the data (e.g., the year from the date column, NOT the current year).
 - For large datasets (100K+ rows), prefer SQL or polars for aggregation over pandas.
 - Ratio/percentage: AVG(a/b) ≠ SUM(a)/SUM(b). Choose based on question intent — "average ratio per row" uses AVG(a/b), "overall ratio" uses SUM(a)/SUM(b).
-- MySQL median: Do NOT use PERCENTILE_CONT or OFFSET with subqueries. Use ROW_NUMBER() window function: SELECT AVG(val) FROM (SELECT val, ROW_NUMBER() OVER (ORDER BY val) AS rn, COUNT(*) OVER() AS cnt FROM t) sub WHERE rn IN (FLOOR((cnt+1)/2), CEIL((cnt+1)/2)).
+- MySQL median: Do NOT use PERCENTILE_CONT, PERCENTILE, or OFFSET with subqueries. Use ROW_NUMBER() window function: SELECT AVG(val) FROM (SELECT val, ROW_NUMBER() OVER (ORDER BY val) AS rn, COUNT(*) OVER() AS cnt FROM t) sub WHERE rn IN (FLOOR((cnt+1)/2), CEIL((cnt+1)/2)).
 - NULL handling: Always filter NULLs with IS NOT NULL in WHERE clauses before aggregate functions like AVG, SUM on nullable columns.
+- MySQL only_full_group_by: Every column in SELECT must be in GROUP BY or inside an aggregate function. Use CASE WHEN inside aggregate functions (e.g., SUM(CASE WHEN flag THEN 1 ELSE 0 END)) for conditional counting. Do NOT select raw columns alongside aggregates without grouping by them.
+- MySQL reserved words: Do NOT use MySQL reserved words as table aliases. Reserved words include: dec, column, key, index, order, group, select, table, desc, asc, read, write, match, range, check, status, value, type. Use descriptive aliases instead (e.g., `elem_counts` instead of `dec`).
 - For EDA or exploratory analysis: include diverse steps (distributions, correlations, outliers, trends). Use Python with matplotlib/seaborn for charts — always include `plt.show()` to capture them.
 
 Respond with JSON only:
@@ -315,17 +318,22 @@ def _summarize_result(result: dict[str, Any]) -> str:
         import pandas as pd
         rows, cols = df.shape
         parts.append(f"{rows} rows x {cols} columns")
-        # Column names and types
-        col_info = ", ".join(f"{c} ({df[c].dtype})" for c in df.columns)
+        # Column names and types — use dtypes series to handle duplicate columns safely
+        col_info = ", ".join(f"{c} ({t})" for c, t in zip(df.columns, df.dtypes))
         parts.append(f"Columns: {col_info}")
         # Numeric stats (no actual values — just aggregates)
-        numeric_cols = df.select_dtypes(include="number").columns
-        if len(numeric_cols) > 0:
+        # Use iloc for safe column access when duplicates exist
+        numeric_cols = df.select_dtypes(include="number")
+        if numeric_cols.shape[1] > 0:
             stats = []
-            for c in numeric_cols:
-                non_null = df[c].notna().sum()
+            seen = set()
+            for i, c in enumerate(numeric_cols.columns):
+                col_key = f"{c}_{i}" if c in seen else c
+                seen.add(c)
+                col = numeric_cols.iloc[:, i]
+                non_null = col.notna().sum()
                 if non_null > 0:
-                    stats.append(f"{c}: min={df[c].min():.4g}, max={df[c].max():.4g}, mean={df[c].mean():.4g}")
+                    stats.append(f"{c}: min={col.min():.4g}, max={col.max():.4g}, mean={col.mean():.4g}")
             if stats:
                 parts.append("Stats: " + "; ".join(stats))
         # Null info
@@ -570,8 +578,9 @@ RULES:
 - If this is a Python step, only use the libraries listed above. Do NOT import os, sys, subprocess, or networking libraries.
 - If the error is an import violation, rewrite the code using only allowed libraries.
 - IMPORTANT: Only `df` is available — it contains the result of the IMMEDIATELY PRECEDING SQL step. Variables like `df1`, `df2`, etc. DO NOT EXIST. If the code references undefined variables, rewrite it to use only `df`.
-- If `df` is None or the error is about NoneType, the preceding step may have failed. Make the code self-contained by querying the data within the Python step using pandas or re-using `df` safely.
+- If `df` is None or the error is about NoneType, the preceding step may have failed. Write a new SQL step instead that fetches the needed data — do NOT try to query databases from Python. Never import duckdb, sqlalchemy, pymysql, or any database library in Python steps. The Python sandbox has no database access.
 - If this is a SQL step, fix the SQL syntax or logic.
+- MySQL-specific: If "Unknown column" error — check the schema context for the correct column name, do not guess. If "only_full_group_by" error — ensure every non-aggregated column in SELECT is in GROUP BY. If "PERCENTILE" or "OFFSET subquery" error — use ROW_NUMBER() window function for median/percentile calculations. If SQL syntax error near an alias — the alias may be a MySQL reserved word (e.g., `dec`, `key`, `order`, `match`, `range`, `check`, `status`). Rename the alias to a non-reserved word.
 
 Respond with JSON:
 {{"error_analysis": "What went wrong", "corrected_code": "Fixed code"}}
@@ -681,6 +690,7 @@ RULES:
 - print() your formatted answer as markdown text — every number must come from artifacts
 - Include ALL items when listing results — never truncate or say "and N more"
 - Interpret data, compute gaps, percentages, insights from the actual numbers
+- If a column name ends with `_pct`, `_percent`, or `_rate` and values are already in percentage form (e.g., 8.73 meaning 8.73%), do NOT multiply by 100 again. Display as-is with a % suffix.
 - Use markdown: headers (##), bold (**), bullet points, tables (| col | col |)
 - If charts were generated, mention them: "See the chart below for the visualization."
 - If some steps failed, note what worked and what didn't

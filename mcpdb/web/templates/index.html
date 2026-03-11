@@ -100,7 +100,10 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .message.assistant .bubble p code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 .message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
 .message.assistant .role { color: var(--green); }
-.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
+.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; display: flex; align-items: center; gap: 8px; }
+.msg-meta .meta-text { flex: 1; }
+.dismiss-btn { background: none; border: 1px solid transparent; border-radius: 4px; color: var(--fg3); cursor: pointer; padding: 2px 6px; font-size: 11px; transition: color 0.15s, border-color 0.15s, background 0.15s; flex-shrink: 0; }
+.dismiss-btn:hover { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.1); }
 .message.intermediate { opacity: 0.85; border-left: 3px solid var(--purple); padding-left: 12px; }
 .message.intermediate .role { color: var(--purple); }
 .message.intermediate .bubble h3 { font-size: 14px; margin-bottom: 8px; }
@@ -699,6 +702,39 @@ function toggleInputState(querying) {
 }
 
 // ── Messages ───────────────────────────────────────────
+function dismissQA(btn) {
+  const assistantDiv = btn.closest('.message.assistant');
+  if (!assistantDiv) return;
+  // Collect the assistant div and all preceding related messages (user question + intermediates)
+  const toDismiss = [assistantDiv];
+  let prev = assistantDiv.previousElementSibling;
+  while (prev && (prev.classList.contains('message'))) {
+    if (prev.classList.contains('intermediate')) {
+      toDismiss.push(prev);
+      prev = prev.previousElementSibling;
+    } else if (prev.classList.contains('user')) {
+      toDismiss.push(prev);
+      break;
+    } else {
+      break; // hit another assistant message — stop
+    }
+  }
+  // Animate out
+  for (const el of toDismiss) {
+    el.style.transition = 'opacity 0.25s, max-height 0.3s, margin 0.3s';
+    el.style.overflow = 'hidden';
+    el.style.maxHeight = el.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      el.style.opacity = '0';
+      el.style.maxHeight = '0';
+      el.style.marginBottom = '0';
+    });
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+    // Fallback removal if transitionend doesn't fire
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 400);
+  }
+}
+
 function addMessage(role, content, meta = {}) {
   messages.push({ role, content, meta });
   renderMessage({ role, content, meta });
@@ -727,7 +763,7 @@ function renderMessage(msg) {
   }
 
   if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
-    // Metadata footer
+    // Metadata footer with dismiss button
     const parts = [];
     if (msg.meta.mode) parts.push(`Mode: ${msg.meta.mode}`);
     if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
@@ -736,7 +772,10 @@ function renderMessage(msg) {
       parts.push(`${u.calls} LLM calls`);
       parts.push(`${fmtTokens(u.input_tokens)} in / ${fmtTokens(u.output_tokens)} out`);
     }
-    if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
+    html += '<div class="msg-meta">';
+    if (parts.length) html += `<span class="meta-text">${parts.join(' \u00b7 ')}</span>`;
+    if (!msg.meta.isWelcome) html += `<button class="dismiss-btn" onclick="dismissQA(this)" title="Remove this Q&amp;A">\u2715 Dismiss</button>`;
+    html += '</div>';
 
     // Follow-up suggestions
     const followups = msg.meta.followups || [];
