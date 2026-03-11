@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCPDB Thinking Engine — Architecture Documentation</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --fg: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
+    --accent: #58a6ff; --accent2: #3fb950; --accent3: #d2a8ff;
+    --warn: #d29922; --err: #f85149;
+    --border: #30363d;
+    --code-bg: #1a1f29;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--fg);
+    line-height: 1.7; padding: 0;
+  }
+
+  /* ── Navigation ── */
+  nav {
+    position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 24px 16px; z-index: 100;
+  }
+  nav h2 { font-size: 14px; color: var(--accent); margin-bottom: 16px; letter-spacing: 0.5px; }
+  nav a {
+    display: block; color: var(--fg2); text-decoration: none;
+    padding: 5px 8px; font-size: 13px; border-radius: 4px;
+    transition: all 0.15s;
+  }
+  nav a:hover { color: var(--fg); background: var(--bg3); }
+  nav a.section { font-weight: 600; color: var(--fg); margin-top: 12px; }
+  nav .logo { font-size: 20px; font-weight: 700; color: var(--fg); margin-bottom: 4px; }
+  nav .subtitle { font-size: 11px; color: var(--fg3); margin-bottom: 20px; }
+
+  /* ── Main content ── */
+  main {
+    margin-left: 280px; max-width: 960px; padding: 48px 48px 120px;
+  }
+
+  h1 { font-size: 32px; margin-bottom: 8px; color: var(--fg); }
+  h1 + .lead { color: var(--fg2); font-size: 16px; margin-bottom: 40px; }
+  h2 {
+    font-size: 22px; color: var(--accent); margin-top: 56px; margin-bottom: 16px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 17px; color: var(--accent3); margin-top: 32px; margin-bottom: 12px; }
+  h4 { font-size: 14px; color: var(--warn); margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  p { margin-bottom: 14px; }
+  ul, ol { margin-bottom: 14px; padding-left: 24px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px; background: var(--code-bg); padding: 2px 6px;
+    border-radius: 3px; color: var(--accent3);
+  }
+  pre {
+    background: var(--code-bg); padding: 16px 20px; border-radius: 8px;
+    overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--border);
+  }
+  pre code { padding: 0; background: none; color: var(--fg); }
+
+  /* ── Diagrams ── */
+  .mermaid {
+    background: var(--bg2); padding: 24px; border-radius: 8px;
+    margin: 20px 0; border: 1px solid var(--border); text-align: center;
+  }
+  .diagram-caption {
+    text-align: center; font-size: 12px; color: var(--fg3);
+    margin-top: -12px; margin-bottom: 20px; font-style: italic;
+  }
+
+  /* ── Cards & boxes ── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px; margin-bottom: 16px;
+  }
+  .card h4 { margin-top: 0; }
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .card-grid .card { margin-bottom: 0; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--bg2);
+    padding: 14px 18px; border-radius: 0 6px 6px 0; margin: 16px 0;
+  }
+  .callout.warn { border-color: var(--warn); }
+  .callout.success { border-color: var(--accent2); }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%; border-collapse: collapse; margin: 16px 0 24px;
+    font-size: 14px;
+  }
+  th {
+    text-align: left; padding: 10px 14px; background: var(--bg3);
+    border: 1px solid var(--border); color: var(--accent); font-weight: 600;
+  }
+  td {
+    padding: 8px 14px; border: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: var(--bg2); }
+
+  /* ── Mode badges ── */
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge.quick { background: #238636; color: #fff; }
+  .badge.simple { background: #1f6feb; color: #fff; }
+  .badge.extended { background: #8957e5; color: #fff; }
+  .badge.optimization { background: #d29922; color: #000; }
+  .badge.deep { background: #da3633; color: #fff; }
+  .badge.sequential { background: #f78166; color: #000; }
+  .badge.meta { background: var(--fg3); color: var(--fg); }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
+    color: var(--fg3); font-size: 12px;
+  }
+
+  @media (max-width: 768px) {
+    nav { display: none; }
+    main { margin-left: 0; padding: 24px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">MCPDB</div>
+  <div class="subtitle">Thinking Engine Architecture</div>
+  <h2>CONTENTS</h2>
+  <a class="section" href="#overview">Overview</a>
+  <a href="#principles">Design Principles</a>
+  <a href="#execution-flow">Execution Flow</a>
+  <a class="section" href="#mode-system">Mode System</a>
+  <a href="#mode-taxonomy">Mode Taxonomy</a>
+  <a href="#classification">Classification</a>
+  <a href="#metamodes">Metamodes</a>
+  <a class="section" href="#thinking-pipeline">Thinking Pipeline</a>
+  <a href="#plan">Planning</a>
+  <a href="#execute">Execution</a>
+  <a href="#debug">Debugging</a>
+  <a href="#validate">Validation</a>
+  <a href="#synthesize">Synthesis</a>
+  <a class="section" href="#extended-mode">Extended Mode</a>
+  <a href="#checkpoints">Checkpoint Loop</a>
+  <a class="section" href="#deep-mode">Deep Analysis</a>
+  <a href="#blueprint">Blueprint</a>
+  <a href="#investigation-loop">Investigation Loop</a>
+  <a class="section" href="#infrastructure">Infrastructure</a>
+  <a href="#llm-providers">LLM Providers</a>
+  <a href="#sandbox">Sandbox</a>
+  <a href="#sources">Data Sources</a>
+  <a href="#experience-cache">Experience Cache</a>
+  <a href="#knowledge-rag">Knowledge / RAG</a>
+  <a href="#observer">Observer</a>
+  <a href="#callbacks">Callbacks &amp; Streaming</a>
+  <a class="section" href="#tech-stack">Technology Stack</a>
+  <a href="#dependencies">Dependencies</a>
+  <a href="#patterns">Design Patterns</a>
+</nav>
+
+<main>
+
+<h1>MCPDB Thinking Engine</h1>
+<p class="lead">A multi-mode reasoning engine that translates natural language questions about data into executable analysis plans, runs them in a secure sandbox, and synthesizes human-readable reports with visualizations.</p>
+
+<!-- ================================================================== -->
+<h2 id="overview">Overview</h2>
+
+<p>MCPDB is a <strong>natural language data exploration system</strong> built as an MCP (Model Context Protocol) server. At its core is a <em>thinking engine</em> &mdash; an agentic graph that classifies questions, generates multi-step execution plans, runs SQL and Python code against live data sources, handles errors through self-debugging, and produces synthesized answers with charts and tables.</p>
+
+<div class="mermaid">
+graph LR
+  Q["Natural Language<br/>Question"] --> CL["Classify"]
+  CL --> M{"Mode?"}
+  M -->|quick| QK["Context<br/>Answer"]
+  M -->|simple| PL["Plan - Execute<br/>- Synthesize"]
+  M -->|extended| EX["Multi-checkpoint<br/>Analysis"]
+  M -->|optimization| OP["Cost-gated<br/>Execution"]
+  M -->|deep| DP["Multi-investigation<br/>Research"]
+  M -->|sequential| SQ["Question-by-question<br/>Accumulation"]
+  QK --> R["Response"]
+  PL --> R
+  EX --> R
+  OP --> R
+  DP --> R
+  SQ --> R
+  style Q fill:#1f6feb,color:#fff
+  style R fill:#238636,color:#fff
+  style M fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">High-level flow: question → classify → mode-specific subgraph → response</p>
+
+<h3 id="principles">Design Principles</h3>
+
+<div class="card-grid">
+  <div class="card">
+    <h4>Graph-based Orchestration</h4>
+    <p>Inspired by LangGraph, the engine uses directed graphs of async nodes with typed state. Each mode is a subgraph with conditional edges, retry loops, and escalation paths.</p>
+  </div>
+  <div class="card">
+    <h4>Mode-adaptive Thinking</h4>
+    <p>Questions are classified into modes of increasing complexity. Simple questions get fast answers; complex research questions trigger multi-investigation pipelines with reasoning loops.</p>
+  </div>
+  <div class="card">
+    <h4>Self-correcting Execution</h4>
+    <p>Failed code steps are debugged by the LLM, which sees the error, prior context, and schema &mdash; generating corrected code. Anti-pattern tracking prevents repeated mistakes.</p>
+  </div>
+  <div class="card">
+    <h4>Secure Sandbox Isolation</h4>
+    <p>All generated code runs in subprocess sandboxes with AST-validated imports, memory/CPU limits, and a strict allow/block module policy. No file system or network access.</p>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="execution-flow">Complete Execution Flow</h2>
+
+<div class="mermaid">
+graph TD
+  START(["User Question"]) --> INIT["Initialize State<br/>source_context, cancellation_token"]
+  INIT --> AP["Inject Anti-pattern Context<br/>from experience failures"]
+  AP --> KN["Inject Knowledge Context<br/>RAG retrieval"]
+  KN --> CACHE{"Experience<br/>Cache?"}
+  CACHE -->|Hit| REPLAY["Replay cached steps<br/>on live data"]
+  CACHE -->|Miss| CLASSIFY["Classify Question"]
+  CLASSIFY --> FAST{"Fast<br/>path?"}
+  FAST -->|regex match| MODE
+  FAST -->|no| LLM_CLS["LLM Classification<br/>3 retries, 30s timeout"]
+  LLM_CLS --> MODE{"Route by Mode"}
+  MODE -->|quick| QUICK["run_quick()"]
+  MODE -->|simple| SIMPLE["run_simple()"]
+  MODE -->|extended| EXTENDED["run_extended()"]
+  MODE -->|optimization| OPTIM["run_optimization()"]
+  MODE -->|deep| DEEP["run_deep()"]
+  MODE -->|sequential| SEQ["run_sequential()"]
+  MODE -->|off_topic| OFFTOPIC["Friendly refusal"]
+  QUICK --> ESC{"Needs<br/>data?"}
+  ESC -->|yes| SIMPLE
+  ESC -->|no| SYNTH
+  SIMPLE --> SYNTH
+  EXTENDED --> SYNTH
+  OPTIM --> SYNTH
+  DEEP --> SYNTH
+  SEQ --> SYNTH
+  OFFTOPIC --> SYNTH
+  REPLAY --> SYNTH
+  SYNTH["Final Response"] --> STAGE["Stage for Quality<br/>Evaluation"]
+  STAGE --> RECORD["Record in Experience<br/>failures feed anti-patterns"]
+  RECORD --> DONE(["Response + Artifacts"])
+  style START fill:#1f6feb,color:#fff
+  style DONE fill:#238636,color:#fff
+  style CACHE fill:#d29922,color:#000
+  style MODE fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">Complete pipeline from question input to final response with experience tracking</p>
+
+<div class="callout">
+  <strong>Experience Cache Replay</strong>
+  On a cache hit, MCPDB does not simply return the cached text. It <em>re-executes</em> the cached code steps against live data (in case data has changed) and then re-synthesizes the response. If the schema has drifted (detected via schema fingerprint), the cache entry is invalidated.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="mode-system">Mode System</h2>
+
+<h3 id="mode-taxonomy">Mode Taxonomy</h3>
+
+<p>Modes are divided into two categories: <strong>base modes</strong> that directly execute analysis, and <strong>metamodes</strong> that orchestrate multiple base-mode runs.</p>
+
+<table>
+  <tr>
+    <th>Mode</th>
+    <th>Type</th>
+    <th>Steps</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><span class="badge quick">quick</span></td>
+    <td>Base</td>
+    <td>0</td>
+    <td>Answers from schema context or prior conversation &mdash; no code execution. Auto-escalates to simple if it can't answer.</td>
+  </tr>
+  <tr>
+    <td><span class="badge simple">simple</span></td>
+    <td>Base</td>
+    <td>1&ndash;5</td>
+    <td>Default mode. Generates a plan, executes SQL/Python steps, debugs errors, validates, synthesizes. Handles most data questions.</td>
+  </tr>
+  <tr>
+    <td><span class="badge extended">extended</span></td>
+    <td>Base</td>
+    <td>3&ndash;10</td>
+    <td>Multi-phase analysis with checkpoint reviews. LLM reviews progress after each phase, can revise direction. Max 2 revisions.</td>
+  </tr>
+  <tr>
+    <td><span class="badge optimization">optimization</span></td>
+    <td>Base</td>
+    <td>1&ndash;5</td>
+    <td>Cost-gated execution for large tables (&gt;1M rows). Asks user to confirm before expensive operations. Generates optimized queries.</td>
+  </tr>
+  <tr>
+    <td><span class="badge deep">deep</span></td>
+    <td><span class="badge meta">Meta</span></td>
+    <td>2&ndash;5 investigations</td>
+    <td>Research mode. Creates a blueprint of sub-questions, classifies each into a base mode, runs them with reasoning checkpoints, synthesizes a comprehensive report.</td>
+  </tr>
+  <tr>
+    <td><span class="badge sequential">sequential</span></td>
+    <td><span class="badge meta">Meta</span></td>
+    <td>2&ndash;20 questions</td>
+    <td>Answers a list of questions one-by-one with accumulating context. Each sub-question is independently classified into a base mode.</td>
+  </tr>
+</table>
+
+<div class="mermaid">
+graph TD
+  subgraph "Base Modes (directly executable)"
+    QUICK["quick<br/>schema/context only"]
+    SIMPLE["simple<br/>1-5 steps, default"]
+    EXTENDED["extended<br/>3-10 steps, checkpoints"]
+    OPTIM["optimization<br/>cost-gated, large data"]
+  end
+  subgraph "Metamodes (orchestrate base modes)"
+    DEEP["deep<br/>multi-investigation research"]
+    SEQ["sequential<br/>question-by-question"]
+  end
+  DEEP -->|"classify each<br/>investigation"| QUICK
+  DEEP -->|"classify each<br/>investigation"| SIMPLE
+  DEEP -->|"classify each<br/>investigation"| EXTENDED
+  DEEP -->|"classify each<br/>investigation"| OPTIM
+  SEQ -->|"classify each<br/>sub-question"| QUICK
+  SEQ -->|"classify each<br/>sub-question"| SIMPLE
+  SEQ -->|"classify each<br/>sub-question"| EXTENDED
+  SEQ -->|"classify each<br/>sub-question"| OPTIM
+  style DEEP fill:#da3633,color:#fff
+  style SEQ fill:#f78166,color:#000
+  style QUICK fill:#238636,color:#fff
+  style SIMPLE fill:#1f6feb,color:#fff
+  style EXTENDED fill:#8957e5,color:#fff
+  style OPTIM fill:#d29922,color:#000
+</div>
+<p class="diagram-caption">Metamodes dispatch to base modes after independent classification of each sub-question</p>
+
+<h3 id="classification">Question Classification</h3>
+
+<p>Classification happens in two tiers: a <strong>fast-path</strong> regex check for obvious patterns, and an <strong>LLM classification</strong> for everything else.</p>
+
+<div class="card">
+<h4>Fast-path Patterns (no LLM call)</h4>
+<ul>
+  <li><strong>Quick:</strong> questions about tables, columns, schema, ERD, foreign keys, relationships</li>
+  <li><strong>Off-topic:</strong> greetings ("hello", "bye"), meta-questions ("who are you?")</li>
+</ul>
+<h4>LLM Classification</h4>
+<p>The LLM receives the question, schema context, and mode descriptions. It returns a JSON with <code>mode</code>, <code>reasoning</code>, <code>target_sources</code>, <code>requires_cross_source</code>, and <code>key_entities</code>.</p>
+<p>Key guardrail: questions requiring computation, counting, or data analysis are <em>never</em> classified as quick &mdash; they must be simple or higher.</p>
+</div>
+
+<h3 id="metamodes">Metamode Architecture</h3>
+
+<p>Metamodes use <code>classify_question(allowed_modes=BASE_MODES)</code> to restrict sub-question classification to only base modes, preventing recursive metamode dispatch (e.g., a deep investigation spawning another deep investigation). The shared <code>dispatch_base_mode()</code> utility routes the classified sub-question to the correct runner.</p>
+
+<pre><code># Metamode restricts classification to base modes only
+classification = await classify_question(
+    question=sub_question,
+    source_context=state["source_context"],
+    llm=llm,
+    allowed_modes=BASE_MODES,  # {quick, simple, extended, optimization_required}
+)
+
+# Dispatch to the classified base mode
+state = await dispatch_base_mode(state, llm, callbacks, registry)</code></pre>
+
+<!-- ================================================================== -->
+<h2 id="thinking-pipeline">Thinking Pipeline (Simple Mode)</h2>
+
+<p>Simple mode is the core pipeline that all other modes build upon. It follows a <strong>plan &rarr; execute &rarr; debug &rarr; validate &rarr; synthesize</strong> flow with self-correction loops.</p>
+
+<div class="mermaid">
+graph TD
+  START(["Question + Schema"]) --> PLAN["make_plan()<br/>LLM generates step-by-step plan"]
+  PLAN --> EXEC["execute_step()<br/>run SQL or Python in sandbox"]
+  EXEC --> CHECK{"Step<br/>succeeded?"}
+  CHECK -->|yes| NEXT{"More<br/>steps?"}
+  CHECK -->|no| DEBUG["debug_step()<br/>LLM analyzes error, generates fix"]
+  DEBUG --> RETRY{"Retries<br/>left?"}
+  RETRY -->|yes| EXEC
+  RETRY -->|no| ADVANCE["Skip step,<br/>continue"]
+  ADVANCE --> NEXT
+  NEXT -->|yes| EXEC
+  NEXT -->|no| VALIDATE["validate_results()<br/>LLM checks adequacy"]
+  VALIDATE --> VCHECK{"Adequate?"}
+  VCHECK -->|yes| SYNTH["synthesize()<br/>LLM writes response"]
+  VCHECK -->|no| REPLAN{"Replan<br/>budget?"}
+  REPLAN -->|yes| PLAN
+  REPLAN -->|no| SYNTH
+  SYNTH --> DONE(["Response +<br/>Artifacts"])
+  style START fill:#1f6feb,color:#fff
+  style DONE fill:#238636,color:#fff
+  style DEBUG fill:#d29922,color:#000
+  style VALIDATE fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">Simple mode pipeline with self-correcting debug loops and validation replanning</p>
+
+<h3 id="plan">Planning</h3>
+
+<div class="card">
+<p>The planner generates a structured JSON plan with typed steps. Each step specifies an <code>action</code> type and the <code>code</code> to execute.</p>
+
+<h4>Step Types</h4>
+<table>
+  <tr><th>Action</th><th>Description</th><th>Execution</th></tr>
+  <tr><td><code>sql</code></td><td>SQL query against a data source</td><td>SQLAlchemy → DataFrame</td></tr>
+  <tr><td><code>python</code></td><td>Python code for analysis/visualization</td><td>Subprocess sandbox</td></tr>
+  <tr><td><code>schema</code></td><td>Schema introspection query</td><td>SQLAlchemy inspector</td></tr>
+  <tr><td><code>sample</code></td><td>Get sample rows from a table</td><td>SELECT * LIMIT N</td></tr>
+</table>
+
+<h4>Plan Retry Strategy</h4>
+<p>If the LLM fails to generate a valid plan, a <strong>3-tier fallback</strong> activates:</p>
+<ol>
+  <li><strong>Primary LLM</strong> with full prompt</li>
+  <li><strong>Simpler LLM</strong> call (reduced prompt)</li>
+  <li><strong>Hardcoded fallback plan</strong> &mdash; schema introspection + sample query</li>
+</ol>
+</div>
+
+<h3 id="execute">Execution</h3>
+
+<div class="card">
+<p>Each plan step is executed sequentially. SQL queries run through SQLAlchemy; Python code runs in a subprocess sandbox. Results flow forward as context for subsequent steps.</p>
+
+<h4>DataFrame Variable Convention</h4>
+<p>The plan prompt instructs the LLM to use <code>df</code> as the standard variable name. The execution engine makes prior step results available as <code>df</code> in subsequent Python steps, enabling natural chaining:</p>
+
+<pre><code># Step 1 (SQL): SELECT * FROM orders WHERE amount > 100
+# → result stored as df
+
+# Step 2 (Python): uses df from Step 1
+import matplotlib.pyplot as plt
+df.groupby('region')['amount'].sum().plot(kind='bar')
+plt.title('Revenue by Region')
+plt.show()  # captured as base64 PNG artifact</code></pre>
+</div>
+
+<h3 id="debug">Self-debugging</h3>
+
+<div class="card">
+<p>When a step fails, the debug node provides the LLM with the failed code, error message, schema context, and anti-pattern hints. The LLM generates corrected code. Each step gets up to <code>max_retries</code> debug attempts (default 3, reduced to 2 for sub-investigations).</p>
+
+<div class="callout warn">
+  <strong>Anti-pattern Integration</strong>
+  If the same error type has occurred before on this data source, the anti-pattern tracker injects avoidance hints into the debug prompt: <em>"Previous failures suggest: check column names for this table — they use Hungarian naming conventions."</em>
+</div>
+
+<p>If all retries are exhausted, the step is <strong>advanced past</strong> (not fatal) &mdash; the pipeline continues with remaining steps, and the synthesizer notes the gap.</p>
+</div>
+
+<h3 id="validate">Validation</h3>
+
+<div class="card">
+<p>After all steps complete, the validation node asks the LLM: <em>"Given these execution results, does the data adequately answer the question?"</em></p>
+
+<p>Three possible outcomes:</p>
+<ul>
+  <li><strong>Adequate:</strong> proceed to synthesis</li>
+  <li><strong>Inadequate:</strong> trigger replan with the LLM's suggested improvements (up to 1 replan)</li>
+  <li><strong>Partial:</strong> synthesize with what we have, noting limitations</li>
+</ul>
+</div>
+
+<h3 id="synthesize">Synthesis</h3>
+
+<div class="card">
+<p>The synthesizer converts raw execution results into a human-readable markdown response. It receives the original question, all step results, and any validation notes.</p>
+
+<h4>Fast-path Synthesis</h4>
+<p>For simple results (&le;2 tables, &le;50 rows), synthesis skips the LLM entirely and formats the data directly as markdown tables &mdash; faster and more accurate than LLM reformatting.</p>
+
+<h4>Artifact Handling</h4>
+<p>Charts captured from <code>plt.show()</code> in the sandbox are encoded as base64 PNGs and attached as <em>artifacts</em>. The web UI renders these inline; exports embed them in HTML/PDF/Jupyter.</p>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="extended-mode">Extended Mode</h2>
+
+<h3 id="checkpoints">Checkpoint Loop</h3>
+
+<p>Extended mode wraps the simple pipeline with a <strong>checkpoint review</strong> after each execution phase. The LLM reviews completed work and decides whether to continue, revise, or finalize.</p>
+
+<div class="mermaid">
+graph TD
+  START(["Complex Question"]) --> PLAN["Extended Plan<br/>3-10 phases"]
+  PLAN --> PHASE["Execute Phase"]
+  PHASE --> CHECKPOINT["LLM Checkpoint<br/>Review"]
+  CHECKPOINT --> DEC{"Decision?"}
+  DEC -->|continue| PHASE
+  DEC -->|revise| REV{"Revision<br/>budget?"}
+  REV -->|yes, ≤2| PLAN
+  REV -->|exhausted| SYNTH
+  DEC -->|finalize| SYNTH["Extended<br/>Synthesis"]
+  SYNTH --> DONE(["Comprehensive<br/>Report"])
+  style START fill:#8957e5,color:#fff
+  style DONE fill:#238636,color:#fff
+  style CHECKPOINT fill:#d29922,color:#000
+</div>
+<p class="diagram-caption">Extended mode checkpoint loop with revision budget (max 2 revisions)</p>
+
+<!-- ================================================================== -->
+<h2 id="deep-mode">Deep Analysis Mode</h2>
+
+<p>Deep mode is a research-grade metamode for comprehensive, multi-angle investigations. It creates a <strong>blueprint</strong> of sub-questions, runs each as an independent investigation through a classified base mode, performs <strong>reasoning checkpoints</strong> to evaluate sufficiency, and synthesizes a structured research report.</p>
+
+<h3 id="blueprint">Blueprint Creation</h3>
+
+<div class="card">
+<p>The LLM acts as a "senior data analyst" creating a research blueprint with:</p>
+<ul>
+  <li>A clear <strong>research goal</strong></li>
+  <li><strong>2&ndash;5 investigations</strong>, each with a sub-question, approach, and priority</li>
+  <li>At least one investigation requiring <strong>data visualization</strong></li>
+  <li>Non-overlapping, independently executable sub-questions</li>
+</ul>
+</div>
+
+<h3 id="investigation-loop">Investigation &amp; Reasoning Loop</h3>
+
+<div class="mermaid">
+graph TD
+  BLUEPRINT["Create Blueprint<br/>2-5 investigations"] --> PICK["Pick Next<br/>Investigation"]
+  PICK --> CLASS["classify_question()<br/>allowed_modes=BASE_MODES"]
+  CLASS --> DISPATCH["dispatch_base_mode()<br/>quick|simple|extended|optimization"]
+  DISPATCH --> COMPLETE["Investigation<br/>Complete"]
+  COMPLETE --> REASON{"Reasoning<br/>Checkpoint?"}
+  REASON -->|every 2 investigations<br/>or at end| REVIEW["LLM Reviews<br/>Progress"]
+  REASON -->|skip| MORE
+  REVIEW --> SUFF{"Sufficient<br/>evidence?"}
+  SUFF -->|yes| SYNTH
+  SUFF -->|no| ADJUST["Adjust Plan<br/>skip redundant, add new"]
+  ADJUST --> MORE{"More investigations?"}
+  MORE -->|yes| PICK
+  MORE -->|no| SYNTH
+  SYNTH["Deep Synthesis<br/>Executive summary, findings,<br/>methodology, recommendations"] --> DONE(["Research<br/>Report"])
+  style BLUEPRINT fill:#da3633,color:#fff
+  style DONE fill:#238636,color:#fff
+  style REVIEW fill:#d29922,color:#000
+  style CLASS fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">Deep mode: blueprint → (classify + investigate → reason)* → synthesize</p>
+
+<div class="callout success">
+  <strong>Adaptive Investigation</strong>
+  The reasoning checkpoint can <em>skip</em> remaining investigations deemed redundant, or <em>add new ones</em> based on discoveries. This makes deep mode adaptive &mdash; it doesn't rigidly follow the initial blueprint.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="infrastructure">Infrastructure</h2>
+
+<h3 id="llm-providers">LLM Provider System</h3>
+
+<div class="mermaid">
+graph LR
+  FACTORY["create_provider()<br/>factory.py"] -->|gemini| GEM["GeminiProvider<br/>google-genai SDK"]
+  FACTORY -->|anthropic| ANT["AnthropicProvider<br/>anthropic SDK"]
+  FACTORY -->|openai| OAI["OpenAIProvider<br/>openai SDK"]
+  FACTORY -->|ollama| OLL["OllamaProvider<br/>httpx REST"]
+  GEM --> BASE["LLMProvider<br/>base class"]
+  ANT --> BASE
+  OAI --> BASE
+  OLL --> BASE
+  BASE -->|"stream()"| STREAM["AsyncIterator&lt;StreamChunk&gt;"]
+  BASE -->|"generate()"| TEXT["text, usage"]
+  BASE -->|"generate_json()"| JSON["dict, usage"]
+  style FACTORY fill:#1f6feb,color:#fff
+  style BASE fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">Factory pattern for LLM providers with unified streaming interface</p>
+
+<div class="card">
+<h4>Key Design Decisions</h4>
+<ul>
+  <li><strong>Streaming-first:</strong> All providers implement <code>stream()</code> as the primitive. <code>generate()</code> and <code>generate_json()</code> are built on top by consuming the stream.</li>
+  <li><strong>Robust JSON extraction:</strong> <code>_extract_json()</code> handles LLMs that wrap JSON in markdown fences, trailing text, or malformed output. <code>_repair_json()</code> fixes common issues (trailing commas, unquoted keys).</li>
+  <li><strong>API key auto-resolution:</strong> The factory looks up environment variables automatically (<code>GEMINI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, etc.) without explicit configuration.</li>
+  <li><strong>No hardcoded max_tokens:</strong> Provider defaults (16384) are used everywhere for consistent behavior.</li>
+</ul>
+</div>
+
+<h3 id="sandbox">Sandbox Execution</h3>
+
+<div class="mermaid">
+graph TD
+  CODE["Generated Python Code"] --> AST["AST Import<br/>Validation"]
+  AST -->|blocked module| REJECT["Reject<br/>security violation"]
+  AST -->|allowed| WRAP["Build Wrapper Script<br/>inject df, capture charts"]
+  WRAP --> PROC["Subprocess<br/>Execution"]
+  PROC --> LIMITS["Resource Limits<br/>2GB RAM, 30s CPU"]
+  LIMITS --> RESULT["Parse JSON Envelope<br/>stdout, stderr, charts"]
+  RESULT --> SANDBOX["SandboxResult<br/>success, dataframe,<br/>charts[], error"]
+  style CODE fill:#1f6feb,color:#fff
+  style REJECT fill:#f85149,color:#fff
+  style SANDBOX fill:#238636,color:#fff
+</div>
+<p class="diagram-caption">Sandbox execution pipeline with AST validation and subprocess isolation</p>
+
+<div class="card">
+<h4>Security Policy</h4>
+<table>
+  <tr><th>Category</th><th>Allowed</th><th>Blocked</th></tr>
+  <tr>
+    <td>Data</td>
+    <td><code>pandas</code>, <code>numpy</code>, <code>polars</code>, <code>duckdb</code></td>
+    <td>&mdash;</td>
+  </tr>
+  <tr>
+    <td>Visualization</td>
+    <td><code>matplotlib</code>, <code>seaborn</code>, <code>plotly</code></td>
+    <td>&mdash;</td>
+  </tr>
+  <tr>
+    <td>ML</td>
+    <td><code>sklearn</code>, <code>scipy</code>, <code>torch</code>, <code>xgboost</code></td>
+    <td>&mdash;</td>
+  </tr>
+  <tr>
+    <td>File System</td>
+    <td>&mdash;</td>
+    <td><code>os</code>, <code>sys</code>, <code>shutil</code>, <code>pathlib</code></td>
+  </tr>
+  <tr>
+    <td>Network</td>
+    <td>&mdash;</td>
+    <td><code>socket</code>, <code>http</code>, <code>urllib</code>, <code>requests</code></td>
+  </tr>
+  <tr>
+    <td>Dangerous</td>
+    <td>&mdash;</td>
+    <td><code>subprocess</code>, <code>ctypes</code>, <code>pickle</code>, <code>importlib</code></td>
+  </tr>
+</table>
+
+<h4>Chart Capture</h4>
+<p>The sandbox monkey-patches <code>plt.show()</code> and <code>plt.savefig()</code> to intercept figures, encode them as base64 PNGs at 100 DPI, and return them via a JSON metadata envelope in stdout. The Matplotlib <code>Agg</code> backend is enforced (non-interactive).</p>
+</div>
+
+<h3 id="sources">Data Sources</h3>
+
+<div class="mermaid">
+graph TD
+  REG["SourceRegistry<br/>thread-safe store"] --> DB["DatabaseSource<br/>SQLAlchemy engine"]
+  REG --> CSV["CsvSource<br/>DuckDB backend"]
+  REG --> XLS["ExcelSource<br/>openpyxl + DuckDB"]
+  DB --> QS["QueryableSource<br/>execute_query(), get_sample()"]
+  CSV --> QS
+  XLS --> QS
+  XLS --> SS["SpreadsheetSource<br/>list_sheets(), read_range()"]
+  QS --> DS["DataSource<br/>get_metadata(), get_context_description()"]
+  SS --> DS
+  style REG fill:#1f6feb,color:#fff
+  style DS fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">Source type hierarchy: all sources provide metadata; queryable sources support SQL execution</p>
+
+<div class="card">
+<h4>Database Sources</h4>
+<p>SQLAlchemy engine with connection pooling (5 connections, pre-ping, 1-hour recycle). Supports PostgreSQL, MySQL, SQLite, MSSQL, Oracle via dialect-specific adapters. Schema introspection discovers tables, columns, types, row counts, primary and foreign keys.</p>
+
+<h4>CSV Sources</h4>
+<p>Files loaded into an in-memory DuckDB instance for SQL querying. Auto-detects encoding (chardet), delimiter, and header presence. Multiple CSV files join into a single queryable source.</p>
+
+<h4>Excel Sources</h4>
+<p>Parsed with openpyxl for structure analysis (table boundaries, formula clusters, dependency graphs). Detected tables are extracted as DataFrames and registered in DuckDB. Implements both QueryableSource (SQL) and SpreadsheetSource (cell-level access).</p>
+</div>
+
+<h3 id="experience-cache">Experience Cache</h3>
+
+<div class="mermaid">
+graph LR
+  Q["Question"] --> FP["Fingerprinting"]
+  FP --> IH["intent_hash<br/>SHA256(normalized_question +<br/>source_fingerprint)"]
+  FP --> SH["semantic_hash<br/>SHA256(stopword-removed +<br/>synonym-normalized)"]
+  IH --> LOOKUP["Two-tier Lookup"]
+  SH --> LOOKUP
+  LOOKUP --> |exact hit| REPLAY["Replay on<br/>live data"]
+  LOOKUP --> |semantic hit| MODE{"Mode<br/>acceptable?"}
+  MODE --> |yes| REPLAY
+  MODE --> |no| MISS["Cache Miss"]
+  LOOKUP --> |miss| MISS
+  MISS --> EXECUTE["Full Agent<br/>Execution"]
+  EXECUTE --> STAGE["Stage for<br/>Quality Eval"]
+  STAGE --> WORKER["Background<br/>QualityWorker"]
+  WORKER -->|"score >= 7"| PROMOTE["SuccessRecord<br/>to cache + store"]
+  WORKER -->|"score < 7"| REJECT_F["FailureRecord<br/>to anti-pattern tracker"]
+  style Q fill:#1f6feb,color:#fff
+  style PROMOTE fill:#238636,color:#fff
+  style REJECT_F fill:#f85149,color:#fff
+</div>
+<p class="diagram-caption">Two-tier experience cache with background quality evaluation pipeline</p>
+
+<div class="card">
+<h4>Mode Hierarchy for Cache Filtering</h4>
+<p>Cache lookups respect a mode hierarchy: <code>quick (0) &lt; simple (1) &lt; optimization (2) &lt; extended/sequential (3) &lt; deep (4)</code>. A higher-mode cache can serve a lower-mode request, but never the reverse. This prevents a quick-mode cache hit from satisfying an extended-mode request.</p>
+
+<h4>Semantic Matching</h4>
+<p>Questions are normalized by removing 60+ stopwords and normalizing 30+ synonyms (e.g., "database" &rarr; "db", "average" &rarr; "avg"), then sorted alphabetically. This gives identical semantic hashes for differently phrased versions of the same question.</p>
+
+<h4>Quality Gate</h4>
+<p>New results are staged, not immediately cached. A background worker evaluates quality via LLM scoring (completeness, accuracy, relevance, clarity, 1&ndash;10 each). Only results scoring &ge;7 are promoted to permanent cache. Failures feed the anti-pattern tracker.</p>
+</div>
+
+<h3 id="knowledge-rag">Knowledge / RAG System</h3>
+
+<div class="mermaid">
+graph TD
+  FILES["Markdown/Text Files<br/>business rules, query templates,<br/>terminology, examples"] --> CHUNK["Chunker<br/>by section + category"]
+  CHUNK --> INDEX["Hybrid Index<br/>BM25 + optional vectors"]
+  INDEX --> |query| RETRIEVE["Retrieve chunks<br/>category filter + relevance"]
+  RETRIEVE --> INJECT["Inject into LLM prompt<br/>token-budgeted"]
+  INJECT --> PLAN_I["Plan prompt<br/>2000 tokens"]
+  INJECT --> DEBUG_I["Debug prompt<br/>1000 tokens"]
+  INJECT --> SYNTH_I["Synthesize prompt<br/>1000 tokens"]
+  INJECT --> CLASS_I["Classify prompt<br/>500 tokens"]
+  style FILES fill:#1f6feb,color:#fff
+  style INDEX fill:#8957e5,color:#fff
+</div>
+<p class="diagram-caption">RAG system with hybrid retrieval and injection-point-specific token budgets</p>
+
+<div class="card">
+<h4>Knowledge Categories</h4>
+<p>8 categories enable targeted retrieval per injection point:</p>
+<ul>
+  <li><strong>SCHEMA_DOCS</strong> &mdash; table/column documentation</li>
+  <li><strong>BUSINESS_RULE</strong> &mdash; domain logic ("premium is calculated as...")</li>
+  <li><strong>QUERY_TEMPLATE</strong> &mdash; proven SQL/Python patterns</li>
+  <li><strong>DATA_QUALITY</strong> &mdash; known data issues ("column X has 30% nulls")</li>
+  <li><strong>TERMINOLOGY</strong> &mdash; domain vocabulary</li>
+  <li><strong>VISUALIZATION</strong> &mdash; chart patterns and best practices</li>
+  <li><strong>WORKING_EXAMPLE</strong> &mdash; full worked examples</li>
+  <li><strong>QA</strong> &mdash; known question-answer pairs</li>
+</ul>
+
+<h4>Embedding Providers</h4>
+<p>Three options: local sentence-transformers (all-MiniLM-L6-v2, 384 dims), LLM-provider embeddings (Gemini/OpenAI embed API), or BM25-only (no vectors). Auto-detected: tries local &rarr; LLM &rarr; none.</p>
+</div>
+
+<h3 id="observer">Async Reasoning Observer</h3>
+
+<div class="card">
+<p>The <code>AsyncReasoningObserver</code> runs as a parallel async task during agent execution, monitoring for anomalies without blocking the main pipeline.</p>
+
+<h4>Detectors</h4>
+<ul>
+  <li><strong>TimingMonitor:</strong> tracks phase durations against expected budgets</li>
+  <li><strong>PatternDetector:</strong> identifies debug loops (same error repeated), empty results, and stuck states</li>
+  <li><strong>CancellationToken:</strong> cooperative cancellation checked at plan/execute/synthesize boundaries</li>
+</ul>
+
+<p>The observer reports are attached to the final state for diagnostics but do not interrupt execution unless cancellation is triggered.</p>
+</div>
+
+<h3 id="callbacks">Callbacks &amp; Event Streaming</h3>
+
+<div class="card">
+<p>A <code>CallbackManager</code> provides a pub/sub event system. Nodes emit typed events (e.g., <code>plan/start</code>, <code>execute/step_complete</code>, <code>deep/investigation_start</code>) with structured data. Listeners can be attached for:</p>
+
+<ul>
+  <li><strong>CLI progress:</strong> spinner, status messages, timing display</li>
+  <li><strong>Web UI:</strong> real-time WebSocket streaming to the browser execution monitor</li>
+  <li><strong>Logging:</strong> structured event logging</li>
+</ul>
+
+<h4>Event Categories (20+ event types)</h4>
+<table>
+  <tr><th>Prefix</th><th>Events</th></tr>
+  <tr><td><code>classify/</code></td><td>start, complete, override</td></tr>
+  <tr><td><code>plan/</code></td><td>start, complete, fallback</td></tr>
+  <tr><td><code>execute/</code></td><td>step_start, step_complete, step_error</td></tr>
+  <tr><td><code>debug/</code></td><td>start, complete, retry</td></tr>
+  <tr><td><code>validate/</code></td><td>start, complete</td></tr>
+  <tr><td><code>synthesize/</code></td><td>start, complete</td></tr>
+  <tr><td><code>deep/</code></td><td>start, blueprint, investigation_start, investigation_complete, reasoning, synthesis_start, complete</td></tr>
+  <tr><td><code>sequential/</code></td><td>start, step_start, step_complete, synthesis_start, complete</td></tr>
+  <tr><td><code>agent/</code></td><td>complete, error</td></tr>
+</table>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="tech-stack">Technology Stack</h2>
+
+<h3 id="dependencies">Key Dependencies</h3>
+
+<table>
+  <tr><th>Library</th><th>Purpose</th><th>Usage</th></tr>
+  <tr><td><code>sqlalchemy</code> &ge;2.0</td><td>Database ORM</td><td>Connection pooling, schema introspection, query execution, dialect support</td></tr>
+  <tr><td><code>pandas</code> &ge;2.0</td><td>Data manipulation</td><td>Query results as DataFrames, sampling, joins, analysis in sandbox</td></tr>
+  <tr><td><code>duckdb</code></td><td>In-memory SQL</td><td>CSV/Excel source backend, cross-source federation</td></tr>
+  <tr><td><code>google-genai</code></td><td>Gemini SDK</td><td>Default LLM provider (Gemini 2.5 Pro)</td></tr>
+  <tr><td><code>anthropic</code></td><td>Claude SDK</td><td>Alternative LLM provider</td></tr>
+  <tr><td><code>openai</code></td><td>OpenAI SDK</td><td>Alternative LLM provider</td></tr>
+  <tr><td><code>fastapi</code> + <code>uvicorn</code></td><td>Web server</td><td>REST API + WebSocket for real-time event streaming</td></tr>
+  <tr><td><code>mcp</code> &ge;1.0</td><td>MCP protocol</td><td>Model Context Protocol server (tools, resources, prompts)</td></tr>
+  <tr><td><code>matplotlib</code> + <code>seaborn</code></td><td>Visualization</td><td>Chart generation in sandbox, captured as base64 PNGs</td></tr>
+  <tr><td><code>openpyxl</code></td><td>Excel parsing</td><td>Workbook reading, formula extraction, structure analysis</td></tr>
+  <tr><td><code>jinja2</code></td><td>Templates</td><td>HTML report generation for export</td></tr>
+  <tr><td><code>weasyprint</code></td><td>PDF generation</td><td>HTML &rarr; PDF conversion for export</td></tr>
+  <tr><td><code>nbformat</code></td><td>Jupyter notebooks</td><td>Generating re-runnable .ipynb files with executable code cells</td></tr>
+  <tr><td><code>rich</code> &ge;13.0</td><td>CLI formatting</td><td>Terminal colors, progress spinners, tables</td></tr>
+  <tr><td><code>sentence-transformers</code></td><td>Embeddings</td><td>Local vector embeddings for RAG (optional, all-MiniLM-L6-v2)</td></tr>
+  <tr><td><code>chardet</code></td><td>Encoding detection</td><td>Auto-detect CSV file encoding</td></tr>
+</table>
+
+<h3 id="patterns">Design Patterns</h3>
+
+<div class="card-grid">
+  <div class="card">
+    <h4>Graph Orchestration</h4>
+    <p>LangGraph-inspired directed graph of async nodes with shared TypedDict state. Conditional edges (escalation, replan), subgraphs for each mode. Not using LangGraph itself &mdash; custom lightweight implementation.</p>
+  </div>
+  <div class="card">
+    <h4>Factory Pattern</h4>
+    <p><code>create_provider()</code> instantiates the correct LLM provider based on a string identifier. API keys resolved from environment variables automatically.</p>
+  </div>
+  <div class="card">
+    <h4>Strategy Pattern</h4>
+    <p>Each mode (quick, simple, extended, etc.) is a strategy implementing the same interface. <code>dispatch_base_mode()</code> selects the strategy based on classification.</p>
+  </div>
+  <div class="card">
+    <h4>Observer Pattern</h4>
+    <p><code>CallbackManager</code> implements pub/sub events. Nodes emit events; listeners (CLI, Web, logging) subscribe independently. Errors in listeners don't crash the pipeline.</p>
+  </div>
+  <div class="card">
+    <h4>Two-tier Cache</h4>
+    <p>Exact-match (intent hash) + fuzzy-match (semantic hash) with quality-gated promotion. Staging &rarr; background LLM evaluation &rarr; promote/reject.</p>
+  </div>
+  <div class="card">
+    <h4>Subprocess Isolation</h4>
+    <p>Generated code runs in separate processes with OS-level resource limits (memory, CPU). AST validation as a static analysis layer before execution.</p>
+  </div>
+  <div class="card">
+    <h4>Cooperative Cancellation</h4>
+    <p>A <code>CancellationToken</code> is threaded through state, checked at major boundaries (plan, execute, synthesize). Enables clean timeout handling without killing subprocesses.</p>
+  </div>
+  <div class="card">
+    <h4>Metamode Composition</h4>
+    <p>Deep and sequential modes compose base modes rather than reimplementing them. Each sub-question is independently classified and dispatched, with <code>allowed_modes</code> preventing recursive metamode invocation.</p>
+  </div>
+</div>
+
+<div class="footer">
+  <p>MCPDB Thinking Engine Architecture &mdash; Generated 2026-03-11</p>
+  <p>Source: <code>mcpdb/agent/</code>, <code>mcpdb/llm/</code>, <code>mcpdb/sandbox/</code>, <code>mcpdb/sources/</code>, <code>mcpdb/experience/</code>, <code>mcpdb/knowledge/</code></p>
+</div>
+
+</main>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1f6feb',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#8b949e',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#21262d',
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 16, htmlLabels: true },
+    securityLevel: 'loose',
+  });
+
+  // Highlight active nav link on scroll
+  const sections = document.querySelectorAll('h2[id], h3[id]');
+  const navLinks = document.querySelectorAll('nav a[href^="#"]');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 100) current = s.id;
+    });
+    navLinks.forEach(a => {
+      a.style.color = a.getAttribute('href') === '#' + current ? '#58a6ff' : '';
+      a.style.fontWeight = a.getAttribute('href') === '#' + current ? '600' : '';
+    });
+  });
+</script>
+
+</body>
+</html>
