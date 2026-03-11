@@ -100,10 +100,10 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .message.assistant .bubble p code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 .message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
 .message.assistant .role { color: var(--green); }
-.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; display: flex; align-items: center; gap: 8px; }
-.msg-meta .meta-text { flex: 1; }
-.dismiss-btn { background: none; border: 1px solid transparent; border-radius: 4px; color: var(--fg3); cursor: pointer; padding: 2px 6px; font-size: 11px; transition: color 0.15s, border-color 0.15s, background 0.15s; flex-shrink: 0; }
-.dismiss-btn:hover { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.1); }
+.msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
+.message.assistant { position: relative; }
+.dismiss-btn { position: absolute; top: 4px; right: 4px; background: var(--bg2); border: 1px solid var(--bg3); border-radius: 4px; color: var(--fg3); cursor: pointer; padding: 3px 8px; font-size: 12px; transition: color 0.15s, border-color 0.15s, background 0.15s; opacity: 0.5; }
+.dismiss-btn:hover { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.15); opacity: 1; }
 .message.intermediate { opacity: 0.85; border-left: 3px solid var(--purple); padding-left: 12px; }
 .message.intermediate .role { color: var(--purple); }
 .message.intermediate .bubble h3 { font-size: 14px; margin-bottom: 8px; }
@@ -762,8 +762,13 @@ function renderMessage(msg) {
     }
   }
 
+  // Dismiss button — always visible on non-welcome assistant messages
+  if (msg.role === 'assistant' && !(msg.meta && msg.meta.isWelcome)) {
+    html += `<button class="dismiss-btn" onclick="dismissQA(this)" title="Remove this Q&amp;A">\u2715 Dismiss</button>`;
+  }
+
   if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
-    // Metadata footer with dismiss button
+    // Metadata footer
     const parts = [];
     if (msg.meta.mode) parts.push(`Mode: ${msg.meta.mode}`);
     if (msg.meta.elapsed) parts.push(`Time: ${msg.meta.elapsed.toFixed(1)}s`);
@@ -772,10 +777,7 @@ function renderMessage(msg) {
       parts.push(`${u.calls} LLM calls`);
       parts.push(`${fmtTokens(u.input_tokens)} in / ${fmtTokens(u.output_tokens)} out`);
     }
-    html += '<div class="msg-meta">';
-    if (parts.length) html += `<span class="meta-text">${parts.join(' \u00b7 ')}</span>`;
-    if (!msg.meta.isWelcome) html += `<button class="dismiss-btn" onclick="dismissQA(this)" title="Remove this Q&amp;A">\u2715 Dismiss</button>`;
-    html += '</div>';
+    if (parts.length) html += `<div class="msg-meta">${parts.join(' \u00b7 ')}</div>`;
 
     // Follow-up suggestions
     const followups = msg.meta.followups || [];
