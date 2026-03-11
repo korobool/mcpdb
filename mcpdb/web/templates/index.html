@@ -575,7 +575,7 @@ function handleEvent(msg) {
   else if (et === 'deep/reasoning') {
     const text = d.sufficient ? 'Sufficient evidence gathered' : 'Need more data, continuing...';
     mon.deepReasoningStatus = text;
-    addLog(`Reasoning: ${text}`);
+    addLog(`<span class="mode-badge quick">quick</span> Reasoning: ${text}`);
   }
   else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
   else if (et === 'deep/retry') { addLog(`Retrying ${d.component || 'LLM call'} (attempt ${d.attempt || '?'}, waiting ${d.delay || '?'}s)...`); }
@@ -1152,6 +1152,7 @@ async function loadSources() {
     sources = await res.json();
     renderSources();
     renderWelcome();
+    updateExportVisibility();
   } catch (e) { console.error('Failed to load sources', e); }
 }
 
@@ -1597,7 +1598,7 @@ function sanitizeMermaidERD(code) {
 // ── Export functions ──────────────────────────────────────
 function updateExportVisibility() {
   const el = document.getElementById('export-section');
-  if (el) el.style.display = conversationTurns.length > 0 ? '' : 'none';
+  if (el) el.style.display = (conversationTurns.length > 0 || sources.length > 0) ? '' : 'none';
 }
 
 function _getDbInfo() {
@@ -1623,7 +1624,7 @@ function _getDiscovery() {
 }
 
 async function exportHTML() {
-  if (conversationTurns.length === 0) return;
+  if (conversationTurns.length === 0 && sources.length === 0) return;
   try {
     const resp = await fetch('/api/export/html', {
       method: 'POST',
@@ -1637,7 +1638,7 @@ async function exportHTML() {
 }
 
 async function exportPDF() {
-  if (conversationTurns.length === 0) return;
+  if (conversationTurns.length === 0 && sources.length === 0) return;
   try {
     const resp = await fetch('/api/export/pdf', {
       method: 'POST',
@@ -1660,7 +1661,7 @@ async function exportPDF() {
 }
 
 async function exportNotebook(openJupyter = false) {
-  if (conversationTurns.length === 0) return;
+  if (conversationTurns.length === 0 && sources.length === 0) return;
   try {
     const connStr = _getConnectionString();
     const sourceType = sources.length ? sources[0].source_type : 'database';

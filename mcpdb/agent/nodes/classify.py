@@ -26,12 +26,14 @@ USER QUESTION: {question}
 AVAILABLE MODES:
 {modes_section}
 
+IMPORTANT: "quick" is ONLY for questions answerable from schema/metadata or prior conversation context (e.g. table names, column types, ERD, clarifying a previous result). Any question that requires new data queries, counting, computing, calculating, or analyzing actual data MUST use "simple" or higher — never "quick". When in doubt, prefer "simple".
+
 Respond with JSON only:
 {{"mode": "{valid_modes_str}", "reasoning": "Why this mode", "target_sources": ["source_id"], "requires_cross_source": false, "key_entities": ["tables/columns mentioned"]}}
 """
 
 _MODE_DESCRIPTIONS = {
-    "quick": "Answer from known context (schema questions, previous results)",
+    "quick": "ONLY for questions answerable from schema/metadata or prior conversation context (e.g. schema lookup, summarize/reason about previous results). Never for questions requiring new data queries or computation",
     "simple": "1-5 execution steps (DEFAULT for most data questions)",
     "extended": "3-10 steps for comprehensive analysis, EDA, root cause",
     "optimization_required": "Large table operations (>1M rows, no narrow filters)",

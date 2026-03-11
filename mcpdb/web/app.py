@@ -321,7 +321,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
         discovery = body.get("discovery", {})
-        if not turns:
+        if not turns and not discovery:
             raise HTTPException(status_code=400, detail="No conversation data")
         html = generate_html_report(turns, db_info, discovery=discovery)
         export_id = uuid.uuid4().hex[:12]
@@ -350,7 +350,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
         discovery = body.get("discovery", {})
-        if not turns:
+        if not turns and not discovery:
             raise HTTPException(status_code=400, detail="No conversation data")
         try:
             pdf_bytes = generate_pdf(turns, db_info, discovery=discovery)
@@ -375,7 +375,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         db_info = body.get("dbInfo", "")
         discovery = body.get("discovery", {})
         open_jupyter = body.get("openJupyter", False)
-        if not turns:
+        if not turns and not discovery:
             raise HTTPException(status_code=400, detail="No conversation data")
         try:
             nb_bytes = generate_notebook(turns, connection_string, db_type, db_info, discovery=discovery)

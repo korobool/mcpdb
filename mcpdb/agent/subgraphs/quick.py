@@ -12,17 +12,18 @@ from mcpdb.llm.provider import LLMProvider, Message
 logger = logging.getLogger("mcpdb.agent.quick")
 
 CONTEXT_ANSWER_PROMPT = """\
-You are a data assistant. Answer the user's question using ONLY the schema context below.
+You are a data assistant. Answer the user's question using ONLY the context below.
 Do NOT make up data values. If you cannot answer without running queries, reply with exactly: ESCALATE
 
 IMPORTANT RULES:
 - When the user asks to LIST items (tables, columns, etc.), you MUST include EVERY single item. Never summarize, truncate, or say "and N more". List them ALL.
 - Use markdown formatting (bullet lists, tables, code blocks) for readability.
 - For mermaid diagrams, output a fenced ```mermaid code block.
+- You may reason about, summarize, or reframe information from PRIOR CONTEXT if available.
 
 SCHEMA CONTEXT:
 {source_context}
-
+{prior_context_section}
 USER QUESTION: {question}
 """
 
@@ -34,7 +35,7 @@ async def run_quick(
 ) -> AgentState:
     """Execute the Quick mode subgraph.
 
-    1. context_answer: Answer from schema context (direct text, no JSON)
+    1. context_answer: Answer from schema + prior context (direct text, no JSON)
     2. If escalation needed: set validation_result = "needs_data"
     """
     callbacks.emit("quick/start")
@@ -42,8 +43,13 @@ async def run_quick(
     question = state["question"]
     source_context = state.get("source_context", "No sources connected.")
 
+    # Include prior Q&A context if available (from sequential mode, knowledge, etc.)
+    knowledge_ctx = state.get("knowledge_context") or ""
+    prior_section = f"\nPRIOR CONTEXT:\n{knowledge_ctx}\n" if knowledge_ctx else ""
+
     prompt = CONTEXT_ANSWER_PROMPT.format(
         source_context=source_context,
+        prior_context_section=prior_section,
         question=question,
     )
 

@@ -223,10 +223,10 @@ async def run_deep(
                 # Check if we have enough
                 if reasoning.get("sufficient", False):
                     logger.info("Deep analysis: sufficient evidence at iteration %d", iteration)
-                    callbacks.emit("deep/reasoning", sufficient=True)
+                    callbacks.emit("deep/reasoning", sufficient=True, submode="quick")
                     break
 
-                callbacks.emit("deep/reasoning", sufficient=False)
+                callbacks.emit("deep/reasoning", sufficient=False, submode="quick")
 
     # 3. Deep synthesis
     callbacks.emit("deep/synthesis_start")

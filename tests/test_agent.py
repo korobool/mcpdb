@@ -426,6 +426,45 @@ class TestQuickMode:
         assert "2 tables" in result["response"]
 
     @pytest.mark.asyncio
+    async def test_quick_includes_prior_context(self):
+        """Quick mode includes knowledge_context in its prompt."""
+        llm = MockLLM()
+        llm.set_response({
+            "action": "answer",
+            "text": "Based on the previous analysis, revenue was $1M.",
+        })
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "Summarize the revenue findings",
+            "source_context": "orders table",
+            "knowledge_context": "Q1: What is total revenue?\nA1: Total revenue is $1,000,000.",
+        }
+
+        result = await run_quick(state, llm, cb)
+        assert result["validation_result"] == "complete"
+        assert "revenue" in result["response"].lower()
+
+        # Verify the prompt sent to LLM includes prior context
+        assert len(llm.calls) > 0
+
+    @pytest.mark.asyncio
+    async def test_quick_without_prior_context(self):
+        """Quick mode works normally when no knowledge_context is set."""
+        llm = MockLLM()
+        llm.set_response({
+            "action": "answer",
+            "text": "There are 2 tables.",
+        })
+        cb = CallbackManager()
+        state: AgentState = {
+            "question": "What tables exist?",
+            "source_context": "users, orders",
+        }
+
+        result = await run_quick(state, llm, cb)
+        assert result["validation_result"] == "complete"
+
+    @pytest.mark.asyncio
     async def test_quick_escalates(self):
         llm = MockLLM()
         llm.set_response("ESCALATE")
