@@ -98,12 +98,12 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .message.assistant .bubble pre { background: var(--bg3); border-radius: var(--radius); padding: 12px; overflow-x: auto; margin: 8px 0; }
 .message.assistant .bubble code { font-size: 13px; }
 .message.assistant .bubble p code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
-.message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 4px; }
+.message .msg-header { display: flex; align-items: center; margin-bottom: 4px; }
+.message .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); }
 .message.assistant .role { color: var(--green); }
 .msg-meta { font-size: 11px; color: var(--fg3); margin-top: 6px; }
-.message.assistant { position: relative; }
-.dismiss-btn { position: absolute; top: 4px; right: 4px; background: var(--bg2); border: 1px solid var(--bg3); border-radius: 4px; color: var(--fg3); cursor: pointer; padding: 3px 8px; font-size: 12px; transition: color 0.15s, border-color 0.15s, background 0.15s; opacity: 0.5; }
-.dismiss-btn:hover { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.15); opacity: 1; }
+.dismiss-btn { margin-left: auto; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--fg2); cursor: pointer; padding: 2px 8px; font-size: 11px; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.dismiss-btn:hover { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.15); }
 .message.intermediate { opacity: 0.85; border-left: 3px solid var(--purple); padding-left: 12px; }
 .message.intermediate .role { color: var(--purple); }
 .message.intermediate .bubble h3 { font-size: 14px; margin-bottom: 8px; }
@@ -748,7 +748,11 @@ function renderMessage(msg) {
   div.className = `message ${msg.role}${isIntermediate ? ' intermediate' : ''}`;
 
   const roleLabel = isIntermediate ? 'Investigation Result' : (msg.role === 'user' ? 'You' : 'MCPDB');
-  let html = `<div class="role">${roleLabel}</div>`;
+  const showDismiss = msg.role === 'assistant' && !(msg.meta && msg.meta.isWelcome);
+  let html = '<div class="msg-header">';
+  html += `<div class="role">${roleLabel}</div>`;
+  if (showDismiss) html += `<button class="dismiss-btn" onclick="dismissQA(this)" title="Remove this Q&amp;A">\u2715 Dismiss</button>`;
+  html += '</div>';
   html += `<div class="bubble">${renderMarkdown(msg.content)}</div>`;
 
   // Render chart artifacts as images
@@ -760,11 +764,6 @@ function renderMessage(msg) {
       html += `<img src="data:image/${art.data.format || 'png'};base64,${art.data.image_base64}" alt="${escHtml(art.title || 'Chart')}" />`;
       html += '</div>';
     }
-  }
-
-  // Dismiss button — always visible on non-welcome assistant messages
-  if (msg.role === 'assistant' && !(msg.meta && msg.meta.isWelcome)) {
-    html += `<button class="dismiss-btn" onclick="dismissQA(this)" title="Remove this Q&amp;A">\u2715 Dismiss</button>`;
   }
 
   if (msg.role === 'assistant' && msg.meta && !msg.meta.isError) {
