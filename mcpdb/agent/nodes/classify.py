@@ -101,7 +101,7 @@ async def classify(
             )
 
             mode = result.get("mode", "simple")
-            if mode not in ("quick", "simple", "extended", "optimization_required", "deep", "off_topic"):
+            if mode not in ("quick", "simple", "extended", "optimization_required", "deep", "sequential", "off_topic"):
                 mode = "simple"
 
             state["query_mode"] = mode

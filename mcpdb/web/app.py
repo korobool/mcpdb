@@ -515,18 +515,15 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 
         async def run_and_signal():
             try:
-                state = await asyncio.wait_for(
-                    run_agent(
-                        question, _registry, _llm, callbacks,
-                        mode_override=mode_override,
-                        experience_cache=exp_cache,
-                        force_rethink=force_rethink,
-                        staging_store=exp_staging,
-                        no_cache=query_no_cache,
-                        cancellation_token=cancellation_token,
-                        knowledge_manager=_knowledge_manager,
-                    ),
-                    timeout=600.0,  # 10-minute hard timeout per query
+                state = await run_agent(
+                    question, _registry, _llm, callbacks,
+                    mode_override=mode_override,
+                    experience_cache=exp_cache,
+                    force_rethink=force_rethink,
+                    staging_store=exp_staging,
+                    no_cache=query_no_cache,
+                    cancellation_token=cancellation_token,
+                    knowledge_manager=_knowledge_manager,
                 )
                 # Generate follow-up suggestions (best-effort, non-blocking)
                 followups = await _safe_generate_followups(
@@ -542,11 +539,6 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     "query_mode": state.get("query_mode", ""),
                     "followups": followups,
                     "llm_usage": state.get("llm_usage"),
-                })
-            except asyncio.TimeoutError:
-                event_queue.put_nowait({
-                    "type": "error",
-                    "message": "Query timed out after 10 minutes. Try a simpler question or use a specific mode.",
                 })
             except asyncio.CancelledError:
                 event_queue.put_nowait({"type": "cancelled"})

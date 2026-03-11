@@ -146,7 +146,7 @@ class Repl:
                 current = self._mode_override or "auto"
                 self._console.print(f"Current mode: [bold]{current}[/bold]")
                 self._console.print(
-                    "[dim]Usage: /mode <quick|simple|extended|optimization|deep|auto>[/dim]"
+                    "[dim]Usage: /mode <quick|simple|extended|optimization|deep|sequential|auto>[/dim]"
                 )
             elif arg in ("auto", "none", "reset"):
                 self._mode_override = None

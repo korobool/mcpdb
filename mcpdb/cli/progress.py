@@ -89,6 +89,7 @@ MODE_COLORS = {
     "extended": "yellow",
     "optimization_required": "magenta",
     "deep": "red",
+    "sequential": "cyan",
     "off_topic": "dim",
 }
 
@@ -181,6 +182,10 @@ class RichProgress:
                     if extra not in self._phases:
                         self._phases[extra] = Phase(extra.title())
                         self._phase_order.insert(-1, extra)
+            elif self._mode == "sequential":
+                if "sequence" not in self._phases:
+                    self._phases["sequence"] = Phase("Sequence")
+                    self._phase_order.insert(-1, "sequence")
         elif etype == "classify/override":
             self._mode = data.get("mode", "")
             self._phases["classify"].complete(f"→ {self._mode} (override)")
@@ -274,6 +279,30 @@ class RichProgress:
         elif etype == "deep/complete":
             if "reason" in self._phases and self._phases["reason"].status == Phase.RUNNING:
                 self._phases["reason"].complete()
+
+        # Sequential mode
+        elif etype == "sequential/start":
+            if "sequence" in self._phases:
+                self._phases["sequence"].start()
+                self._phases["sequence"].detail = f"0/{data.get('question_count', 0)} questions"
+        elif etype == "sequential/step_start":
+            idx = data.get("step_index", 0)
+            total = data.get("total", 0)
+            q = (data.get("question", ""))[:40]
+            if "sequence" in self._phases:
+                self._phases["sequence"].detail = f"Q{idx + 1}/{total}: {q}"
+            # Reset step-level tracking for the sub-question
+            self._steps_done = 0
+            self._step_count = 0
+            self._current_step = {}
+            self._step_results = []
+        elif etype == "sequential/step_complete":
+            idx = data.get("step_index", 0)
+            if "sequence" in self._phases:
+                self._phases["sequence"].detail = f"{idx + 1} questions answered"
+        elif etype == "sequential/synthesis_start":
+            if "sequence" in self._phases:
+                self._phases["sequence"].complete()
 
         # Synthesis
         elif etype == "synthesize/start":

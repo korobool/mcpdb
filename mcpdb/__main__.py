@@ -205,6 +205,15 @@ MANUAL = f"""\
                  sub-investigations, blueprint-based reasoning.
                  Example: "Investigate customer churn patterns"
 
+  sequential     Answer a list of questions one by one, each building
+                 on context from previous answers. Final synthesis
+                 across all answers. Manual mode only (select from
+                 dropdown or /mode sequential). Use Shift+Enter for
+                 multiple lines.
+                 Example: "1. What is total revenue?
+                           2. Which region leads?
+                           3. How does revenue trend over time?"
+
   In the REPL, override with: /mode simple  (or /mode auto to reset)
   In the web UI, select mode from the dropdown before submitting.
 

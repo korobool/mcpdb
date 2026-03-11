@@ -18,7 +18,7 @@ class AgentState(TypedDict, total=False):
     active_source_ids: list[str]
 
     # --- Classification (set by classify node) ---
-    query_mode: Literal["quick", "simple", "extended", "optimization_required", "deep", "off_topic"] | None
+    query_mode: Literal["quick", "simple", "extended", "optimization_required", "deep", "sequential", "off_topic"] | None
     target_sources: list[str]
     requires_cross_source: bool
     key_entities: list[str]
@@ -61,6 +61,9 @@ class AgentState(TypedDict, total=False):
 
     # --- Knowledge ---
     knowledge_context: str | None
+
+    # --- Sequential mode ---
+    sequential_results: list[dict]  # accumulated Q&A results
 
     # --- Response ---
     response: str | None

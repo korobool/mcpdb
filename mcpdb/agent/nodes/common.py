@@ -75,6 +75,7 @@ MODE_DESCRIPTIONS = {
     "extended": "extended (comprehensive analysis, 5-15 steps — use more steps for thorough coverage)",
     "optimization_required": "optimization (cost-aware, 2-8 steps with sampling)",
     "deep": "deep investigation (3-7 steps per sub-investigation)",
+    "sequential": "sequential (answering a list of questions one by one, 1-5 steps each)",
 }
 
 

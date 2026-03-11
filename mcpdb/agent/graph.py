@@ -18,6 +18,7 @@ from mcpdb.agent.subgraphs.simple import run_simple
 from mcpdb.agent.subgraphs.optimization import run_optimization
 from mcpdb.agent.subgraphs.extended import run_extended
 from mcpdb.agent.subgraphs.deep import run_deep
+from mcpdb.agent.subgraphs.sequential import run_sequential
 from mcpdb.experience.cache import ExperienceCache
 from mcpdb.experience.fingerprint import (
     fingerprint_source, fingerprint_schema, intent_hash, semantic_hash,
@@ -202,6 +203,9 @@ async def run_agent(
 
     elif mode == "deep":
         state = await run_deep(state, llm, callbacks, registry)
+
+    elif mode == "sequential":
+        state = await run_sequential(state, llm, callbacks, registry)
 
     elif mode == "simple":
         state = await run_simple(state, llm, callbacks, registry)

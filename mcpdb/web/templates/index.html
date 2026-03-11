@@ -140,6 +140,7 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .mode-badge.optimization { border: 1px solid var(--orange); color: var(--orange); }
 .mode-badge.extended { border: 1px solid var(--purple); color: var(--purple); }
 .mode-badge.deep { border: 1px solid var(--red); color: var(--red); }
+.mode-badge.sequential { border: 1px solid var(--cyan); color: var(--cyan); }
 .mode-badge.unknown { border: 1px solid var(--fg3); color: var(--fg3); }
 
 /* Phase pipeline steps */
@@ -297,6 +298,7 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
         <option value="optimization">optimization</option>
         <option value="extended">extended</option>
         <option value="deep">deep</option>
+        <option value="sequential">sequential</option>
       </select>
       <div class="mode-desc" id="mode-desc">Automatically selects the best mode</div>
       <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; cursor:pointer;">
@@ -349,6 +351,7 @@ const MODE_DESC = {
   optimization: 'With validation & replanning',
   extended: 'Multi-revision deep analysis',
   deep: 'Multi-investigation blueprint',
+  sequential: 'Answer questions in sequence (Shift+Enter for multiple lines)',
 };
 
 let ws = null;
@@ -375,6 +378,8 @@ let mon = {
   // Deep mode
   deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
   deepReasoningStatus: '',
+  // Sequential mode
+  seqQuestions: [], seqCurrentIndex: -1, seqTotalCount: 0,
   // Log & timing
   log: [], startTime: 0, elapsed: 0,
 };
@@ -573,6 +578,38 @@ function handleEvent(msg) {
   else if (et === 'deep/synthesis_start') { setPhase('synthesizing'); addLog('Deep synthesis...'); }
   else if (et === 'deep/retry') { addLog(`Retrying ${d.component || 'LLM call'} (attempt ${d.attempt || '?'}, waiting ${d.delay || '?'}s)...`); }
 
+  // Sequential mode
+  else if (et === 'sequential/start') {
+    mon.seqTotalCount = d.question_count || 0;
+    addLog(`Sequential mode: ${mon.seqTotalCount} questions`);
+  }
+  else if (et === 'sequential/step_start') {
+    mon.seqCurrentIndex = d.step_index;
+    mon.seqQuestions.push({ index: d.step_index, question: d.question || '', status: 'running' });
+    mon.steps = [];
+    mon.planSteps = [];
+    mon.planAnalysis = '';
+    mon.planApproach = '';
+    mon.planStepCount = 0;
+    mon.debugAttempts = 0;
+    mon.validationStatus = '';
+    mon.validationReason = '';
+    setPhase('planning');
+    addLog(`Question ${d.step_index + 1}/${d.total}: ${(d.question || '').slice(0, 80)}`);
+  }
+  else if (et === 'sequential/step_complete') {
+    const sq = mon.seqQuestions.find(s => s.index === d.step_index);
+    if (sq) { sq.status = 'success'; sq.response = d.response || ''; }
+    addLog(`Question ${d.step_index + 1} answered`);
+    if (d.response) {
+      const content = `### Question ${d.step_index + 1}: ${d.question}\n\n${d.response}`;
+      addMessage('assistant', content, { isIntermediate: true, stepIndex: d.step_index, artifacts: d.artifacts || [] });
+    }
+  }
+  else if (et === 'sequential/synthesis_start') { setPhase('synthesizing'); addLog('Synthesizing sequential results...'); }
+  else if (et === 'sequential/complete') { addLog(`Sequential complete: ${d.questions_answered} questions answered`); }
+  else if (et === 'sequential/retry') { addLog(`Retrying ${d.component || 'synthesis'} (attempt ${d.attempt || '?'})...`); }
+
   // Strategy gate, cost check, optimize
   else if (et === 'strategy_gate/pass') { addLog('Strategy gate: pass'); }
   else if (et === 'strategy_gate/escalate') { addLog(`Strategy gate: escalate → ${d.to_mode || ''}`); }
@@ -616,6 +653,7 @@ function resetMonitor() {
     llmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0,
     deepGoal: '', deepInvestigations: [], deepInvestigationCount: 0,
     deepReasoningStatus: '',
+    seqQuestions: [], seqCurrentIndex: -1, seqTotalCount: 0,
     log: [], startTime: 0, elapsed: 0,
   };
   renderMonitor();
@@ -629,9 +667,12 @@ function handleResult(msg) {
   addLog(`Done in ${mon.elapsed.toFixed(1)}s`);
   renderMonitor();
 
-  // For deep mode, charts were already shown in intermediate investigation messages — skip them in the final result
+  // For deep/sequential mode, charts were already shown in intermediate messages — skip them in the final result
   let resultArtifacts = msg.artifacts || [];
   if (msg.query_mode === 'deep' && mon.deepInvestigations.length > 0) {
+    resultArtifacts = resultArtifacts.filter(a => a.type !== 'chart');
+  }
+  if (msg.query_mode === 'sequential' && mon.seqQuestions.length > 0) {
     resultArtifacts = resultArtifacts.filter(a => a.type !== 'chart');
   }
   const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [], llmUsage: msg.llm_usage || null };
@@ -947,6 +988,37 @@ function renderMonitor() {
     // Reasoning status
     if (mon.deepReasoningStatus) {
       h += `<div style="font-size:11px;color:var(--purple);margin-top:6px;font-style:italic">💭 ${escHtml(mon.deepReasoningStatus)}</div>`;
+    }
+
+    h += '</div>';
+  }
+
+  // ── Sequential mode progress ──
+  if (mon.seqTotalCount > 0) {
+    h += '<div class="mon-deep-box" style="border-left-color:var(--cyan)">';
+    h += '<div class="mon-section-label">Sequential Analysis</div>';
+
+    const doneSeq = isDone ? mon.seqQuestions.length : mon.seqQuestions.filter(s => s.status !== 'running').length;
+    const totalSeq = mon.seqTotalCount;
+    if (totalSeq > 0) {
+      const pct = isDone ? 100 : (doneSeq / totalSeq * 100);
+      h += `<div style="margin:8px 0 6px"><div class="progress-bar"><div class="progress-fill ${pct >= 100 ? 'done' : 'running'}" style="width:${pct}%;background:var(--cyan)"></div></div>`;
+      h += `<div class="progress-text">${doneSeq}/${totalSeq} questions</div></div>`;
+    }
+
+    for (const sq of mon.seqQuestions) {
+      let icon = isDone
+        ? '<span style="color:var(--green)">✓</span>'
+        : '<span class="spinner spinner-sm"></span>';
+      if (sq.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
+      else if (sq.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+      h += '<div class="mon-investigation">';
+      h += `<span class="inv-icon">${icon}</span>`;
+      h += `<span class="inv-text">${escHtml(sq.question)}</span></div>`;
+    }
+    if (mon.seqTotalCount > mon.seqQuestions.length) {
+      const remaining = mon.seqTotalCount - mon.seqQuestions.length;
+      h += `<div class="mon-investigation"><span class="inv-icon" style="color:var(--fg3)">○</span><span class="inv-text" style="color:var(--fg3)">${remaining} more pending</span></div>`;
     }
 
     h += '</div>';
@@ -1425,6 +1497,10 @@ function suggestStarters(tables) {
 function updateModeDesc() {
   const mode = document.getElementById('mode-select').value;
   document.getElementById('mode-desc').textContent = MODE_DESC[mode] || '';
+  const ta = document.getElementById('question');
+  ta.placeholder = mode === 'sequential'
+    ? 'Enter questions (one per line, use Shift+Enter)...'
+    : 'Ask a question about your data...';
 }
 
 // ── Input handling ─────────────────────────────────────

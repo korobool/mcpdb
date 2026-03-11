@@ -51,6 +51,7 @@ class ExperienceCache:
         "simple": 1,
         "optimization_required": 2,
         "extended": 3,
+        "sequential": 3,
         "deep": 4,
     }
 
