@@ -536,7 +536,7 @@ def _notebook_discovery_cells(
     cells.append(new_code_cell(source=(
         f"# Schema overview — live query of current {'data' if is_file_source else 'database'} state\n"
         f'schema_df = db_query("""\n{schema_sql}\n""")\n'
-        f"schema_df"
+        f"schema_df.style.hide(axis='index')"
     )))
 
     # ── ERD code cell ──
@@ -690,7 +690,7 @@ def generate_notebook(
                 f"# Context-based answer: {question}\n"
                 f"# The agent answered this from schema metadata. "
                 f"Run to see current data.\n"
-                f'db_query("""\n{schema_sql}\n""")'
+                f'db_query("""\n{schema_sql}\n""").style.hide(axis="index")'
             )))
             continue
 
@@ -704,7 +704,7 @@ def generate_notebook(
                 sql_code = code.strip()
                 if '"""' in sql_code:
                     sql_code = sql_code.replace('"""', "'''")
-                cell_code = f"# Step {step_num}: SQL query\ndf = db_query(\"\"\"\n{sql_code}\n\"\"\")\ndf"
+                cell_code = f"# Step {step_num}: SQL query\ndf = db_query(\"\"\"\n{sql_code}\n\"\"\")\ndf.style.hide(axis='index')"
             elif action == "python":
                 cell_code = f"# Step {step_num}: Python\n{code}"
             else:

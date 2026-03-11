@@ -117,6 +117,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         return templates.TemplateResponse(request, "index.html", {
             "version": __version__,
             "prefill_db_url": _prefill_db_url,
+            "no_cache_default": _no_cache,
         })
 
     # --- Favicon ----------------------------------------------------------

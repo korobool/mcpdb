@@ -299,6 +299,9 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
         <option value="deep">deep</option>
       </select>
       <div class="mode-desc" id="mode-desc">Automatically selects the best mode</div>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; cursor:pointer;">
+        <input type="checkbox" id="use-cache" {{ "" if no_cache_default else "checked" }}> Use cache
+      </label>
     </div>
 
     <div class="sidebar-section">
@@ -686,7 +689,8 @@ function sendQuestion(text) {
 
   let mode = document.getElementById('mode-select').value;
   if (mode === 'optimization') mode = 'optimization_required';
-  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode }));
+  const noCache = !document.getElementById('use-cache').checked;
+  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode, noCache: noCache || undefined }));
 }
 
 function cancelQuery() {
