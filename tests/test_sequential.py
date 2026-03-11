@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
+from mcpdb.agent.callbacks import CallbackManager
+from mcpdb.agent.state import AgentState
 from mcpdb.agent.subgraphs.sequential import (
     parse_questions,
     _build_prior_context,
+    run_sequential,
 )
 
 
@@ -126,3 +131,196 @@ class TestSequentialStateType:
     def test_mode_in_progress_colors(self):
         from mcpdb.cli.progress import MODE_COLORS
         assert "sequential" in MODE_COLORS
+
+
+# ---------------------------------------------------------------------------
+# Fixtures for async tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mock_llm():
+    llm = MagicMock()
+    llm.generate = AsyncMock()
+    llm.generate_json = AsyncMock()
+    return llm
+
+
+@pytest.fixture
+def mock_registry():
+    registry = MagicMock()
+    registry.list_sources.return_value = []
+    registry.get_combined_context.return_value = "Test schema"
+    registry.get_queryable_sources.return_value = []
+    return registry
+
+
+@pytest.fixture
+def callbacks():
+    return CallbackManager()
+
+
+@pytest.fixture
+def base_state():
+    return {
+        "question": "Q1\nQ2\nQ3",
+        "source_context": "Test DB with users, orders tables",
+        "active_source_ids": ["test_db"],
+        "query_mode": "sequential",
+        "target_sources": ["test_db"],
+        "requires_cross_source": False,
+        "key_entities": [],
+        "response": None,
+        "validation_result": None,
+        "replan_count": 0,
+        "artifacts": [],
+        "execution_log": [],
+        "max_retries": 2,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Metamode submode classification tests
+# ---------------------------------------------------------------------------
+
+
+class TestSequentialSubmode:
+    """Test that sequential mode classifies each sub-question independently."""
+
+    @pytest.mark.asyncio
+    async def test_each_step_classified_independently(self, mock_llm, callbacks, mock_registry, base_state):
+        """Each question in sequence gets its own classify_question call."""
+        base_state["question"] = "What tables exist?\nShow top 10 customers"
+
+        # classify_question returns different submodes per question
+        classify_results = [
+            {"mode": "quick", "reasoning": "schema", "target_sources": [], "requires_cross_source": False, "key_entities": []},
+            {"mode": "simple", "reasoning": "data query", "target_sources": [], "requires_cross_source": False, "key_entities": ["customers"]},
+        ]
+        classify_call_count = [0]
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            idx = classify_call_count[0]
+            classify_call_count[0] += 1
+            return classify_results[idx]
+
+        # dispatch_base_mode returns a canned response
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = f"Result for mode {state['query_mode']}"
+            return state
+
+        mock_llm.generate.return_value = ("Synthesis", {"input_tokens": 50, "output_tokens": 50})
+
+        with patch("mcpdb.agent.subgraphs.sequential.classify_question", side_effect=mock_classify) as mock_cls, \
+             patch("mcpdb.agent.subgraphs.sequential.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_sequential(base_state, mock_llm, callbacks, mock_registry)
+
+        # Two questions → two classify calls
+        assert classify_call_count[0] == 2
+
+    @pytest.mark.asyncio
+    async def test_submode_in_callbacks(self, mock_llm, callbacks, mock_registry, base_state):
+        """Callbacks include submode field in step_start and step_complete events."""
+        base_state["question"] = "What tables exist?\nAnalyze revenue"
+
+        classify_results = [
+            {"mode": "quick", "reasoning": "schema", "target_sources": [], "requires_cross_source": False, "key_entities": []},
+            {"mode": "extended", "reasoning": "complex", "target_sources": [], "requires_cross_source": False, "key_entities": []},
+        ]
+        call_idx = [0]
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            idx = call_idx[0]
+            call_idx[0] += 1
+            return classify_results[idx]
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        mock_llm.generate.return_value = ("Synthesis", {"input_tokens": 50, "output_tokens": 50})
+
+        with patch("mcpdb.agent.subgraphs.sequential.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.sequential.dispatch_base_mode", side_effect=mock_dispatch):
+            await run_sequential(base_state, mock_llm, callbacks, mock_registry)
+
+        events = callbacks.get_events()
+        step_starts = [e for e in events if e.type == "sequential/step_start"]
+        step_completes = [e for e in events if e.type == "sequential/step_complete"]
+
+        assert len(step_starts) == 2
+        assert step_starts[0].data["submode"] == "quick"
+        assert step_starts[1].data["submode"] == "extended"
+        assert step_completes[0].data["submode"] == "quick"
+        assert step_completes[1].data["submode"] == "extended"
+
+    @pytest.mark.asyncio
+    async def test_classify_uses_base_modes_only(self, mock_llm, callbacks, mock_registry, base_state):
+        """classify_question is called with allowed_modes=BASE_MODES (no metamodes)."""
+        base_state["question"] = "Question A\nQuestion B"
+
+        from mcpdb.agent.state import BASE_MODES
+        captured_allowed = []
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            captured_allowed.append(allowed_modes)
+            return {"mode": "simple", "reasoning": "ok", "target_sources": [], "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        mock_llm.generate.return_value = ("Synthesis", {"input_tokens": 50, "output_tokens": 50})
+
+        with patch("mcpdb.agent.subgraphs.sequential.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.sequential.dispatch_base_mode", side_effect=mock_dispatch):
+            await run_sequential(base_state, mock_llm, callbacks, mock_registry)
+
+        # Both calls should restrict to BASE_MODES
+        assert all(am == BASE_MODES for am in captured_allowed)
+
+    @pytest.mark.asyncio
+    async def test_single_question_classifies_and_dispatches(self, mock_llm, callbacks, mock_registry, base_state):
+        """Single-question degenerate case still classifies and dispatches."""
+        base_state["question"] = "Show top 10 customers"
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            return {"mode": "extended", "reasoning": "complex", "target_sources": [], "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Extended result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.sequential.classify_question", side_effect=mock_classify) as mock_cls, \
+             patch("mcpdb.agent.subgraphs.sequential.dispatch_base_mode", side_effect=mock_dispatch) as mock_disp:
+            state = await run_sequential(base_state, mock_llm, callbacks, mock_registry)
+
+        assert state["query_mode"] == "extended"
+        assert state["response"] == "Extended result"
+        mock_disp.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_sequential_results_include_submode(self, mock_llm, callbacks, mock_registry, base_state):
+        """sequential_results stored in state include submode for each step."""
+        base_state["question"] = "Q1\nQ2"
+
+        submodes = ["quick", "optimization_required"]
+        idx = [0]
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            mode = submodes[idx[0]]
+            idx[0] += 1
+            return {"mode": mode, "reasoning": "ok", "target_sources": [], "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        mock_llm.generate.return_value = ("Synthesis", {"input_tokens": 50, "output_tokens": 50})
+
+        with patch("mcpdb.agent.subgraphs.sequential.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.sequential.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_sequential(base_state, mock_llm, callbacks, mock_registry)
+
+        results = state["sequential_results"]
+        assert results[0]["submode"] == "quick"
+        assert results[1]["submode"] == "optimization_required"

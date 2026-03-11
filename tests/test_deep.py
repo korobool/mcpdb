@@ -1,7 +1,7 @@
 """Tests for v3.0.x — Deep Analysis.
 
 Covers blueprint creation, investigation orchestration, reasoning loop,
-deep synthesis, and streaming events.
+deep synthesis, streaming events, and metamode submode classification.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mcpdb.agent.callbacks import CallbackManager
-from mcpdb.agent.state import AgentState
+from mcpdb.agent.state import AgentState, BASE_MODES
 from mcpdb.agent.subgraphs.deep import (
     run_deep,
     _create_blueprint,
@@ -277,7 +277,8 @@ class TestDeepSynthesize:
 class TestRunDeep:
     @pytest.mark.asyncio
     async def test_full_deep_flow(self, mock_llm, callbacks, mock_registry, base_state):
-        # Blueprint
+        """Full deep flow with classify_question + dispatch_base_mode."""
+        # Blueprint via generate_json
         mock_llm.generate_json.side_effect = [
             # Blueprint creation
             (
@@ -290,43 +291,30 @@ class TestRunDeep:
                 },
                 {"input_tokens": 100, "output_tokens": 200},
             ),
-            # Investigation 1 plan
-            (
-                {"analysis": "A", "approach": "B", "steps": []},
-                {"input_tokens": 50, "output_tokens": 50},
-            ),
-            # Investigation 1 validate
-            (
-                {"adequate": True, "reasoning": "ok"},
-                {"input_tokens": 50, "output_tokens": 20},
-            ),
-            # Investigation 2 plan
-            (
-                {"analysis": "A", "approach": "B", "steps": []},
-                {"input_tokens": 50, "output_tokens": 50},
-            ),
-            # Investigation 2 validate
-            (
-                {"adequate": True, "reasoning": "ok"},
-                {"input_tokens": 50, "output_tokens": 20},
-            ),
-            # Reasoning
+            # Reasoning (after investigation 2 completes)
             (
                 {"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"},
                 {"input_tokens": 100, "output_tokens": 50},
             ),
         ]
 
-        # Synthesis and investigation responses
-        mock_llm.generate.side_effect = [
-            ("Churn rate is 15%.", {"input_tokens": 50, "output_tokens": 30}),
-            ("Enterprise: 5%, SMB: 25%.", {"input_tokens": 50, "output_tokens": 30}),
-            ("# Report\n\nChurn analysis complete.", {"input_tokens": 200, "output_tokens": 300}),
-        ]
-
-        state = await run_deep(
-            base_state, mock_llm, callbacks, mock_registry,
+        # Synthesis response
+        mock_llm.generate.return_value = (
+            "# Report\n\nChurn analysis complete.",
+            {"input_tokens": 200, "output_tokens": 300},
         )
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            return {"mode": "simple", "reasoning": "data query", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = f"Result for: {state['question']}"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_deep(base_state, mock_llm, callbacks, mock_registry)
 
         assert state.get("response") is not None
 
@@ -347,7 +335,6 @@ class TestRunDeep:
     @pytest.mark.asyncio
     async def test_deep_max_iterations(self, mock_llm, callbacks, mock_registry, base_state):
         """Deep analysis respects max_iterations."""
-        # Return many investigations
         mock_llm.generate_json.side_effect = [
             # Blueprint
             (
@@ -355,31 +342,34 @@ class TestRunDeep:
                     "research_goal": "Big research",
                     "investigations": [
                         {"id": i, "question": f"Q{i}?", "approach": "SQL", "priority": "medium"}
-                        for i in range(20)  # More than max_iterations
+                        for i in range(20)
                     ],
                 },
                 {"input_tokens": 100, "output_tokens": 200},
             ),
-        ] + [
-            # Investigation plans (will be called for each)
-            ({"analysis": "A", "approach": "B", "steps": []}, {"input_tokens": 50, "output_tokens": 50}),
-        ] * 10 + [
-            # Validates
-            ({"adequate": True, "reasoning": "ok"}, {"input_tokens": 50, "output_tokens": 20}),
-        ] * 10 + [
             # Reasoning (never sufficient)
             ({"sufficient": False, "skip_ids": [], "new_investigations": [], "reasoning": "More"}, {"input_tokens": 50, "output_tokens": 50}),
-        ] * 10
-
-        mock_llm.generate.side_effect = [
-            (f"Result {i}", {"input_tokens": 50, "output_tokens": 30})
-            for i in range(30)
+            ({"sufficient": False, "skip_ids": [], "new_investigations": [], "reasoning": "More"}, {"input_tokens": 50, "output_tokens": 50}),
         ]
 
-        state = await run_deep(
-            base_state, mock_llm, callbacks, mock_registry,
-            max_iterations=3,
+        mock_llm.generate.return_value = (
+            "Fallback report", {"input_tokens": 50, "output_tokens": 30},
         )
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            return {"mode": "simple", "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_deep(
+                base_state, mock_llm, callbacks, mock_registry,
+                max_iterations=3,
+            )
 
         # Should have completed at most 3 investigations
         events = callbacks.get_events()
@@ -407,25 +397,30 @@ class TestDeepInGraph:
                 },
                 {"input_tokens": 50, "output_tokens": 100},
             ),
-            # Investigation plan
-            ({"analysis": "A", "approach": "B", "steps": []}, {"input_tokens": 50, "output_tokens": 50}),
-            # Validate
-            ({"adequate": True, "reasoning": "ok"}, {"input_tokens": 50, "output_tokens": 20}),
             # Reasoning
             ({"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"}, {"input_tokens": 50, "output_tokens": 50}),
         ]
         mock_llm.generate.side_effect = [
-            ("Investigation result", {"input_tokens": 50, "output_tokens": 30}),
             ("Final report", {"input_tokens": 200, "output_tokens": 200}),
         ]
 
-        state = await run_agent(
-            question="Investigate churn",
-            registry=mock_registry,
-            llm=mock_llm,
-            callbacks=callbacks,
-            mode_override="deep",
-        )
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            return {"mode": "simple", "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Investigation result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_agent(
+                question="Investigate churn",
+                registry=mock_registry,
+                llm=mock_llm,
+                callbacks=callbacks,
+                mode_override="deep",
+            )
 
         assert state.get("query_mode") == "deep"
         assert state.get("response") is not None
@@ -454,3 +449,169 @@ class TestDeepInGraph:
 
         state = await classify(state, mock_llm, callbacks)
         assert state["query_mode"] == "deep"
+
+
+# ---------------------------------------------------------------------------
+# Deep metamode submode classification tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeepSubmode:
+    """Test that deep mode classifies each investigation independently."""
+
+    @pytest.mark.asyncio
+    async def test_each_investigation_classified(self, mock_llm, callbacks, mock_registry, base_state):
+        """Each investigation gets its own classify_question call."""
+        mock_llm.generate_json.side_effect = [
+            # Blueprint
+            (
+                {
+                    "research_goal": "Research",
+                    "investigations": [
+                        {"id": 1, "question": "Schema overview?", "approach": "Schema", "priority": "high"},
+                        {"id": 2, "question": "Revenue trends?", "approach": "SQL", "priority": "high"},
+                        {"id": 3, "question": "Churn deep dive?", "approach": "Complex", "priority": "medium"},
+                    ],
+                },
+                {"input_tokens": 100, "output_tokens": 200},
+            ),
+            # Reasoning after inv 2
+            ({"sufficient": False, "skip_ids": [], "new_investigations": [], "reasoning": "Continue"}, {"input_tokens": 50, "output_tokens": 50}),
+            # Reasoning after inv 3
+            ({"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"}, {"input_tokens": 50, "output_tokens": 50}),
+        ]
+        mock_llm.generate.return_value = ("Report", {"input_tokens": 50, "output_tokens": 50})
+
+        classify_modes = ["quick", "simple", "extended"]
+        classify_idx = [0]
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            mode = classify_modes[classify_idx[0]]
+            classify_idx[0] += 1
+            return {"mode": mode, "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = f"Result ({state['query_mode']})"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            state = await run_deep(base_state, mock_llm, callbacks, mock_registry)
+
+        assert classify_idx[0] == 3  # 3 investigations → 3 classify calls
+
+    @pytest.mark.asyncio
+    async def test_submode_in_deep_callbacks(self, mock_llm, callbacks, mock_registry, base_state):
+        """Callbacks include submode in investigation_start and investigation_complete."""
+        mock_llm.generate_json.side_effect = [
+            (
+                {
+                    "research_goal": "Research",
+                    "investigations": [
+                        {"id": 1, "question": "Q1?", "approach": "SQL", "priority": "high"},
+                        {"id": 2, "question": "Q2?", "approach": "Analysis", "priority": "high"},
+                    ],
+                },
+                {"input_tokens": 100, "output_tokens": 200},
+            ),
+            ({"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"}, {"input_tokens": 50, "output_tokens": 50}),
+        ]
+        mock_llm.generate.return_value = ("Report", {"input_tokens": 50, "output_tokens": 50})
+
+        submodes = ["quick", "extended"]
+        idx = [0]
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            mode = submodes[idx[0]]
+            idx[0] += 1
+            return {"mode": mode, "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            await run_deep(base_state, mock_llm, callbacks, mock_registry)
+
+        events = callbacks.get_events()
+        inv_starts = [e for e in events if e.type == "deep/investigation_start"]
+        inv_completes = [e for e in events if e.type == "deep/investigation_complete"]
+
+        assert len(inv_starts) == 2
+        assert inv_starts[0].data["submode"] == "quick"
+        assert inv_starts[1].data["submode"] == "extended"
+        assert inv_completes[0].data["submode"] == "quick"
+        assert inv_completes[1].data["submode"] == "extended"
+
+    @pytest.mark.asyncio
+    async def test_classify_restricted_to_base_modes(self, mock_llm, callbacks, mock_registry, base_state):
+        """classify_question in deep mode is called with allowed_modes=BASE_MODES."""
+        mock_llm.generate_json.side_effect = [
+            (
+                {
+                    "research_goal": "Research",
+                    "investigations": [
+                        {"id": 1, "question": "Q?", "approach": "SQL", "priority": "high"},
+                    ],
+                },
+                {"input_tokens": 100, "output_tokens": 200},
+            ),
+            ({"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"}, {"input_tokens": 50, "output_tokens": 50}),
+        ]
+        mock_llm.generate.return_value = ("Report", {"input_tokens": 50, "output_tokens": 50})
+
+        captured_allowed = []
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            captured_allowed.append(allowed_modes)
+            return {"mode": "simple", "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            await run_deep(base_state, mock_llm, callbacks, mock_registry)
+
+        assert all(am == BASE_MODES for am in captured_allowed)
+
+    @pytest.mark.asyncio
+    async def test_visualization_hint_passed_to_classifier(self, mock_llm, callbacks, mock_registry, base_state):
+        """needs_visualization flag appends hint before classification."""
+        mock_llm.generate_json.side_effect = [
+            (
+                {
+                    "research_goal": "Research",
+                    "investigations": [
+                        {"id": 1, "question": "Distribution?", "approach": "Chart", "priority": "high", "needs_visualization": True},
+                    ],
+                },
+                {"input_tokens": 100, "output_tokens": 200},
+            ),
+            ({"sufficient": True, "skip_ids": [], "new_investigations": [], "reasoning": "Done"}, {"input_tokens": 50, "output_tokens": 50}),
+        ]
+        mock_llm.generate.return_value = ("Report", {"input_tokens": 50, "output_tokens": 50})
+
+        classified_questions = []
+
+        async def mock_classify(question, source_context, llm, allowed_modes=None):
+            classified_questions.append(question)
+            return {"mode": "simple", "reasoning": "ok", "target_sources": [],
+                    "requires_cross_source": False, "key_entities": []}
+
+        async def mock_dispatch(state, llm, cb, registry):
+            state["response"] = "Chart result"
+            return state
+
+        with patch("mcpdb.agent.subgraphs.deep.classify_question", side_effect=mock_classify), \
+             patch("mcpdb.agent.subgraphs.deep.dispatch_base_mode", side_effect=mock_dispatch):
+            await run_deep(base_state, mock_llm, callbacks, mock_registry)
+
+        assert len(classified_questions) == 1
+        assert "visualization" in classified_questions[0].lower()
+        assert "Distribution?" in classified_questions[0]

@@ -70,3 +70,20 @@ class AgentState(TypedDict, total=False):
 
     # --- Token Usage ---
     llm_usage: dict | None
+
+
+# ── Mode taxonomy ─────────────────────────────────────────────────
+
+BASE_MODES = frozenset({"quick", "simple", "extended", "optimization_required"})
+META_MODES = frozenset({"deep", "sequential"})
+ALL_MODES = BASE_MODES | META_MODES | frozenset({"off_topic"})
+
+
+def is_base_mode(mode: str) -> bool:
+    """Return True if mode is a directly executable (non-meta) mode."""
+    return mode in BASE_MODES
+
+
+def is_meta_mode(mode: str) -> bool:
+    """Return True if mode is a metamode that orchestrates base modes."""
+    return mode in META_MODES

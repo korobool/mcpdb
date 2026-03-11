@@ -542,6 +542,7 @@ function handleEvent(msg) {
       question: d.question || '',
       approach: d.approach || '',
       status: 'running',
+      submode: d.submode || '',
     });
     // Reset step-level state for the new sub-investigation
     mon.steps = [];
@@ -560,6 +561,7 @@ function handleEvent(msg) {
     if (inv) {
       inv.status = d.success ? 'success' : 'error';
       inv.response = d.response || '';
+      if (d.submode) inv.submode = d.submode;
     }
     addLog(`Investigation ${d.investigation_id} ${d.success ? '✓' : '✗'}`);
     // Stream the intermediate result as a chat message
@@ -585,7 +587,7 @@ function handleEvent(msg) {
   }
   else if (et === 'sequential/step_start') {
     mon.seqCurrentIndex = d.step_index;
-    mon.seqQuestions.push({ index: d.step_index, question: d.question || '', status: 'running' });
+    mon.seqQuestions.push({ index: d.step_index, question: d.question || '', status: 'running', submode: d.submode || '' });
     mon.steps = [];
     mon.planSteps = [];
     mon.planAnalysis = '';
@@ -599,7 +601,7 @@ function handleEvent(msg) {
   }
   else if (et === 'sequential/step_complete') {
     const sq = mon.seqQuestions.find(s => s.index === d.step_index);
-    if (sq) { sq.status = 'success'; sq.response = d.response || ''; }
+    if (sq) { sq.status = 'success'; sq.response = d.response || ''; if (d.submode) sq.submode = d.submode; }
     addLog(`Question ${d.step_index + 1} answered`);
     if (d.response) {
       const content = `### Question ${d.step_index + 1}: ${d.question}\n\n${d.response}`;
@@ -977,6 +979,7 @@ function renderMonitor() {
       h += '<div class="mon-investigation">';
       h += `<span class="inv-icon">${icon}</span>`;
       h += `<span class="inv-text">${escHtml(inv.question)}`;
+      if (inv.submode) h += ` <span class="mode-badge ${inv.submode}" style="font-size:9px;padding:1px 5px;">${escHtml(inv.submode)}</span>`;
       if (inv.approach) h += `<br><span style="font-size:11px;color:var(--fg3)">${escHtml(inv.approach)}</span>`;
       h += '</span></div>';
     }
@@ -1014,7 +1017,9 @@ function renderMonitor() {
       else if (sq.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
       h += '<div class="mon-investigation">';
       h += `<span class="inv-icon">${icon}</span>`;
-      h += `<span class="inv-text">${escHtml(sq.question)}</span></div>`;
+      h += `<span class="inv-text">${escHtml(sq.question)}`;
+      if (sq.submode) h += ` <span class="mode-badge ${sq.submode}" style="font-size:9px;padding:1px 5px;">${escHtml(sq.submode)}</span>`;
+      h += '</span></div>';
     }
     if (mon.seqTotalCount > mon.seqQuestions.length) {
       const remaining = mon.seqTotalCount - mon.seqQuestions.length;

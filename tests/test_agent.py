@@ -273,6 +273,140 @@ class TestClassifyNode:
         assert result["query_mode"] == "simple"
 
 
+class TestClassifyQuestionStandalone:
+    """Tests for the reusable classify_question() function."""
+
+    @pytest.mark.asyncio
+    async def test_allowed_modes_restricts_output(self):
+        """LLM returning a metamode is remapped to default when restricted to base modes."""
+        from mcpdb.agent.nodes.classify import classify_question
+        from mcpdb.agent.state import BASE_MODES
+
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "deep",
+            "reasoning": "Multi-investigation",
+            "target_sources": [],
+            "key_entities": [],
+        })
+
+        result = await classify_question(
+            question="Investigate everything",
+            source_context="test schema",
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        # "deep" not in BASE_MODES → falls back to "simple"
+        assert result["mode"] == "simple"
+
+    @pytest.mark.asyncio
+    async def test_allowed_modes_accepts_valid(self):
+        """LLM returning a valid base mode is accepted when restricted."""
+        from mcpdb.agent.nodes.classify import classify_question
+        from mcpdb.agent.state import BASE_MODES
+
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "extended",
+            "reasoning": "Complex analysis",
+            "target_sources": ["db"],
+            "key_entities": ["orders"],
+        })
+
+        result = await classify_question(
+            question="Do comprehensive EDA",
+            source_context="test schema",
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        assert result["mode"] == "extended"
+
+    @pytest.mark.asyncio
+    async def test_fast_path_quick_respected_in_allowed(self):
+        """Fast-path 'quick' detection works when quick is in allowed_modes."""
+        from mcpdb.agent.nodes.classify import classify_question
+        from mcpdb.agent.state import BASE_MODES
+
+        llm = MockLLM()
+        # Should not be called — fast path matches
+        llm.set_response({"mode": "simple"})
+
+        result = await classify_question(
+            question="What tables exist?",
+            source_context="test schema",
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        assert result["mode"] == "quick"
+        assert result["reasoning"] == "fast-path pattern match"
+
+    @pytest.mark.asyncio
+    async def test_fast_path_quick_skipped_when_not_allowed(self):
+        """Fast-path 'quick' is skipped when quick is not in allowed_modes."""
+        from mcpdb.agent.nodes.classify import classify_question
+
+        allowed = frozenset({"simple", "extended"})
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "simple",
+            "reasoning": "LLM decided",
+            "target_sources": [],
+            "key_entities": [],
+        })
+
+        result = await classify_question(
+            question="What tables exist?",
+            source_context="test schema",
+            llm=llm,
+            allowed_modes=allowed,
+        )
+        # Fast-path would return "quick" but it's not allowed → falls through to LLM
+        assert result["mode"] == "simple"
+
+    @pytest.mark.asyncio
+    async def test_fast_path_off_topic_skipped_when_not_allowed(self):
+        """Fast-path 'off_topic' is skipped when off_topic not in allowed_modes."""
+        from mcpdb.agent.nodes.classify import classify_question
+        from mcpdb.agent.state import BASE_MODES
+
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "simple",
+            "reasoning": "Fallback",
+            "target_sources": [],
+            "key_entities": [],
+        })
+
+        result = await classify_question(
+            question="hello",
+            source_context="test schema",
+            llm=llm,
+            allowed_modes=BASE_MODES,  # off_topic not in BASE_MODES
+        )
+        # Fast-path would return "off_topic" but it's not allowed → LLM
+        assert result["mode"] == "simple"
+
+    @pytest.mark.asyncio
+    async def test_all_modes_default(self):
+        """Without allowed_modes, all modes including metamodes are available."""
+        from mcpdb.agent.nodes.classify import classify_question
+
+        llm = MockLLM()
+        llm.set_response({
+            "mode": "deep",
+            "reasoning": "Research needed",
+            "target_sources": [],
+            "key_entities": [],
+        })
+
+        result = await classify_question(
+            question="Investigate patterns",
+            source_context="test schema",
+            llm=llm,
+        )
+        assert result["mode"] == "deep"
+
+
 class TestQuickMode:
     @pytest.mark.asyncio
     async def test_quick_answers_from_context(self):
@@ -405,3 +539,191 @@ class TestOrchestratorGraph:
         assert state["response"] is not None
         assert len(state["response"]) > 0
         registry.close_all()
+
+
+# ---------------------------------------------------------------------------
+# Mode taxonomy tests
+# ---------------------------------------------------------------------------
+
+
+class TestModeTaxonomy:
+    """Tests for BASE_MODES, META_MODES, ALL_MODES and helpers."""
+
+    def test_base_modes_content(self):
+        from mcpdb.agent.state import BASE_MODES
+        assert BASE_MODES == frozenset({"quick", "simple", "extended", "optimization_required"})
+
+    def test_meta_modes_content(self):
+        from mcpdb.agent.state import META_MODES
+        assert META_MODES == frozenset({"deep", "sequential"})
+
+    def test_all_modes_is_union(self):
+        from mcpdb.agent.state import BASE_MODES, META_MODES, ALL_MODES
+        assert ALL_MODES == BASE_MODES | META_MODES | frozenset({"off_topic"})
+
+    def test_no_overlap_base_meta(self):
+        from mcpdb.agent.state import BASE_MODES, META_MODES
+        assert BASE_MODES & META_MODES == frozenset()
+
+    def test_is_base_mode(self):
+        from mcpdb.agent.state import is_base_mode
+        assert is_base_mode("quick") is True
+        assert is_base_mode("simple") is True
+        assert is_base_mode("extended") is True
+        assert is_base_mode("optimization_required") is True
+        assert is_base_mode("deep") is False
+        assert is_base_mode("sequential") is False
+        assert is_base_mode("off_topic") is False
+        assert is_base_mode("nonsense") is False
+
+    def test_is_meta_mode(self):
+        from mcpdb.agent.state import is_meta_mode
+        assert is_meta_mode("deep") is True
+        assert is_meta_mode("sequential") is True
+        assert is_meta_mode("simple") is False
+        assert is_meta_mode("off_topic") is False
+
+
+# ---------------------------------------------------------------------------
+# dispatch_base_mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchBaseMode:
+    """Tests for the shared dispatch_base_mode utility."""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_simple(self):
+        """dispatch_base_mode routes 'simple' to run_simple."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Test",
+            "query_mode": "simple",
+            "source_context": "",
+            "active_source_ids": [],
+        }
+
+        mock_result = {**state, "response": "simple result"}
+        with patch("mcpdb.agent.subgraphs.simple.run_simple", new_callable=AsyncMock, return_value=mock_result) as mock_simple:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_simple.assert_awaited_once()
+            assert result["response"] == "simple result"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_extended(self):
+        """dispatch_base_mode routes 'extended' to run_extended."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Test",
+            "query_mode": "extended",
+            "source_context": "",
+            "active_source_ids": [],
+        }
+
+        mock_result = {**state, "response": "extended result"}
+        with patch("mcpdb.agent.subgraphs.extended.run_extended", new_callable=AsyncMock, return_value=mock_result) as mock_ext:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_ext.assert_awaited_once()
+            assert result["response"] == "extended result"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_optimization(self):
+        """dispatch_base_mode routes 'optimization_required' to run_optimization."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Test",
+            "query_mode": "optimization_required",
+            "source_context": "",
+            "active_source_ids": [],
+        }
+
+        mock_result = {**state, "response": "opt result"}
+        with patch("mcpdb.agent.subgraphs.optimization.run_optimization", new_callable=AsyncMock, return_value=mock_result) as mock_opt:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_opt.assert_awaited_once()
+            assert result["response"] == "opt result"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_quick_no_escalation(self):
+        """dispatch_base_mode routes 'quick' to run_quick; no escalation if complete."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "What tables?",
+            "query_mode": "quick",
+            "source_context": "test",
+        }
+
+        mock_result = {**state, "response": "quick result", "validation_result": "complete"}
+        with patch("mcpdb.agent.subgraphs.quick.run_quick", new_callable=AsyncMock, return_value=mock_result) as mock_quick:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_quick.assert_awaited_once()
+            assert result["response"] == "quick result"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_quick_escalates_to_simple(self):
+        """dispatch_base_mode escalates quick → simple when needs_data."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Show top customers",
+            "query_mode": "quick",
+            "source_context": "test",
+        }
+
+        quick_result = {**state, "response": None, "validation_result": "needs_data", "query_mode": "simple"}
+        simple_result = {**quick_result, "response": "data result"}
+        with patch("mcpdb.agent.subgraphs.quick.run_quick", new_callable=AsyncMock, return_value=quick_result) as mock_quick, \
+             patch("mcpdb.agent.subgraphs.simple.run_simple", new_callable=AsyncMock, return_value=simple_result) as mock_simple:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_quick.assert_awaited_once()
+            mock_simple.assert_awaited_once()
+            assert result["response"] == "data result"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_unknown_mode_defaults_to_simple(self):
+        """Unknown mode falls back to simple."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Test",
+            "query_mode": "unknown_mode",
+            "source_context": "",
+        }
+
+        mock_result = {**state, "response": "fallback", "query_mode": "simple"}
+        with patch("mcpdb.agent.subgraphs.simple.run_simple", new_callable=AsyncMock, return_value=mock_result) as mock_simple:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_simple.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_dispatch_missing_mode_defaults_to_simple(self):
+        """Missing query_mode defaults to simple."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from mcpdb.agent.subgraphs import dispatch_base_mode
+        from mcpdb.agent.callbacks import CallbackManager
+
+        state: AgentState = {
+            "question": "Test",
+            "source_context": "",
+        }
+
+        mock_result = {**state, "response": "default simple"}
+        with patch("mcpdb.agent.subgraphs.simple.run_simple", new_callable=AsyncMock, return_value=mock_result) as mock_simple:
+            result = await dispatch_base_mode(state, MagicMock(), CallbackManager(), MagicMock())
+            mock_simple.assert_awaited_once()

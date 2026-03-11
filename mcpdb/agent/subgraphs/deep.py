@@ -1,6 +1,10 @@
 """Deep Analysis mode — multi-investigation research with reasoning loop.
 
-Flow: create_blueprint → (investigate → reason)* → synthesize report
+Flow: create_blueprint → (classify + investigate → reason)* → synthesize report
+
+Deep is a *metamode*: each investigation sub-question is independently
+classified into a base mode (quick, simple, extended, optimization) and
+dispatched to the appropriate runner.
 """
 
 from __future__ import annotations
@@ -9,9 +13,10 @@ import asyncio
 import logging
 from typing import Any
 
-from mcpdb.agent.state import AgentState
+from mcpdb.agent.state import AgentState, BASE_MODES
 from mcpdb.agent.callbacks import CallbackManager
-from mcpdb.agent.subgraphs.simple import run_simple
+from mcpdb.agent.nodes.classify import classify_question
+from mcpdb.agent.subgraphs import dispatch_base_mode
 from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sources.registry import SourceRegistry
 
@@ -96,8 +101,8 @@ async def run_deep(
 ) -> AgentState:
     """Execute the Deep Analysis mode.
 
-    Creates a research blueprint, runs investigations, reasons about results,
-    and synthesizes a comprehensive report.
+    Creates a research blueprint, classifies and runs investigations,
+    reasons about results, and synthesizes a comprehensive report.
     """
     callbacks.emit("deep/start")
 
@@ -131,17 +136,36 @@ async def run_deep(
         inv_question = inv["question"]
         needs_viz = inv.get("needs_visualization", False)
 
+        # Append visualization hint if needed
+        full_question = inv_question
+        if needs_viz:
+            full_question += (
+                " — Include a Python visualization step (matplotlib/seaborn) "
+                "with plt.show() to create an informative chart."
+            )
+
+        # Classify this investigation to determine the best base mode
+        classification = await classify_question(
+            question=full_question,
+            source_context=state.get("source_context", ""),
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        submode = classification["mode"]
+
         callbacks.emit(
             "deep/investigation_start",
             investigation_id=inv_id,
             question=inv_question,
             approach=inv.get("approach", ""),
+            submode=submode,
         )
 
-        # Run investigation as a Simple mode sub-agent
+        # Run investigation through the classified base mode
         inv_result = await _run_investigation(
-            inv_question, state, llm, callbacks, registry,
-            needs_visualization=needs_viz,
+            full_question, state, llm, callbacks, registry,
+            submode=submode,
+            key_entities=classification.get("key_entities", []),
         )
 
         inv_response = inv_result.get("response", "No results.")
@@ -153,6 +177,7 @@ async def run_deep(
             "question": inv_question,
             "approach": inv.get("approach", ""),
             "result": inv_response,
+            "submode": submode,
         })
 
         callbacks.emit(
@@ -163,6 +188,7 @@ async def run_deep(
             has_artifacts=bool(inv_artifacts),
             artifact_count=len(inv_artifacts),
             artifacts=inv_artifacts,
+            submode=submode,
         )
 
         # Reasoning checkpoint (after every 2 investigations or at end)
@@ -252,28 +278,22 @@ async def _run_investigation(
     llm: LLMProvider,
     callbacks: CallbackManager,
     registry: SourceRegistry,
-    needs_visualization: bool = False,
+    *,
+    submode: str = "simple",
+    key_entities: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run a single investigation using Simple mode.
+    """Run a single investigation using the classified base mode.
 
     Returns dict with 'response' text and 'artifacts' list.
     """
-    # Append visualization hint to the question if needed
-    inv_question = question
-    if needs_visualization:
-        inv_question += (
-            " — Include a Python visualization step (matplotlib/seaborn) "
-            "with plt.show() to create an informative chart."
-        )
-
     inv_state: AgentState = {
-        "question": inv_question,
+        "question": question,
         "source_context": parent_state.get("source_context", ""),
         "active_source_ids": parent_state.get("active_source_ids", []),
-        "query_mode": "simple",
+        "query_mode": submode,
         "target_sources": parent_state.get("active_source_ids", []),
         "requires_cross_source": False,
-        "key_entities": [],
+        "key_entities": key_entities or [],
         "response": None,
         "validation_result": None,
         "replan_count": 0,
@@ -283,7 +303,7 @@ async def _run_investigation(
     }
 
     try:
-        inv_state = await run_simple(inv_state, llm, callbacks, registry)
+        inv_state = await dispatch_base_mode(inv_state, llm, callbacks, registry)
         return {
             "response": inv_state.get("response", "No results."),
             "artifacts": inv_state.get("artifacts", []),

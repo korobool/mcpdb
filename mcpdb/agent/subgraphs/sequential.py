@@ -1,10 +1,14 @@
 """Sequential mode — answer a list of questions one by one with accumulating context.
 
-Flow: parse_questions → (run_simple with prior_context)* → synthesize_sequence
+Flow: parse_questions → (classify + dispatch_base_mode with prior_context)* → synthesize_sequence
 
 Unlike deep mode (which auto-generates sub-questions from a blueprint),
 sequential mode uses user-provided questions and builds on the context
 from each previous answer.
+
+Sequential is a *metamode*: each sub-question is independently classified
+into a base mode (quick, simple, extended, optimization) and dispatched
+to the appropriate runner.
 """
 
 from __future__ import annotations
@@ -14,9 +18,10 @@ import logging
 import re
 from typing import Any
 
-from mcpdb.agent.state import AgentState
+from mcpdb.agent.state import AgentState, BASE_MODES
 from mcpdb.agent.callbacks import CallbackManager
-from mcpdb.agent.subgraphs.simple import run_simple
+from mcpdb.agent.nodes.classify import classify_question
+from mcpdb.agent.subgraphs import dispatch_base_mode
 from mcpdb.llm.provider import LLMProvider, Message
 from mcpdb.sources.registry import SourceRegistry
 
@@ -77,17 +82,23 @@ async def run_sequential(
 ) -> AgentState:
     """Execute Sequential mode.
 
-    Parses the question into a list, answers each one by one with
-    accumulating context, streams intermediate results, then synthesizes.
+    Parses the question into a list, classifies and answers each one by one
+    with accumulating context, streams intermediate results, then synthesizes.
     """
     questions = parse_questions(state["question"])
 
-    # Degenerate case: single question → just run simple
+    # Degenerate case: single question → classify and dispatch directly
     if len(questions) <= 1:
-        state["query_mode"] = "simple"
         if questions:
             state["question"] = questions[0]
-        return await run_simple(state, llm, callbacks, registry)
+        classification = await classify_question(
+            question=state["question"],
+            source_context=state.get("source_context", ""),
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        state["query_mode"] = classification["mode"]
+        return await dispatch_base_mode(state, llm, callbacks, registry)
 
     callbacks.emit("sequential/start", question_count=len(questions))
 
@@ -96,16 +107,28 @@ async def run_sequential(
     all_execution_log: list[dict] = []
 
     for i, question in enumerate(questions):
+        # Classify this sub-question to determine the best base mode
+        classification = await classify_question(
+            question=question,
+            source_context=state.get("source_context", ""),
+            llm=llm,
+            allowed_modes=BASE_MODES,
+        )
+        submode = classification["mode"]
+
         callbacks.emit(
             "sequential/step_start",
             step_index=i,
             question=question,
             total=len(questions),
+            submode=submode,
         )
 
         prior_context = _build_prior_context(results)
         step_result = await _run_step(
             question, state, prior_context, llm, callbacks, registry,
+            submode=submode,
+            key_entities=classification.get("key_entities", []),
         )
 
         results.append({
@@ -113,6 +136,7 @@ async def run_sequential(
             "question": question,
             "response": step_result.get("response", "No results."),
             "artifacts": step_result.get("artifacts", []),
+            "submode": submode,
         })
         all_artifacts.extend(step_result.get("artifacts", []))
         all_execution_log.extend(step_result.get("execution_log", []))
@@ -125,6 +149,7 @@ async def run_sequential(
             artifacts=step_result.get("artifacts", []),
             has_artifacts=bool(step_result.get("artifacts")),
             artifact_count=len(step_result.get("artifacts", [])),
+            submode=submode,
         )
 
     # Final synthesis
@@ -146,16 +171,19 @@ async def _run_step(
     llm: LLMProvider,
     callbacks: CallbackManager,
     registry: SourceRegistry,
+    *,
+    submode: str = "simple",
+    key_entities: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run a single question through simple mode with prior Q&A context injected."""
+    """Run a single question through the classified base mode with prior Q&A context."""
     inv_state: AgentState = {
         "question": question,
         "source_context": parent_state.get("source_context", ""),
         "active_source_ids": parent_state.get("active_source_ids", []),
-        "query_mode": "simple",
+        "query_mode": submode,
         "target_sources": parent_state.get("active_source_ids", []),
         "requires_cross_source": False,
-        "key_entities": [],
+        "key_entities": key_entities or [],
         "response": None,
         "validation_result": None,
         "replan_count": 0,
@@ -172,7 +200,7 @@ async def _run_step(
         )
 
     try:
-        inv_state = await run_simple(inv_state, llm, callbacks, registry)
+        inv_state = await dispatch_base_mode(inv_state, llm, callbacks, registry)
         return {
             "response": inv_state.get("response", "No results."),
             "artifacts": inv_state.get("artifacts", []),
