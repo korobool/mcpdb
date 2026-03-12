@@ -432,8 +432,8 @@ class AsyncReasoningObserver:
             self._callbacks.emit(
                 "observer/stuck_warning",
                 message=(
-                    f"Processing seems stalled — no activity for {silence:.0f}s. "
-                    "You can cancel and try again if needed."
+                    "This query may take a while. "
+                    "You can cancel any time."
                 ),
                 phase=self._current_phase or "unknown",
                 silence_seconds=int(silence),

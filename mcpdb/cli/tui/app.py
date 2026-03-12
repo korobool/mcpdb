@@ -357,7 +357,7 @@ class McpdbTUI(App):
                     msg = data.get("message", "")
                     self._log_event(f"[yellow]⚠ {msg}[/yellow]")
                 elif etype == "observer/stuck_warning":
-                    msg = data.get("message", "Processing seems stalled")
+                    msg = data.get("message", "This query may take a while")
                     self._log_event(f"[bold yellow]⚠ {msg}[/bold yellow]")
 
             callbacks.add_listener(on_event)

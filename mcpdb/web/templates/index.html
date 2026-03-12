@@ -84,12 +84,12 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 #send-btn { padding: 10px 18px; }
 #cancel-btn { padding: 10px 14px; background: var(--red); color: #fff; display: none; }
 
-/* Stuck warning banner */
-#stuck-warning { display: none; background: #3d2200; border: 1px solid var(--orange); border-radius: var(--radius); padding: 10px 14px; margin: 0 16px 8px 16px; font-size: 13px; color: var(--orange); align-items: center; gap: 10px; }
+/* Stuck info banner — gentle, not alarming */
+#stuck-warning { display: none; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; margin: 0 16px 8px 16px; font-size: 12px; color: var(--fg2); align-items: center; gap: 10px; }
 #stuck-warning.visible { display: flex; }
 #stuck-warning .stuck-msg { flex: 1; }
-#stuck-warning .stuck-cancel-btn { padding: 4px 12px; background: var(--red); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
-#stuck-warning .stuck-cancel-btn:hover { opacity: 0.85; }
+#stuck-warning .stuck-cancel-btn { padding: 3px 10px; background: var(--bg4); color: var(--fg2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 11px; white-space: nowrap; }
+#stuck-warning .stuck-cancel-btn:hover { color: var(--fg); border-color: var(--fg3); }
 
 /* Messages */
 .message { margin-bottom: 20px; max-width: 100%; }
@@ -635,8 +635,8 @@ function handleEvent(msg) {
     addLog(`⚠ Observer: ${d.message || 'anomaly detected'}`);
   }
   else if (et === 'observer/stuck_warning') {
-    addLog(`⚠ ${d.message || 'Processing seems stalled'}`);
-    showStuckWarning(d.message || 'Processing seems stalled. You can cancel and try again.');
+    addLog(`⚠ ${d.message || 'This query may take a while'}`);
+    showStuckWarning(d.message || 'This query may take a while. You can cancel any time.');
   }
   else if (et === 'observer/report') {
     if (d.anomaly_count > 0) addLog(`Observer: ${d.anomaly_count} anomalies detected`);
