@@ -348,6 +348,84 @@ class TestStuckWarningEvents:
         assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
 
 
+class TestStuckWarningEventData:
+    """Tests for stuck_warning event data structure and quick/simple thresholds."""
+
+    def test_stuck_warning_event_data_structure(self):
+        """Stuck warning event has correct data fields."""
+        cb = CallbackManager()
+        events = []
+        cb.add_listener(lambda e: events.append(e) if e.type == "observer/stuck_warning" else None)
+
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test data fields", mode="simple")
+
+        obs._last_event_time = time.time() - 70
+        obs._current_phase = "execute"
+        obs._check_stuck()
+
+        assert len(events) == 1
+        data = events[0].data
+        assert "message" in data
+        assert "phase" in data
+        assert data["phase"] == "execute"
+        assert "silence_seconds" in data
+        assert isinstance(data["silence_seconds"], int)
+        assert data["silence_seconds"] >= 60
+        assert "mode" in data
+        assert data["mode"] == "simple"
+
+    def test_quick_mode_short_threshold(self):
+        """Quick mode stuck threshold is min(60, total_threshold/2) = ~22.5s."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="quick")
+
+        # Quick total_threshold=45, so stuck_threshold = min(60, 22.5) = 22.5
+        # 15s should NOT trigger
+        obs._last_event_time = time.time() - 15
+        obs._current_phase = "execute"
+        obs._check_stuck()
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+        # 25s SHOULD trigger for quick mode (> 22.5)
+        obs._last_event_time = time.time() - 25
+        obs._check_stuck()
+        assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+    def test_simple_mode_60s_threshold(self):
+        """Simple mode stuck threshold is min(60, 180/2) = 60s."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="simple")
+
+        # Simple total_threshold=180, so stuck_threshold = min(60, 90) = 60
+        obs._last_event_time = time.time() - 50
+        obs._current_phase = "plan"
+        obs._check_stuck()
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+        obs._last_event_time = time.time() - 65
+        obs._check_stuck()
+        assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+    def test_optimization_mode_threshold(self):
+        """Optimization mode stuck threshold is min(60, 270/2) = 60s."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="optimization_required")
+
+        # optimization total_threshold=270, so stuck_threshold = min(60, 135) = 60
+        obs._last_event_time = time.time() - 50
+        obs._current_phase = "execute"
+        obs._check_stuck()
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+        obs._last_event_time = time.time() - 65
+        obs._check_stuck()
+        assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+
 class TestAsyncMonitorLoop:
     """Tests for the async monitor loop."""
 
