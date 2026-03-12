@@ -392,7 +392,12 @@ class AsyncReasoningObserver:
             logger.info("Observer: %s", anomaly.message)
 
     def _check_stuck(self) -> None:
-        """Check if the pipeline appears stuck (no events for a while)."""
+        """Check if the pipeline appears stuck (no events for a while).
+
+        Mode-aware: deep/sequential/extended get longer thresholds since
+        they legitimately run longer. Emits a user-facing stuck_warning
+        event suggesting the user can cancel.
+        """
         if not self._running or not self._last_event_time:
             return
 
@@ -400,9 +405,19 @@ class AsyncReasoningObserver:
         expectations = TIMING_EXPECTATIONS.get(self._mode, TIMING_EXPECTATIONS["simple"])
         _, total_threshold = expectations.get("total", (60, 180))
 
-        # Consider stuck if no events for > 60s or > half the total threshold
-        stuck_threshold = min(60, total_threshold / 2)
+        # Mode-aware stuck threshold: longer for modes that take more time
+        if self._mode in ("deep", "sequential"):
+            stuck_threshold = 120  # 2 minutes for deep/sequential
+        elif self._mode == "extended":
+            stuck_threshold = 90
+        else:
+            stuck_threshold = min(60, total_threshold / 2)
+
         if silence > stuck_threshold:
+            # Only emit once per stuck period (avoid spamming)
+            if self._actions and self._actions[-1] == "stuck_detected":
+                return
+
             anomaly = Anomaly(
                 anomaly_type="stuck",
                 phase=self._current_phase or "unknown",
@@ -412,6 +427,18 @@ class AsyncReasoningObserver:
             )
             self._anomalies.append(anomaly)
             self._actions.append("stuck_detected")
+
+            # Emit user-facing stuck warning (UI can show cancel suggestion)
+            self._callbacks.emit(
+                "observer/stuck_warning",
+                message=(
+                    f"Processing seems stalled — no activity for {silence:.0f}s. "
+                    "You can cancel and try again if needed."
+                ),
+                phase=self._current_phase or "unknown",
+                silence_seconds=int(silence),
+                mode=self._mode,
+            )
             self._emit_warning(
                 f"Pipeline appears stuck — no activity for {silence:.0f}s "
                 f"in phase '{self._current_phase or 'unknown'}'"

@@ -6,6 +6,7 @@ schema drift detection, and agent integration.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from mcpdb.experience.fingerprint import (
     fingerprint_source,
     fingerprint_schema,
     intent_hash,
+    semantic_hash,
 )
 from mcpdb.experience.records import CodeStep, FailureRecord, SuccessRecord
 from mcpdb.experience.store import ExperienceStore
@@ -1271,3 +1273,221 @@ class TestNoCacheMode:
             experience_cache=None, no_cache=True,
         )
         assert state.get("query_mode") is not None
+
+
+# ---------------------------------------------------------------------------
+# Semantic hash collision fix tests
+# ---------------------------------------------------------------------------
+
+class TestSemanticHashCollisionFix:
+    """Tests that word order is preserved in normalization (no alphabetical sort)."""
+
+    def test_word_order_preserved(self):
+        """Different word orders produce different hashes."""
+        from mcpdb.experience.fingerprint import normalize_question
+        n1 = normalize_question("show cars with damages")
+        n2 = normalize_question("show damages with cars")
+        # After removing stopwords, the content words should be in original order
+        # "cars damages" vs "damages cars" — these should differ
+        assert n1 != n2
+
+    def test_different_questions_different_semantic_hash(self, source_metadata):
+        """Questions with same words in different order get different semantic hashes."""
+        fp = fingerprint_source(source_metadata)
+        h1 = semantic_hash("top customers by revenue", fp)
+        h2 = semantic_hash("revenue by top customers", fp)
+        assert h1 != h2
+
+    def test_identical_questions_same_hash(self, source_metadata):
+        """Same question always produces same hash."""
+        fp = fingerprint_source(source_metadata)
+        h1 = semantic_hash("show top 10 customers", fp)
+        h2 = semantic_hash("show top 10 customers", fp)
+        assert h1 == h2
+
+    def test_intent_words_preserved(self):
+        """Intent-carrying words (show, list, count etc.) are no longer stripped."""
+        from mcpdb.experience.fingerprint import normalize_question
+        # 'all' was removed from stopwords; action verbs kept some
+        n = normalize_question("count all customers")
+        assert "count" in n
+        assert "customer" in n  # synonym normalized
+
+    def test_hash_version_in_semantic_hash(self, source_metadata):
+        """Semantic hash includes version to invalidate old cache."""
+        from mcpdb.experience.fingerprint import _SEMANTIC_HASH_VERSION
+        assert _SEMANTIC_HASH_VERSION == "v2"
+
+
+# ---------------------------------------------------------------------------
+# Semantic index cleanup tests
+# ---------------------------------------------------------------------------
+
+class TestSemanticIndexCleanup:
+    """Tests that eviction and clear properly clean the semantic index."""
+
+    def test_eviction_cleans_semantic_index(self, store, source_metadata):
+        """Memory eviction also removes orphaned semantic index entries."""
+        cache = ExperienceCache(store=store, max_age_days=30)
+        cache._max_memory = 2  # Very small to trigger eviction
+
+        cache.store(
+            question="First question here",
+            source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="Response 1",
+        )
+        cache.store(
+            question="Second question here",
+            source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="Response 2",
+        )
+
+        # Both should be in semantic index
+        assert len(cache._semantic_index) == 2
+
+        # Adding a third will evict the oldest
+        cache.store(
+            question="Third question here",
+            source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="Response 3",
+        )
+
+        # After eviction, semantic index should match memory size
+        assert len(cache._semantic_index) <= len(cache._memory)
+
+    def test_clear_source_cleans_semantic_index(self, cache, source_metadata):
+        """clear_source_by_fingerprint also cleans semantic index."""
+        cache.store(
+            question="Test question for clear",
+            source_metadata=source_metadata,
+            query_mode="simple", steps=[], response="Response",
+        )
+        assert len(cache._semantic_index) > 0
+
+        fp = fingerprint_source(source_metadata)
+        cache.clear_source_by_fingerprint(fp)
+
+        assert len(cache._semantic_index) == 0
+        assert len(cache._memory) == 0
+
+
+# ---------------------------------------------------------------------------
+# Quality worker pause/resume tests
+# ---------------------------------------------------------------------------
+
+class TestQualityWorkerPauseResume:
+    """Tests for the worker pause/resume yielding mechanism."""
+
+    def test_worker_starts_unpaused(self):
+        """Worker should start in unpaused state."""
+        from unittest.mock import MagicMock
+        from mcpdb.experience.worker import QualityWorker
+        worker = QualityWorker(
+            staging_store=MagicMock(),
+            experience_cache=MagicMock(),
+            experience_store=MagicMock(),
+        )
+        assert not worker.is_paused
+
+    def test_pause_sets_paused(self):
+        from unittest.mock import MagicMock
+        from mcpdb.experience.worker import QualityWorker
+        worker = QualityWorker(
+            staging_store=MagicMock(),
+            experience_cache=MagicMock(),
+            experience_store=MagicMock(),
+        )
+        worker.pause()
+        assert worker.is_paused
+
+    def test_resume_clears_paused(self):
+        from unittest.mock import MagicMock
+        from mcpdb.experience.worker import QualityWorker
+        worker = QualityWorker(
+            staging_store=MagicMock(),
+            experience_cache=MagicMock(),
+            experience_store=MagicMock(),
+        )
+        worker.pause()
+        assert worker.is_paused
+        worker.resume()
+        assert not worker.is_paused
+
+    def test_stop_unblocks_pause(self):
+        """stop() should also unblock the pause event so the loop can exit."""
+        from unittest.mock import MagicMock
+        from mcpdb.experience.worker import QualityWorker
+        worker = QualityWorker(
+            staging_store=MagicMock(),
+            experience_cache=MagicMock(),
+            experience_store=MagicMock(),
+        )
+        worker.pause()
+        worker.stop()
+        # _pause_event should be set (unblocked) so the loop can exit
+        assert worker._pause_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_worker_run_respects_pause(self):
+        """Worker should not process records while paused."""
+        from unittest.mock import MagicMock, AsyncMock
+        from mcpdb.experience.worker import QualityWorker
+
+        staging = MagicMock()
+        staging.get_all_pending.return_value = []
+
+        worker = QualityWorker(
+            staging_store=staging,
+            experience_cache=MagicMock(),
+            experience_store=MagicMock(),
+            poll_interval=0.1,
+        )
+
+        # Pause before starting
+        worker.pause()
+
+        # Start the worker, then stop after a short delay
+        async def stop_after_delay():
+            await asyncio.sleep(0.3)
+            worker.stop()
+
+        llm = MagicMock()
+        task = asyncio.create_task(worker.run(llm))
+        stop_task = asyncio.create_task(stop_after_delay())
+
+        await asyncio.gather(task, stop_task)
+
+        # Worker was paused the whole time, so get_all_pending should NOT have been called
+        assert staging.get_all_pending.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# ExperienceService pause/resume wiring tests
+# ---------------------------------------------------------------------------
+
+class TestExperienceServicePauseResume:
+    """Tests that ExperienceService properly exposes pause/resume."""
+
+    def test_pause_worker_no_worker(self):
+        """pause_worker should be a no-op when worker is None."""
+        from mcpdb.experience.service import ExperienceService
+        service = ExperienceService()
+        # Should not raise
+        service.pause_worker()
+        service.resume_worker()
+
+    @pytest.mark.asyncio
+    async def test_pause_resume_delegates_to_worker(self):
+        """pause_worker/resume_worker should delegate to the worker."""
+        from unittest.mock import MagicMock, AsyncMock
+        from mcpdb.experience.service import ExperienceService
+
+        service = ExperienceService()
+        worker = MagicMock()
+        service._worker = worker
+
+        service.pause_worker()
+        worker.pause.assert_called_once()
+
+        service.resume_worker()
+        worker.resume.assert_called_once()

@@ -92,6 +92,16 @@ class ExperienceService:
             self._worker = None
             logger.info("Experience service stopped")
 
+    def pause_worker(self) -> None:
+        """Pause quality worker to yield LLM access to user queries."""
+        if self._worker is not None:
+            self._worker.pause()
+
+    def resume_worker(self) -> None:
+        """Resume quality worker after user query completes."""
+        if self._worker is not None:
+            self._worker.resume()
+
     @property
     def is_running(self) -> bool:
         """Whether the background worker is currently running."""

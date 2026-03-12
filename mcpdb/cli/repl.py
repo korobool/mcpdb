@@ -247,6 +247,9 @@ class Repl:
         progress.start()
         start = time.time()
 
+        # Pause quality worker during user query to avoid LLM contention
+        if self._experience is not None:
+            self._experience.pause_worker()
         try:
             state = await run_agent(
                 question,
@@ -269,6 +272,9 @@ class Repl:
         except Exception as e:
             progress.error(str(e))
             return
+        finally:
+            if self._experience is not None:
+                self._experience.resume_worker()
 
         elapsed = time.time() - start
         progress.finish(state)

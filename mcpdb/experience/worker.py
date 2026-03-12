@@ -45,6 +45,8 @@ class QualityWorker:
     Runs as a long-lived async coroutine. Polls the staging store for
     unevaluated records, evaluates them via LLM, then either promotes
     to the experience cache or records as anti-pattern.
+
+    Supports pause/resume to yield LLM access to user queries.
     """
 
     def __init__(
@@ -63,11 +65,33 @@ class QualityWorker:
         self._poll_interval = poll_interval
         self._max_retries = max_retries
         self._stop_event = asyncio.Event()
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # starts unpaused
 
         # Stats
         self.promoted = 0
         self.rejected = 0
         self.errors = 0
+
+    def pause(self) -> None:
+        """Pause the worker — yields LLM access to user queries.
+
+        The worker will finish its current evaluation (if any), then wait
+        until resume() is called before starting the next one.
+        """
+        if self._pause_event.is_set():
+            logger.info("Quality worker paused (yielding LLM to user query)")
+            self._pause_event.clear()
+
+    def resume(self) -> None:
+        """Resume the worker after a pause."""
+        if not self._pause_event.is_set():
+            logger.info("Quality worker resumed")
+            self._pause_event.set()
+
+    @property
+    def is_paused(self) -> bool:
+        return not self._pause_event.is_set()
 
     async def run(self, llm: Any) -> None:
         """Main worker loop — polls staging store and evaluates records.
@@ -77,6 +101,16 @@ class QualityWorker:
         logger.info("Quality worker started (poll_interval=%.0fs)", self._poll_interval)
 
         while not self._stop_event.is_set():
+            # Wait if paused (check stop every second to stay responsive)
+            while not self._pause_event.is_set() and not self._stop_event.is_set():
+                try:
+                    await asyncio.wait_for(self._pause_event.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
+
+            if self._stop_event.is_set():
+                break
+
             try:
                 await self._process_pending(llm)
             except Exception:
@@ -100,6 +134,7 @@ class QualityWorker:
     def stop(self) -> None:
         """Signal the worker to stop after current evaluation completes."""
         self._stop_event.set()
+        self._pause_event.set()  # unblock if paused so stop can proceed
 
     async def _process_pending(self, llm: Any) -> None:
         """Process all pending staged records, one at a time."""
@@ -112,6 +147,12 @@ class QualityWorker:
         for record in pending:
             if self._stop_event.is_set():
                 break
+            # Yield to user queries if paused
+            if not self._pause_event.is_set():
+                logger.debug("Worker paused mid-batch, waiting for resume")
+                await self._pause_event.wait()
+                if self._stop_event.is_set():
+                    break
             await self._evaluate_record(record, llm)
 
     async def _evaluate_record(self, record: StagedRecord, llm: Any) -> None:

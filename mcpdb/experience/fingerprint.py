@@ -71,14 +71,9 @@ _STOPWORDS = frozenset({
     'please', 'can', 'could', 'would', 'should', 'will', 'shall',
     'do', 'does', 'did', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
     'have', 'has', 'had', 'having',
-    # request verbs — these frame how the user asks, not *what* they ask
-    'show', 'plot', 'draw', 'render', 'display', 'visualize', 'illustrate',
-    'generate', 'create', 'make', 'build', 'produce', 'write', 'output',
-    'give', 'provide', 'present', 'print', 'list', 'describe', 'explain',
-    'get', 'fetch', 'retrieve', 'find', 'tell',
     # filler
     'want', 'need', 'like', 'just', 'also', 'very', 'really', 'quite',
-    'now', 'then', 'here', 'there', 'some', 'any', 'all', 'each', 'every',
+    'now', 'then', 'here', 'there', 'some', 'any', 'each', 'every',
     'using', 'use',
 })
 
@@ -107,9 +102,12 @@ _NON_ALPHA = re.compile(r'[^a-z0-9_]+')
 def normalize_question(question: str) -> str:
     """Reduce a question to its semantic content words.
 
-    Strips stopwords, normalizes synonyms, sorts alphabetically.
-    Result is deterministic — same intent always produces the same string
-    regardless of phrasing.
+    Strips stopwords, normalizes synonyms, preserves word order.
+    Result is deterministic — same wording produces the same string.
+
+    Word order is preserved (not sorted) to avoid collisions between
+    questions with the same words in different order, e.g.
+    "show cars with damages" vs "show damages with cars".
     """
     text = question.lower()
     tokens = _NON_ALPHA.split(text)
@@ -119,8 +117,12 @@ def normalize_question(question: str) -> str:
             continue
         tok = _SYNONYMS.get(tok, tok)
         kept.append(tok)
-    kept.sort()
     return ' '.join(kept)
+
+
+# Semantic hash version — bump this when normalization logic changes
+# to invalidate stale semantic hashes in the cache.
+_SEMANTIC_HASH_VERSION = "v2"
 
 
 def semantic_hash(question: str, source_fingerprint: str) -> str:
@@ -129,5 +131,5 @@ def semantic_hash(question: str, source_fingerprint: str) -> str:
     Two differently-phrased questions with the same intent produce the same hash.
     """
     normalized = normalize_question(question)
-    raw = f"{normalized}|{source_fingerprint}"
+    raw = f"{_SEMANTIC_HASH_VERSION}|{normalized}|{source_fingerprint}"
     return hashlib.sha256(raw.encode()).hexdigest()[:20]

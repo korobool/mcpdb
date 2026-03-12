@@ -514,6 +514,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         exp_staging = _experience_service.staging if _experience_service else None
 
         async def run_and_signal():
+            # Pause quality worker to yield LLM access to user query
+            if _experience_service is not None:
+                _experience_service.pause_worker()
             try:
                 state = await run_agent(
                     question, _registry, _llm, callbacks,
@@ -545,6 +548,10 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
             except Exception as e:
                 logger.exception("Agent error")
                 event_queue.put_nowait({"type": "error", "message": str(e)})
+            finally:
+                # Resume quality worker after query completes (or fails/cancels)
+                if _experience_service is not None:
+                    _experience_service.resume_worker()
 
         task = asyncio.create_task(run_and_signal())
         _active_tasks[ws_id] = task

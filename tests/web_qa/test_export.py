@@ -31,25 +31,26 @@ def ready_page(page: Page, web_server):
 
 
 class TestExportVisibility:
-    """Export section should appear only after a query completes."""
+    """Export section visibility rules."""
 
-    def test_export_hidden_before_query(self, page: Page, web_server, artifact_dir):
-        """Export section should be hidden when no queries have been run."""
+    def test_export_hidden_without_source(self, page: Page, web_server, artifact_dir):
+        """Export section should be hidden when no sources are connected."""
+        page.goto(web_server)
+        wait_for_websocket_connected(page)
+        page.wait_for_timeout(500)
+
+        export_section = page.locator("#export-section")
+        expect(export_section).to_be_hidden()
+
+        take_screenshot(page, "export_hidden_no_source", artifact_dir)
+
+    def test_export_visible_after_source_connected(self, page: Page, web_server, artifact_dir):
+        """Export section should appear once a source is connected (even before queries)."""
         page.goto(web_server)
         wait_for_websocket_connected(page)
         page.wait_for_timeout(500)
         connect_database(page, DB_URL)
         page.wait_for_timeout(1000)
-
-        export_section = page.locator("#export-section")
-        expect(export_section).to_be_hidden()
-
-        take_screenshot(page, "export_hidden_before_query", artifact_dir)
-
-    def test_export_visible_after_query(self, ready_page: Page, artifact_dir):
-        """Export section should appear after a query completes."""
-        page = ready_page
-        submit_query(page, "How many tables are in the database?", mode="quick", timeout=90_000)
 
         export_section = page.locator("#export-section")
         expect(export_section).to_be_visible()
@@ -58,10 +59,20 @@ class TestExportVisibility:
         buttons = export_section.locator(".btn")
         assert buttons.count() == 4  # HTML, PDF, Notebook, Open in Jupyter
 
+        take_screenshot(page, "export_visible_after_source", artifact_dir)
+
+    def test_export_visible_after_query(self, ready_page: Page, artifact_dir):
+        """Export section should remain visible after a query completes."""
+        page = ready_page
+        submit_query(page, "How many tables are in the database?", mode="quick", timeout=90_000)
+
+        export_section = page.locator("#export-section")
+        expect(export_section).to_be_visible()
+
         take_screenshot(page, "export_visible_after_query", artifact_dir)
 
     def test_export_hidden_after_new_conversation(self, ready_page: Page, artifact_dir):
-        """Export section should hide after clicking New Conversation."""
+        """Export section should still be visible after New Conversation if source is connected."""
         page = ready_page
         submit_query(page, "How many tables?", mode="quick", timeout=90_000)
 
@@ -72,10 +83,10 @@ class TestExportVisibility:
         page.locator("text=New conversation").click()
         page.wait_for_timeout(500)
 
-        # Should be hidden again
-        expect(page.locator("#export-section")).to_be_hidden()
+        # Should still be visible because source is still connected
+        expect(page.locator("#export-section")).to_be_visible()
 
-        take_screenshot(page, "export_hidden_after_new_convo", artifact_dir)
+        take_screenshot(page, "export_visible_after_new_convo", artifact_dir)
 
 
 class TestHTMLExport:

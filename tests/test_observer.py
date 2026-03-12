@@ -261,6 +261,93 @@ class TestObserverWarningEvents:
         assert len(warnings) >= 1
 
 
+class TestStuckWarningEvents:
+    """Tests for observer/stuck_warning events emitted on stuck detection."""
+
+    def test_stuck_warning_event_emitted(self):
+        """Stuck detection emits observer/stuck_warning event."""
+        cb = CallbackManager()
+        stuck_warnings = []
+        cb.add_listener(lambda e: stuck_warnings.append(e) if e.type == "observer/stuck_warning" else None)
+
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="simple")
+
+        obs._last_event_time = time.time() - 70
+        obs._current_phase = "execute"
+        obs._check_stuck()
+
+        assert len(stuck_warnings) == 1
+        assert "cancel" in stuck_warnings[0].data.get("message", "").lower()
+        assert stuck_warnings[0].data.get("phase") == "execute"
+
+    def test_stuck_warning_not_spammed(self):
+        """Stuck detection should only emit once per stuck period."""
+        cb = CallbackManager()
+        stuck_warnings = []
+        cb.add_listener(lambda e: stuck_warnings.append(e) if e.type == "observer/stuck_warning" else None)
+
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="simple")
+
+        obs._last_event_time = time.time() - 70
+        obs._current_phase = "execute"
+        obs._check_stuck()
+        obs._check_stuck()  # second call should be suppressed
+
+        assert len(stuck_warnings) == 1
+
+    def test_deep_mode_longer_stuck_threshold(self):
+        """Deep mode should not trigger stuck at 70s (threshold is 120s)."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="deep")
+
+        obs._last_event_time = time.time() - 70  # 70s silence
+        obs._current_phase = "execute"
+        obs._check_stuck()
+
+        # Should NOT be stuck — deep mode threshold is 120s
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+    def test_deep_mode_stuck_at_threshold(self):
+        """Deep mode triggers stuck after 120s."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="deep")
+
+        obs._last_event_time = time.time() - 125  # > 120s
+        obs._current_phase = "execute"
+        obs._check_stuck()
+
+        assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+    def test_sequential_mode_longer_threshold(self):
+        """Sequential mode uses 120s threshold like deep."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="sequential")
+
+        obs._last_event_time = time.time() - 70
+        obs._check_stuck()
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+    def test_extended_mode_90s_threshold(self):
+        """Extended mode uses 90s stuck threshold."""
+        cb = CallbackManager()
+        obs = AsyncReasoningObserver(cb)
+        obs.start(question="test", mode="extended")
+
+        obs._last_event_time = time.time() - 70
+        obs._current_phase = "execute"
+        obs._check_stuck()
+        assert not any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+        obs._last_event_time = time.time() - 95  # > 90s
+        obs._check_stuck()
+        assert any(a.anomaly_type == "stuck" for a in obs._anomalies)
+
+
 class TestAsyncMonitorLoop:
     """Tests for the async monitor loop."""
 

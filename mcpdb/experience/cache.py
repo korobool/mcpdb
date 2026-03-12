@@ -73,7 +73,10 @@ class ExperienceCache:
         record = self._lookup_by_key(ih, fp, source_metadata)
         if record is not None:
             if self._mode_acceptable(record, mode_override):
-                logger.debug("Cache hit (exact): %s", ih)
+                logger.info(
+                    "Cache hit (exact): current=%r, cached=%r [%s, mode=%s]",
+                    question[:80], record.question[:80], ih, record.query_mode,
+                )
                 return record
             logger.debug("Cache skip (mode too low): cached=%s, requested=%s",
                          record.query_mode, mode_override)
@@ -84,7 +87,10 @@ class ExperienceCache:
         if mapped_ih and mapped_ih != ih:
             record = self._lookup_by_key(mapped_ih, fp, source_metadata)
             if record is not None and self._mode_acceptable(record, mode_override):
-                logger.info("Cache hit (semantic): %r → %s", question[:60], mapped_ih)
+                logger.info(
+                    "Cache hit (semantic): current=%r, cached=%r [%s→%s, mode=%s]",
+                    question[:80], record.question[:80], sh[:12], mapped_ih, record.query_mode,
+                )
                 return record
 
         # Check disk for semantic match
@@ -94,7 +100,10 @@ class ExperienceCache:
                 self._memory[record.intent_hash] = record
                 self._semantic_index[sh] = record.intent_hash
                 self._evict_memory_if_needed()
-                logger.info("Cache hit (semantic/disk): %r → %s", question[:60], record.intent_hash)
+                logger.info(
+                    "Cache hit (semantic/disk): current=%r, cached=%r [%s→%s, mode=%s]",
+                    question[:80], record.question[:80], sh[:12], record.intent_hash, record.query_mode,
+                )
                 return record
 
         return None
@@ -192,13 +201,15 @@ class ExperienceCache:
         """Clear all cache entries for a source fingerprint."""
         self._store.clear(fp)
 
-        # Remove from memory
+        # Remove from memory and clean semantic index
         to_remove = [
             k for k, v in self._memory.items()
             if v.source_fingerprint == fp
         ]
         for k in to_remove:
-            del self._memory[k]
+            record = self._memory.pop(k)
+            if record.semantic_hash:
+                self._semantic_index.pop(record.semantic_hash, None)
 
     def clear_all(self) -> None:
         """Clear all cache entries (memory + disk)."""
@@ -241,11 +252,13 @@ class ExperienceCache:
         if len(self._memory) <= self._max_memory:
             return
 
-        # Remove oldest by timestamp
+        # Remove oldest by timestamp, also clean semantic index
         sorted_entries = sorted(
             self._memory.items(),
             key=lambda kv: kv[1].timestamp,
         )
         to_remove = len(self._memory) - self._max_memory
-        for key, _ in sorted_entries[:to_remove]:
+        for key, record in sorted_entries[:to_remove]:
             del self._memory[key]
+            if record.semantic_hash:
+                self._semantic_index.pop(record.semantic_hash, None)

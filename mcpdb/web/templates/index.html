@@ -84,6 +84,13 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 #send-btn { padding: 10px 18px; }
 #cancel-btn { padding: 10px 14px; background: var(--red); color: #fff; display: none; }
 
+/* Stuck warning banner */
+#stuck-warning { display: none; background: #3d2200; border: 1px solid var(--orange); border-radius: var(--radius); padding: 10px 14px; margin: 0 16px 8px 16px; font-size: 13px; color: var(--orange); align-items: center; gap: 10px; }
+#stuck-warning.visible { display: flex; }
+#stuck-warning .stuck-msg { flex: 1; }
+#stuck-warning .stuck-cancel-btn { padding: 4px 12px; background: var(--red); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
+#stuck-warning .stuck-cancel-btn:hover { opacity: 0.85; }
+
 /* Messages */
 .message { margin-bottom: 20px; max-width: 100%; }
 .message.user .bubble { background: var(--bg3); border-radius: var(--radius); padding: 10px 14px; display: inline-block; max-width: 80%; }
@@ -326,6 +333,10 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
   <!-- ── Chat ───────────────────────────────────────── -->
   <div id="main">
     <div id="messages"></div>
+    <div id="stuck-warning">
+      <span class="stuck-msg"></span>
+      <button class="stuck-cancel-btn" onclick="cancelQuery()">Cancel</button>
+    </div>
     <div id="input-bar">
       <textarea id="question" rows="1" placeholder="Ask a question about your data..." onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
       <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
@@ -623,6 +634,10 @@ function handleEvent(msg) {
   else if (et === 'observer/warning') {
     addLog(`⚠ Observer: ${d.message || 'anomaly detected'}`);
   }
+  else if (et === 'observer/stuck_warning') {
+    addLog(`⚠ ${d.message || 'Processing seems stalled'}`);
+    showStuckWarning(d.message || 'Processing seems stalled. You can cancel and try again.');
+  }
   else if (et === 'observer/report') {
     if (d.anomaly_count > 0) addLog(`Observer: ${d.anomaly_count} anomalies detected`);
   }
@@ -740,12 +755,24 @@ function cancelQuery() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'cancel' }));
   }
+  hideStuckWarning();
+}
+
+function showStuckWarning(message) {
+  const el = document.getElementById('stuck-warning');
+  el.querySelector('.stuck-msg').textContent = message;
+  el.classList.add('visible');
+}
+
+function hideStuckWarning() {
+  document.getElementById('stuck-warning').classList.remove('visible');
 }
 
 function toggleInputState(querying) {
   document.getElementById('send-btn').style.display = querying ? 'none' : '';
   document.getElementById('cancel-btn').style.display = querying ? '' : 'none';
   document.getElementById('question').disabled = querying;
+  if (!querying) hideStuckWarning();
 }
 
 // ── Messages ───────────────────────────────────────────

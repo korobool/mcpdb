@@ -123,6 +123,22 @@ class KnowledgeManager:
             logger.debug("No knowledge chunks found for: %s (point=%s)", query[:80], injection_point)
             return ""
 
+        # Log retrieved chunks for debugging
+        cat_names = [c.category.value for c in all_chunks]
+        logger.info(
+            "RAG: %d chunks for %s (categories: %s) query=%r",
+            len(all_chunks), injection_point,
+            ", ".join(sorted(set(cat_names))),
+            query[:80],
+        )
+        for chunk in all_chunks:
+            preview = chunk.text[:100].replace("\n", " ")
+            logger.debug(
+                "  RAG chunk: [%s] %s (rel=%.2f) %r...",
+                chunk.category.value, chunk.section_title or chunk.source_file,
+                chunk.relevance, preview,
+            )
+
         return format_knowledge_context(all_chunks, max_tokens=max_tokens)
 
     def search(

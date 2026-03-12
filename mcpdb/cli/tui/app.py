@@ -356,23 +356,33 @@ class McpdbTUI(App):
                 elif etype == "observer/warning":
                     msg = data.get("message", "")
                     self._log_event(f"[yellow]⚠ {msg}[/yellow]")
+                elif etype == "observer/stuck_warning":
+                    msg = data.get("message", "Processing seems stalled")
+                    self._log_event(f"[bold yellow]⚠ {msg}[/bold yellow]")
 
             callbacks.add_listener(on_event)
 
-            state = await run_agent(
-                question,
-                self._source_registry,
-                self._llm,
-                callbacks,
-                experience_cache=(
-                    self._experience.cache if self._experience else None
-                ),
-                staging_store=(
-                    self._experience.staging if self._experience else None
-                ),
-                no_cache=self._no_cache,
-                knowledge_manager=self._knowledge_manager,
-            )
+            # Pause quality worker during user query to avoid LLM contention
+            if self._experience is not None:
+                self._experience.pause_worker()
+            try:
+                state = await run_agent(
+                    question,
+                    self._source_registry,
+                    self._llm,
+                    callbacks,
+                    experience_cache=(
+                        self._experience.cache if self._experience else None
+                    ),
+                    staging_store=(
+                        self._experience.staging if self._experience else None
+                    ),
+                    no_cache=self._no_cache,
+                    knowledge_manager=self._knowledge_manager,
+                )
+            finally:
+                if self._experience is not None:
+                    self._experience.resume_worker()
 
             elapsed = time.time() - start
             response = state.get("response") or "No response generated."
