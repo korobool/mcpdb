@@ -667,10 +667,11 @@ def generate_notebook(
         exec_log = turn.get("executionLog", [])
         mode = turn.get("mode", "")
 
-        # Turn header
-        header_parts = [f"## Turn {i + 1}: {question}"]
+        # Turn header — show question as a distinct markdown block
+        header_parts = [f"## Question {i + 1}"]
         if mode:
             header_parts.append(f"*Mode: {mode}*")
+        header_parts.append(f"\n> {question}")
         nb.cells.append(new_markdown_cell(source="\n".join(header_parts)))
 
         # Collect successful code steps
@@ -973,7 +974,7 @@ body {
 {% for turn in turns %}
 <div class="turn">
     <div class="user-message">
-        <div class="label">You{% if turn.is_cached %}<span class="cached-badge">context-based</span>{% endif %}</div>
+        <div class="label">Question {{ turn.number }}{% if turn.is_cached %}<span class="cached-badge">context-based</span>{% endif %}</div>
         <p>{{ turn.user_message }}</p>
     </div>
 

@@ -262,7 +262,7 @@ class TestNotebookExport:
         from mcpdb.web.export import generate_notebook
         nb = json.loads(generate_notebook(MULTI_TURNS))
         md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
-        turn_headers = [c for c in md_cells if _cell_source(c).startswith("## Turn")]
+        turn_headers = [c for c in md_cells if _cell_source(c).startswith("## Question")]
         assert len(turn_headers) == 3
 
     def test_no_precomputed_response(self):
@@ -668,7 +668,7 @@ class TestNotebookEdgeCases:
         from mcpdb.web.export import generate_notebook
         nb = json.loads(generate_notebook([CHART_TURN, TABLE_TURN, CACHED_TURN]))
         md_cells = [c for c in nb["cells"] if c["cell_type"] == "markdown"]
-        turn_headers = [c for c in md_cells if "## Turn" in _cell_source(c)]
+        turn_headers = [c for c in md_cells if "## Question" in _cell_source(c)]
         assert len(turn_headers) == 3
 
     def test_notebook_with_empty_execution_log(self):

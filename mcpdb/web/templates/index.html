@@ -214,6 +214,8 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 .mon-investigation { font-size: 12px; padding: 4px 0; display: flex; align-items: flex-start; gap: 6px; }
 .mon-investigation .inv-icon { flex-shrink: 0; font-size: 13px; }
 .mon-investigation .inv-text { color: var(--fg2); }
+.skip-btn { font-size: 10px; padding: 1px 7px; border: 1px solid var(--yellow); background: transparent; color: var(--yellow); border-radius: 4px; cursor: pointer; margin-left: 4px; vertical-align: middle; }
+.skip-btn:hover { background: var(--yellow); color: var(--bg); }
 
 /* Elapsed & footer */
 .mon-elapsed { font-size: 12px; color: var(--fg2); margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; display: flex; align-items: center; gap: 6px; }
@@ -578,14 +580,16 @@ function handleEvent(msg) {
   }
   else if (et === 'deep/investigation_complete') {
     const inv = mon.deepInvestigations.find(i => i.id === d.investigation_id);
+    const status = d.skipped ? 'skipped' : d.success ? 'success' : 'error';
     if (inv) {
-      inv.status = d.success ? 'success' : 'error';
+      inv.status = status;
       inv.response = d.response || '';
       if (d.submode) inv.submode = d.submode;
     }
-    addLog(`Investigation ${d.investigation_id} ${d.success ? '✓' : '✗'}`);
+    const label = d.skipped ? '⏭' : d.success ? '✓' : '✗';
+    addLog(`Investigation ${d.investigation_id} ${label}`);
     // Stream the intermediate result as a chat message
-    if (d.response) {
+    if (d.response && !d.skipped) {
       const invObj = mon.deepInvestigations.find(i => i.id === d.investigation_id);
       const invTitle = invObj ? invObj.question : `Investigation ${d.investigation_id}`;
       const content = `### Investigation ${d.investigation_id}: ${invTitle}\n\n${d.response}`;
@@ -621,9 +625,11 @@ function handleEvent(msg) {
   }
   else if (et === 'sequential/step_complete') {
     const sq = mon.seqQuestions.find(s => s.index === d.step_index);
-    if (sq) { sq.status = d.had_error ? 'error' : 'success'; sq.response = d.response || ''; if (d.submode) sq.submode = d.submode; }
-    addLog(`Question ${d.step_index + 1} ${d.had_error ? 'failed' : 'answered'}`);
-    if (d.response) {
+    const status = d.skipped ? 'skipped' : d.had_error ? 'error' : 'success';
+    if (sq) { sq.status = status; sq.response = d.response || ''; if (d.submode) sq.submode = d.submode; }
+    const label = d.skipped ? 'skipped' : d.had_error ? 'failed' : 'answered';
+    addLog(`Question ${d.step_index + 1} ${label}`);
+    if (d.response && !d.skipped) {
       const content = `### Question ${d.step_index + 1}: ${d.question}\n\n${d.response}`;
       addMessage('assistant', content, { isIntermediate: true, stepIndex: d.step_index, artifacts: d.artifacts || [] });
     }
@@ -631,6 +637,9 @@ function handleEvent(msg) {
   else if (et === 'sequential/synthesis_start') { setPhase('synthesizing'); addLog('Synthesizing sequential results...'); }
   else if (et === 'sequential/complete') { addLog(`Sequential complete: ${d.questions_answered} questions answered`); }
   else if (et === 'sequential/retry') { addLog(`Retrying ${d.component || 'synthesis'} (attempt ${d.attempt || '?'})...`); }
+
+  // Skip acknowledgement
+  else if (et === 'step/skip_requested') { addLog('Skipping current step...'); }
 
   // Strategy gate, cost check, optimize
   else if (et === 'strategy_gate/pass') { addLog('Strategy gate: pass'); }
@@ -704,16 +713,42 @@ function handleResult(msg) {
   const meta = { mode: msg.query_mode, elapsed: mon.elapsed, artifacts: resultArtifacts, executionLog: msg.execution_log || [], followups: msg.followups || [], llmUsage: msg.llm_usage || null };
   addMessage('assistant', msg.response, meta);
 
-  // Track structured turn for export
-  conversationTurns.push({
-    question: currentQuestion,
-    response: msg.response || '',
-    artifacts: resultArtifacts,
-    executionLog: msg.execution_log || [],
-    mode: msg.query_mode || '',
-    elapsed: mon.elapsed,
-    llmUsage: msg.llm_usage || null,
-  });
+  // Track structured turns for export
+  // Sequential mode: split into per-question turns so each has its own header
+  const seqResults = msg.sequential_results || [];
+  if (msg.query_mode === 'sequential' && seqResults.length > 0) {
+    for (const sr of seqResults) {
+      conversationTurns.push({
+        question: sr.question || '',
+        response: sr.response || '',
+        artifacts: sr.artifacts || [],
+        executionLog: sr.execution_log || [],
+        mode: sr.submode || 'sequential',
+        elapsed: 0,
+        llmUsage: null,
+      });
+    }
+    // Add synthesis as a final turn
+    conversationTurns.push({
+      question: 'Summary & Synthesis',
+      response: msg.response || '',
+      artifacts: [],
+      executionLog: msg.execution_log || [],
+      mode: 'sequential',
+      elapsed: mon.elapsed,
+      llmUsage: msg.llm_usage || null,
+    });
+  } else {
+    conversationTurns.push({
+      question: currentQuestion,
+      response: msg.response || '',
+      artifacts: resultArtifacts,
+      executionLog: msg.execution_log || [],
+      mode: msg.query_mode || '',
+      elapsed: mon.elapsed,
+      llmUsage: msg.llm_usage || null,
+    });
+  }
   updateExportVisibility();
   toggleInputState(false);
 }
@@ -775,6 +810,12 @@ function cancelQuery() {
     ws.send(JSON.stringify({ type: 'cancel' }));
   }
   hideStuckWarning();
+}
+
+function skipStep() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'skip' }));
+  }
 }
 
 function showStuckWarning(message) {
@@ -1029,10 +1070,13 @@ function renderMonitor() {
         : '<span class="spinner spinner-sm"></span>';
       if (inv.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
       else if (inv.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+      else if (inv.status === 'skipped') icon = '<span style="color:var(--yellow)">⏭</span>';
+      const isRunning = inv.status === 'running' && !isDone;
       h += '<div class="mon-investigation">';
       h += `<span class="inv-icon">${icon}</span>`;
       h += `<span class="inv-text">${escHtml(inv.question)}`;
       if (inv.submode) h += ` <span class="mode-badge ${inv.submode}" style="font-size:9px;padding:1px 5px;">${escHtml(inv.submode)}</span>`;
+      if (isRunning) h += ' <button class="skip-btn" onclick="skipStep()" title="Skip this investigation">Skip ⏭</button>';
       if (inv.approach) h += `<br><span style="font-size:11px;color:var(--fg3)">${escHtml(inv.approach)}</span>`;
       h += '</span></div>';
     }
@@ -1068,10 +1112,13 @@ function renderMonitor() {
         : '<span class="spinner spinner-sm"></span>';
       if (sq.status === 'success') icon = '<span style="color:var(--green)">✓</span>';
       else if (sq.status === 'error') icon = '<span style="color:var(--red)">✗</span>';
+      else if (sq.status === 'skipped') icon = '<span style="color:var(--yellow)">⏭</span>';
+      const isRunning = sq.status === 'running' && !isDone;
       h += '<div class="mon-investigation">';
       h += `<span class="inv-icon">${icon}</span>`;
       h += `<span class="inv-text">${escHtml(sq.question)}`;
       if (sq.submode) h += ` <span class="mode-badge ${sq.submode}" style="font-size:9px;padding:1px 5px;">${escHtml(sq.submode)}</span>`;
+      if (isRunning) h += ' <button class="skip-btn" onclick="skipStep()" title="Skip this question">Skip ⏭</button>';
       h += '</span></div>';
     }
     if (mon.seqTotalCount > mon.seqQuestions.length) {

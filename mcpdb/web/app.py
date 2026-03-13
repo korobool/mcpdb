@@ -463,6 +463,8 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 msg_type = msg.get("type")
                 if msg_type == "cancel":
                     _handle_cancel(ws_id, event_queue)
+                elif msg_type == "skip":
+                    _handle_skip(ws_id, event_queue)
                 elif msg_type == "query":
                     _handle_query(msg, ws_id, event_queue)
                 else:
@@ -489,6 +491,16 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
             # run_and_signal's CancelledError handler pushes {"type": "cancelled"} via the queue
         else:
             event_queue.put_nowait({"type": "error", "message": "No active query"})
+
+    def _handle_skip(ws_id: int, event_queue: asyncio.Queue):
+        """Skip the current step/investigation in sequential/deep mode."""
+        token = _active_tokens.get(ws_id)
+        task = _active_tasks.get(ws_id)
+        if task and not task.done() and token:
+            token.request_skip()
+            event_queue.put_nowait({"type": "event", "event_type": "step/skip_requested", "data": {}})
+        else:
+            event_queue.put_nowait({"type": "error", "message": "No active query to skip"})
 
     def _handle_query(msg: dict, ws_id: int, event_queue: asyncio.Queue):
 
@@ -564,7 +576,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 )
 
                 # Terminal events MUST be delivered — use blocking put
-                await event_queue.put({
+                result_msg: dict[str, Any] = {
                     "type": "result",
                     "response": state.get("response", ""),
                     "artifacts": _sanitize_list(state.get("artifacts", [])),
@@ -573,7 +585,12 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     "followups": followups,
                     "llm_usage": state.get("llm_usage"),
                     "queryId": query_id,
-                })
+                }
+                # Include per-question results for sequential mode exports
+                seq_results = state.get("sequential_results")
+                if seq_results:
+                    result_msg["sequential_results"] = _sanitize_list(seq_results)
+                await event_queue.put(result_msg)
             except asyncio.CancelledError:
                 await event_queue.put({"type": "cancelled", "queryId": query_id})
             except Exception as e:

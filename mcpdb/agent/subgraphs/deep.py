@@ -13,6 +13,7 @@ import asyncio
 import logging
 from typing import Any
 
+from mcpdb.agent.cancellation import CancellationToken
 from mcpdb.agent.state import AgentState, BASE_MODES
 from mcpdb.agent.callbacks import CallbackManager
 from mcpdb.agent.nodes.classify import classify_question
@@ -126,9 +127,15 @@ async def run_deep(
     all_artifacts: list[dict[str, Any]] = []
     reasoning_log: list[str] = []
     iteration = 0
+    cancellation_token: CancellationToken | None = state.get("cancellation_token")
 
     while iteration < max_iterations and investigations:
         iteration += 1
+
+        # Check for full cancellation
+        if cancellation_token and cancellation_token.is_cancelled:
+            logger.info("Deep analysis cancelled at iteration %d", iteration)
+            break
 
         # Pick next investigation
         inv = investigations.pop(0)
@@ -161,12 +168,41 @@ async def run_deep(
             submode=submode,
         )
 
-        # Run investigation through the classified base mode
-        inv_result = await _run_investigation(
-            full_question, state, llm, callbacks, registry,
-            submode=submode,
-            key_entities=classification.get("key_entities", []),
-        )
+        # Check if skip was requested
+        skipped = cancellation_token and cancellation_token.consume_skip()
+
+        if not skipped:
+            # Run investigation as a subtask so skip can interrupt it
+            inv_coro = _run_investigation(
+                full_question, state, llm, callbacks, registry,
+                submode=submode,
+                key_entities=classification.get("key_entities", []),
+            )
+
+            if cancellation_token:
+                inv_task = asyncio.create_task(inv_coro)
+                while not inv_task.done():
+                    await asyncio.sleep(0.3)
+                    if cancellation_token.is_cancelled:
+                        inv_task.cancel()
+                        break
+                    if cancellation_token.is_skip_requested:
+                        cancellation_token.consume_skip()
+                        inv_task.cancel()
+                        skipped = True
+                        break
+                try:
+                    inv_result = await inv_task
+                except asyncio.CancelledError:
+                    if cancellation_token.is_cancelled:
+                        break
+                    skipped = True
+            else:
+                inv_result = await inv_coro
+
+        if skipped:
+            logger.info("Deep investigation %s skipped: %s", inv_id, inv_question[:60])
+            inv_result = {"response": "*(Skipped by user)*", "artifacts": []}
 
         inv_response = inv_result.get("response", "No results.")
         inv_artifacts = inv_result.get("artifacts", [])
@@ -178,17 +214,19 @@ async def run_deep(
             "approach": inv.get("approach", ""),
             "result": inv_response,
             "submode": submode,
+            "skipped": skipped or False,
         })
 
         callbacks.emit(
             "deep/investigation_complete",
             investigation_id=inv_id,
-            success=bool(inv_response),
+            success=bool(inv_response) and not skipped,
             response=inv_response,
             has_artifacts=bool(inv_artifacts),
             artifact_count=len(inv_artifacts),
             artifacts=inv_artifacts,
             submode=submode,
+            skipped=skipped or False,
         )
 
         # Reasoning checkpoint (after every 2 investigations or at end)

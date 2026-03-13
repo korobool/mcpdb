@@ -18,6 +18,7 @@ import logging
 import re
 from typing import Any
 
+from mcpdb.agent.cancellation import CancellationToken
 from mcpdb.agent.state import AgentState, BASE_MODES
 from mcpdb.agent.callbacks import CallbackManager
 from mcpdb.agent.nodes.classify import classify_question
@@ -106,7 +107,14 @@ async def run_sequential(
     all_artifacts: list[dict[str, Any]] = []
     all_execution_log: list[dict] = []
 
+    cancellation_token: CancellationToken | None = state.get("cancellation_token")
+
     for i, question in enumerate(questions):
+        # Check for full cancellation
+        if cancellation_token and cancellation_token.is_cancelled:
+            logger.info("Sequential cancelled at question %d/%d", i + 1, len(questions))
+            break
+
         # Classify this sub-question to determine the best base mode
         classification = await classify_question(
             question=question,
@@ -124,19 +132,57 @@ async def run_sequential(
             submode=submode,
         )
 
-        prior_context = _build_prior_context(results)
-        step_result = await _run_step(
-            question, state, prior_context, llm, callbacks, registry,
-            submode=submode,
-            key_entities=classification.get("key_entities", []),
-        )
+        # Check if skip was requested before we even start
+        skipped = cancellation_token and cancellation_token.consume_skip()
+
+        if not skipped:
+            # Run step as a subtask so skip can interrupt it
+            step_coro = _run_step(
+                question, state, prior_context=_build_prior_context(results),
+                llm=llm, callbacks=callbacks, registry=registry,
+                submode=submode,
+                key_entities=classification.get("key_entities", []),
+            )
+
+            if cancellation_token:
+                step_task = asyncio.create_task(step_coro)
+                # Poll for skip/cancel while step runs
+                while not step_task.done():
+                    await asyncio.sleep(0.3)
+                    if cancellation_token.is_cancelled:
+                        step_task.cancel()
+                        break
+                    if cancellation_token.is_skip_requested:
+                        cancellation_token.consume_skip()
+                        step_task.cancel()
+                        skipped = True
+                        break
+                try:
+                    step_result = await step_task
+                except asyncio.CancelledError:
+                    if cancellation_token.is_cancelled:
+                        break
+                    skipped = True
+            else:
+                step_result = await step_coro
+
+        if skipped:
+            logger.info("Sequential step %d skipped: %s", i + 1, question[:60])
+            step_result = {
+                "response": "*(Skipped by user)*",
+                "artifacts": [],
+                "execution_log": [],
+                "skipped": True,
+            }
 
         results.append({
             "index": i,
             "question": question,
             "response": step_result.get("response", "No results."),
             "artifacts": step_result.get("artifacts", []),
+            "execution_log": step_result.get("execution_log", []),
             "submode": submode,
+            "skipped": step_result.get("skipped", False),
         })
         all_artifacts.extend(step_result.get("artifacts", []))
         all_execution_log.extend(step_result.get("execution_log", []))
@@ -151,6 +197,7 @@ async def run_sequential(
             artifact_count=len(step_result.get("artifacts", [])),
             submode=submode,
             had_error=step_result.get("had_error", False),
+            skipped=step_result.get("skipped", False),
         )
 
     # Final synthesis
