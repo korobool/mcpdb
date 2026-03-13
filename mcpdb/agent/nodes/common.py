@@ -781,6 +781,7 @@ async def synthesize(
             logger.warning("Synthesis LLM call timed out (retry %d)", retry + 1)
             if retry >= 2:
                 state["response"] = _fallback_synthesize(state)
+                callbacks.emit("synthesize/fallback", reason="LLM call timed out")
         except Exception as e:
             if retry < 2:
                 delay = 1  # Quick retry — failures are usually JSON parsing, not rate limits
@@ -790,6 +791,7 @@ async def synthesize(
                 logger.warning("Synthesis failed after 3 attempts: %s", e)
                 # Fallback: build a basic response from result summaries
                 state["response"] = _fallback_synthesize(state)
+                callbacks.emit("synthesize/fallback", reason="all retries failed")
 
     callbacks.emit("synthesize/complete")
     return state

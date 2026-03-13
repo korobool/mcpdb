@@ -65,6 +65,7 @@ _config: McpdbConfig | None = None
 _llm: Any = None
 _experience_service: Any = None
 _active_tasks: dict[int, asyncio.Task] = {}  # ws_id → task (per-connection)
+_active_tokens: dict[int, Any] = {}  # ws_id → CancellationToken (per-connection)
 _ws_counter: int = 0
 _no_cache: bool = False
 _knowledge_manager: Any = None
@@ -429,54 +430,86 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         _ws_counter += 1
         ws_id = _ws_counter
         await ws.accept()
+
+        # Per-connection event queue and background streamer
+        event_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
+        streamer_task: asyncio.Task | None = None
+
+        async def streamer():
+            """Drain event queue to WebSocket — runs as background task."""
+            try:
+                while True:
+                    item = await event_queue.get()
+                    await ws.send_json(item)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                # WebSocket closed — cancel any running agent task
+                task = _active_tasks.pop(ws_id, None)
+                if task and not task.done():
+                    task.cancel()
+
+        streamer_task = asyncio.create_task(streamer())
+
         try:
             while True:
                 raw = await ws.receive_text()
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
-                    await ws.send_json({"type": "error", "message": "Invalid JSON"})
+                    event_queue.put_nowait({"type": "error", "message": "Invalid JSON"})
                     continue
 
                 msg_type = msg.get("type")
                 if msg_type == "cancel":
-                    await _handle_cancel(ws, ws_id)
+                    _handle_cancel(ws_id, event_queue)
                 elif msg_type == "query":
-                    await _handle_query(ws, msg, ws_id)
+                    _handle_query(msg, ws_id, event_queue)
                 else:
-                    await ws.send_json({"type": "error", "message": f"Unknown: {msg_type}"})
+                    event_queue.put_nowait({"type": "error", "message": f"Unknown: {msg_type}"})
         except WebSocketDisconnect:
             logger.debug("WebSocket %d disconnected", ws_id)
-            # Cancel any running task for this connection
             task = _active_tasks.pop(ws_id, None)
+            token = _active_tokens.pop(ws_id, None)
+            if token:
+                token.cancel()
             if task and not task.done():
                 task.cancel()
+        finally:
+            if streamer_task:
+                streamer_task.cancel()
 
-    async def _handle_cancel(ws: WebSocket, ws_id: int):
+    def _handle_cancel(ws_id: int, event_queue: asyncio.Queue):
+        token = _active_tokens.get(ws_id)
         task = _active_tasks.get(ws_id)
         if task and not task.done():
+            if token:
+                token.cancel()
             task.cancel()
-            await ws.send_json({"type": "cancelled"})
+            # run_and_signal's CancelledError handler pushes {"type": "cancelled"} via the queue
         else:
-            await ws.send_json({"type": "error", "message": "No active query"})
+            event_queue.put_nowait({"type": "error", "message": "No active query"})
 
-    async def _handle_query(ws: WebSocket, msg: dict, ws_id: int):
+    def _handle_query(msg: dict, ws_id: int, event_queue: asyncio.Queue):
 
         question = msg.get("question", "").strip()
         if not question:
-            await ws.send_json({"type": "error", "message": "Empty question"})
+            event_queue.put_nowait({"type": "error", "message": "Empty question"})
             return
 
         if not _registry or len(_registry) == 0:
-            await ws.send_json({"type": "error", "message": "No data sources connected"})
+            event_queue.put_nowait({"type": "error", "message": "No data sources connected"})
             return
 
         if not _llm:
-            await ws.send_json({"type": "error", "message": "No LLM provider configured"})
+            event_queue.put_nowait({"type": "error", "message": "No LLM provider configured"})
             return
 
         # Cancel any existing query for this connection
         existing = _active_tasks.pop(ws_id, None)
+        old_token = _active_tokens.pop(ws_id, None)
+        if old_token:
+            old_token.cancel()
         if existing and not existing.done():
             existing.cancel()
 
@@ -484,11 +517,8 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         if mode_override == "auto":
             mode_override = None
         force_rethink = msg.get("rethink", False)
-        # Per-query no_cache override or server-level default
         query_no_cache = msg.get("noCache", _no_cache)
-
-        # Async queue bridges sync agent callbacks → async WebSocket
-        event_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
+        query_id = msg.get("queryId")
 
         def on_event(event):
             try:
@@ -499,16 +529,16 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     "timestamp": event.timestamp,
                 })
             except asyncio.QueueFull:
-                pass  # Drop events rather than block — graceful degradation
+                pass  # Drop intermediate events — graceful degradation
 
         from mcpdb.agent.callbacks import CallbackManager
         from mcpdb.agent.cancellation import CancellationToken
         from mcpdb.agent.graph import run_agent
-        from mcpdb.mcp.tools.analysis import _generate_followups_inline
 
         callbacks = CallbackManager()
         callbacks.add_listener(on_event)
         cancellation_token = CancellationToken()
+        _active_tokens[ws_id] = cancellation_token
 
         exp_cache = _experience_service.cache if _experience_service else None
         exp_staging = _experience_service.staging if _experience_service else None
@@ -528,13 +558,13 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     cancellation_token=cancellation_token,
                     knowledge_manager=_knowledge_manager,
                 )
-                # Generate follow-up suggestions (best-effort, non-blocking)
                 followups = await _safe_generate_followups(
                     _registry, _llm, question,
                     state.get("response", ""),
                 )
 
-                event_queue.put_nowait({
+                # Terminal events MUST be delivered — use blocking put
+                await event_queue.put({
                     "type": "result",
                     "response": state.get("response", ""),
                     "artifacts": _sanitize_list(state.get("artifacts", [])),
@@ -542,33 +572,21 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     "query_mode": state.get("query_mode", ""),
                     "followups": followups,
                     "llm_usage": state.get("llm_usage"),
+                    "queryId": query_id,
                 })
             except asyncio.CancelledError:
-                event_queue.put_nowait({"type": "cancelled"})
+                await event_queue.put({"type": "cancelled", "queryId": query_id})
             except Exception as e:
                 logger.exception("Agent error")
-                event_queue.put_nowait({"type": "error", "message": str(e)})
+                await event_queue.put({"type": "error", "message": str(e), "queryId": query_id})
             finally:
-                # Resume quality worker after query completes (or fails/cancels)
+                _active_tasks.pop(ws_id, None)
+                _active_tokens.pop(ws_id, None)
                 if _experience_service is not None:
                     _experience_service.resume_worker()
 
         task = asyncio.create_task(run_and_signal())
         _active_tasks[ws_id] = task
-
-        # Stream events to browser as they arrive
-        while True:
-            item = await event_queue.get()
-            try:
-                await ws.send_json(item)
-            except Exception:
-                task.cancel()
-                _active_tasks.pop(ws_id, None)
-                return
-            if item["type"] in ("result", "error", "cancelled"):
-                break
-
-        _active_tasks.pop(ws_id, None)
 
     return app
 

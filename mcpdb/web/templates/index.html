@@ -81,8 +81,8 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
 #input-bar textarea { flex: 1; resize: none; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-size: 14px; font-family: inherit; max-height: 120px; line-height: 1.4; }
 #input-bar textarea::placeholder { color: var(--fg3); }
 #input-bar textarea:focus { outline: none; border-color: var(--blue); }
-#send-btn { padding: 10px 18px; }
-#cancel-btn { padding: 10px 14px; background: var(--red); color: #fff; display: none; }
+#run-btn { padding: 10px 16px; display: flex; align-items: center; gap: 6px; }
+#run-btn.stop { background: var(--bg4); color: var(--fg); border: 1px solid var(--border); }
 
 /* Stuck info banner — gentle, not alarming */
 #stuck-warning { display: none; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; margin: 0 16px 8px 16px; font-size: 12px; color: var(--fg2); align-items: center; gap: 10px; }
@@ -339,8 +339,7 @@ code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monosp
     </div>
     <div id="input-bar">
       <textarea id="question" rows="1" placeholder="Ask a question about your data..." onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
-      <button class="btn btn-primary" id="send-btn" onclick="sendQuestion()">Send</button>
-      <button class="btn" id="cancel-btn" onclick="cancelQuery()">Cancel</button>
+      <button class="btn btn-primary" id="run-btn" onclick="toggleRunStop()">&#9654; Run</button>
     </div>
   </div>
 
@@ -369,6 +368,7 @@ let ws = null;
 let sources = [];
 let messages = [];
 let isQuerying = false;
+let querySeq = 0;
 let conversationTurns = [];   // Structured export data: [{question, response, artifacts, executionLog, mode, elapsed}]
 let currentQuestion = '';      // Tracks the question for the active query
 let _lastConnStr = '';         // Stores connection string after connect (input gets cleared)
@@ -408,8 +408,7 @@ function connectWS() {
     ws = null;
     if (isQuerying) {
       isQuerying = false;
-      document.getElementById('send-btn').style.display = '';
-      document.getElementById('cancel-btn').style.display = 'none';
+      toggleInputState(false);
       addLog('Connection lost. Reconnecting...');
     }
     document.title = 'MCPDB (reconnecting...)';
@@ -419,9 +418,18 @@ function connectWS() {
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'event') handleEvent(msg);
-    else if (msg.type === 'result') handleResult(msg);
-    else if (msg.type === 'error') handleError(msg.message);
-    else if (msg.type === 'cancelled') handleCancelled();
+    else if (msg.type === 'result') {
+      if (msg.queryId !== undefined && msg.queryId !== querySeq) return;
+      handleResult(msg);
+    }
+    else if (msg.type === 'error') {
+      if (msg.queryId !== undefined && msg.queryId !== querySeq) return;
+      handleError(msg.message);
+    }
+    else if (msg.type === 'cancelled') {
+      if (msg.queryId !== undefined && msg.queryId !== querySeq) return;
+      handleCancelled();
+    }
   };
 }
 
@@ -519,6 +527,7 @@ function handleEvent(msg) {
 
   // Synthesis
   else if (et === 'synthesize/start') { setPhase('synthesizing'); addLog('Synthesizing final answer...'); }
+  else if (et === 'synthesize/fallback') { addLog(`Synthesis fallback: ${d.reason || 'using direct formatting'}`); }
   else if (et === 'synthesize/complete') { addLog('Synthesis complete'); }
 
   // Experience
@@ -612,8 +621,8 @@ function handleEvent(msg) {
   }
   else if (et === 'sequential/step_complete') {
     const sq = mon.seqQuestions.find(s => s.index === d.step_index);
-    if (sq) { sq.status = 'success'; sq.response = d.response || ''; if (d.submode) sq.submode = d.submode; }
-    addLog(`Question ${d.step_index + 1} answered`);
+    if (sq) { sq.status = d.had_error ? 'error' : 'success'; sq.response = d.response || ''; if (d.submode) sq.submode = d.submode; }
+    addLog(`Question ${d.step_index + 1} ${d.had_error ? 'failed' : 'answered'}`);
     if (d.response) {
       const content = `### Question ${d.step_index + 1}: ${d.question}\n\n${d.response}`;
       addMessage('assistant', content, { isIntermediate: true, stepIndex: d.step_index, artifacts: d.artifacts || [] });
@@ -730,11 +739,21 @@ function handleCancelled() {
 }
 
 // ── Send query ─────────────────────────────────────────
+function toggleRunStop() {
+  isQuerying ? cancelQuery() : sendQuestion();
+}
+
 function sendQuestion(text) {
   const q = text || document.getElementById('question').value.trim();
-  if (!q || isQuerying) return;
+  if (!q) return;
   if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected to server'); return; }
 
+  // If a query is running, show cancellation in the chat
+  if (isQuerying) {
+    addMessage('assistant', '*Query cancelled.*', {});
+  }
+
+  querySeq++;
   document.getElementById('question').value = '';
   autoGrow(document.getElementById('question'));
   addMessage('user', q);
@@ -748,7 +767,7 @@ function sendQuestion(text) {
   let mode = document.getElementById('mode-select').value;
   if (mode === 'optimization') mode = 'optimization_required';
   const noCache = !document.getElementById('use-cache').checked;
-  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode, noCache: noCache || undefined }));
+  ws.send(JSON.stringify({ type: 'query', question: q, mode: mode === 'auto' ? undefined : mode, noCache: noCache || undefined, queryId: querySeq }));
 }
 
 function cancelQuery() {
@@ -769,9 +788,16 @@ function hideStuckWarning() {
 }
 
 function toggleInputState(querying) {
-  document.getElementById('send-btn').style.display = querying ? 'none' : '';
-  document.getElementById('cancel-btn').style.display = querying ? '' : 'none';
-  document.getElementById('question').disabled = querying;
+  const btn = document.getElementById('run-btn');
+  if (querying) {
+    btn.classList.add('stop');
+    btn.classList.remove('btn-primary');
+    btn.innerHTML = '&#9632; Stop';
+  } else {
+    btn.classList.remove('stop');
+    btn.classList.add('btn-primary');
+    btn.innerHTML = '&#9654; Run';
+  }
   if (!querying) hideStuckWarning();
 }
 

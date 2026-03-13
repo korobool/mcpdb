@@ -150,6 +150,7 @@ async def run_sequential(
             has_artifacts=bool(step_result.get("artifacts")),
             artifact_count=len(step_result.get("artifacts", [])),
             submode=submode,
+            had_error=step_result.get("had_error", False),
         )
 
     # Final synthesis
@@ -208,7 +209,12 @@ async def _run_step(
         }
     except Exception as e:
         logger.warning("Sequential step failed: %s", e)
-        return {"response": f"Step failed: {e}", "artifacts": [], "execution_log": []}
+        return {
+            "response": "This question could not be fully answered due to a processing error.",
+            "artifacts": [],
+            "execution_log": [],
+            "had_error": True,
+        }
 
 
 def _build_prior_context(results: list[dict[str, Any]]) -> str:

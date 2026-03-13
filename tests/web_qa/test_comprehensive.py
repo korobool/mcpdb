@@ -231,7 +231,7 @@ class TestMySQLQueries:
         try:
             self.page.locator("text=New conversation").click()
             self.page.wait_for_timeout(500)
-            self.page.locator("#send-btn").wait_for(state="visible", timeout=10_000)
+            self.page.wait_for_function("() => typeof isQuerying !== 'undefined' && !isQuerying", timeout=10_000)
         except Exception:
             try:
                 self.page.reload()
@@ -404,7 +404,7 @@ class TestPostgreSQLQueries:
         try:
             self.page.locator("text=New conversation").click()
             self.page.wait_for_timeout(500)
-            self.page.locator("#send-btn").wait_for(state="visible", timeout=10_000)
+            self.page.wait_for_function("() => typeof isQuerying !== 'undefined' && !isQuerying", timeout=10_000)
         except Exception:
             try:
                 self.page.reload()
@@ -541,7 +541,7 @@ class TestExcelQueries:
         try:
             self.page.locator("text=New conversation").click()
             self.page.wait_for_timeout(500)
-            self.page.locator("#send-btn").wait_for(state="visible", timeout=10_000)
+            self.page.wait_for_function("() => typeof isQuerying !== 'undefined' && !isQuerying", timeout=10_000)
         except Exception:
             try:
                 self.page.reload()
@@ -670,7 +670,7 @@ class TestCSVQueries:
         try:
             self.page.locator("text=New conversation").click()
             self.page.wait_for_timeout(500)
-            self.page.locator("#send-btn").wait_for(state="visible", timeout=10_000)
+            self.page.wait_for_function("() => typeof isQuerying !== 'undefined' && !isQuerying", timeout=10_000)
         except Exception:
             try:
                 self.page.reload()

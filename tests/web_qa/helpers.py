@@ -86,8 +86,8 @@ def submit_query(
     textarea = page.locator("#question")
     textarea.fill(question)
 
-    # Click Send
-    page.locator("#send-btn").click()
+    # Click Run
+    page.locator("#run-btn").click()
 
     if not wait_for_result:
         return None
@@ -97,8 +97,11 @@ def submit_query(
 
 def wait_for_query_result(page: Page, timeout: float = 120_000) -> dict[str, Any]:
     """Wait for the current query to complete and return result metadata."""
-    # Wait for the Send button to reappear (means query is done)
-    page.locator("#send-btn").wait_for(state="visible", timeout=timeout)
+    # Wait for query to complete (Run button loses .stop class)
+    page.wait_for_function(
+        "() => typeof isQuerying !== 'undefined' && !isQuerying",
+        timeout=timeout,
+    )
 
     # Extract result from the last assistant message
     messages = page.locator(".message.assistant")
