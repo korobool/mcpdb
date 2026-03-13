@@ -228,17 +228,19 @@ def _render_artifacts_html(artifacts: list[dict]) -> str:
 
 
 def _render_plan_html(execution_log: list[dict]) -> str:
-    """Render execution log as a plan summary."""
+    """Render execution log as a plan summary (successful steps only)."""
     if not execution_log:
         return ""
-    parts = ['<div class="execution-plan">', "<h4>Execution Plan</h4>", "<ol>"]
-    for entry in execution_log:
-        status = entry.get("status", "pending")
-        css = {"success": "step-done", "error": "step-failed"}.get(status, "step-pending")
+    # Only show successful steps — skip debug retries, errors, intermediate failures
+    successful = [e for e in execution_log if e.get("status") == "success"]
+    if not successful:
+        return ""
+    parts = ['<div class="execution-plan">', "<h4>Execution Steps</h4>", "<ol>"]
+    for entry in successful:
         action = html_escape(entry.get("action", "").upper())
         step_num = entry.get("step_number", "?")
-        summary = html_escape(str(entry.get("result_summary", entry.get("error", "")))[:150])
-        parts.append(f'<li class="{css}">[{action}] Step {step_num}: {summary}</li>')
+        summary = html_escape(str(entry.get("result_summary", ""))[:150])
+        parts.append(f'<li class="step-done">[{action}] Step {step_num}: {summary}</li>')
     parts.append("</ol></div>")
     return "\n".join(parts)
 

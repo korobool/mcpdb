@@ -61,9 +61,9 @@ class TestParseQuestions:
         assert result == ["What is total revenue?"]
 
     def test_max_questions_limit(self):
-        lines = [f"Question {i}" for i in range(30)]
+        lines = [f"Question {i}" for i in range(150)]
         result = parse_questions("\n".join(lines))
-        assert len(result) == 20  # MAX_QUESTIONS
+        assert len(result) == 100  # MAX_QUESTIONS
 
     def test_whitespace_stripped(self):
         text = "  What is revenue?  \n  What is profit?  "

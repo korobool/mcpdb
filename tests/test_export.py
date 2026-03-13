@@ -531,9 +531,18 @@ class TestRendering:
             {"step_number": 2, "action": "python", "status": "error", "error": "NameError"},
         ])
         assert "step-done" in html
-        assert "step-failed" in html
         assert "SQL" in html
-        assert "PYTHON" in html
+        # Error/debug steps are excluded from the report
+        assert "step-failed" not in html
+        assert "PYTHON" not in html
+
+    def test_render_plan_html_all_errors(self):
+        from mcpdb.web.export import _render_plan_html
+        # If all steps failed, no plan section rendered
+        html = _render_plan_html([
+            {"step_number": 1, "action": "sql", "status": "error", "error": "syntax error"},
+        ])
+        assert html == ""
 
     def test_render_plan_empty(self):
         from mcpdb.web.export import _render_plan_html
