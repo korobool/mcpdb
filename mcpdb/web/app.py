@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,11 +16,11 @@ from typing import Any
 
 from fastapi import (
     FastAPI,
+    File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
-    File,
-    Form,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -31,7 +30,7 @@ from pydantic import BaseModel
 
 from mcpdb import __version__
 from mcpdb.config import McpdbConfig
-from mcpdb.sources.registry import SourceRegistry, SourceNotFoundError
+from mcpdb.sources.registry import SourceNotFoundError, SourceRegistry
 
 logger = logging.getLogger("mcpdb.web")
 
@@ -71,18 +70,24 @@ _no_cache: bool = False
 _knowledge_manager: Any = None
 
 
-def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowledge_manager: Any = None) -> FastAPI:
+def create_app(
+    config: McpdbConfig | None = None,
+    no_cache: bool = False,
+    knowledge_manager: Any = None,
+) -> FastAPI:
     """Create and configure the FastAPI app."""
     global _registry, _config, _llm, _experience_service, _no_cache, _knowledge_manager
     _no_cache = no_cache
     _knowledge_manager = knowledge_manager
 
     from mcpdb.config import load_config
+
     _config = config or load_config()
     _registry = SourceRegistry()
 
     # Create LLM provider
     from mcpdb.llm.factory import create_provider
+
     llm_cfg = _config.llm.reasoning
     try:
         _llm = create_provider(llm_cfg.provider, llm_cfg.model, llm_cfg.api_key)
@@ -92,10 +97,12 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 
     # Experience service
     from mcpdb.experience.service import ExperienceService
+
     _experience_service = ExperienceService(_config.experience)
 
     # Pass env DB URL to template for pre-filling (don't auto-connect)
     from mcpdb.secrets import resolve_secret
+
     _prefill_db_url = resolve_secret("MCPDB_DATABASE_URL")
 
     @asynccontextmanager
@@ -115,24 +122,29 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
-        return templates.TemplateResponse(request, "index.html", {
-            "version": __version__,
-            "prefill_db_url": _prefill_db_url,
-            "no_cache_default": _no_cache,
-        })
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "version": __version__,
+                "prefill_db_url": _prefill_db_url,
+                "no_cache_default": _no_cache,
+            },
+        )
 
     # --- Favicon ----------------------------------------------------------
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         from fastapi.responses import Response
+
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
             'stroke="%232563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
             '<ellipse cx="12" cy="5" rx="9" ry="3"/>'
             '<path d="M3 5V19A9 3 0 0 0 21 19V5"/>'
             '<path d="M3 12A9 3 0 0 0 21 12"/>'
-            '</svg>'
+            "</svg>"
         )
         return Response(content=svg, media_type="image/svg+xml")
 
@@ -171,6 +183,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
     @app.post("/api/sources/database")
     async def connect_database(req: DatabaseConnectRequest):
         from mcpdb.sources.database.source import DatabaseSource
+
         try:
             source = DatabaseSource(
                 req.connection_string,
@@ -186,11 +199,16 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         files: list[UploadFile] = File(...),
         display_name: str = Form(""),
     ):
-        import tempfile, shutil
+        import shutil
+        import tempfile
+
         try:
             from mcpdb.sources.csv.source import CsvSource
         except ImportError:
-            raise HTTPException(status_code=400, detail="CSV support not installed. Install with: pip install mcpdb[csv]")
+            raise HTTPException(
+                status_code=400,
+                detail="CSV support not installed. Install with: pip install mcpdb[csv]",
+            )
 
         # Save uploaded files to temp directory
         tmp_paths = []
@@ -221,6 +239,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 name += f" (+{len(filenames) - 3} more)"
             # Use original filenames (without extension) as table names
             from mcpdb.sources.csv.loader import _make_table_name
+
             table_names = [_make_table_name(fn) for fn in filenames]
             source = CsvSource(tmp_paths, display_name=name, table_names=table_names)
             source_id = _registry.add_source(source)
@@ -237,7 +256,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 
     @app.post("/api/sources/excel")
     async def upload_excel(file: UploadFile = File(...), display_name: str = Form("")):
-        import tempfile, shutil
+        import shutil
+        import tempfile
+
         try:
             from mcpdb.sources.excel.source import ExcelSource
         except ImportError:
@@ -280,8 +301,11 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         except SourceNotFoundError:
             raise HTTPException(status_code=404, detail="Source not found")
         from mcpdb.sources.base import QueryableSource
+
         if not isinstance(source, QueryableSource):
-            raise HTTPException(status_code=400, detail="Source does not support sampling")
+            raise HTTPException(
+                status_code=400, detail="Source does not support sampling"
+            )
         try:
             df = source.get_sample(table, limit=min(limit, 100))
             return {
@@ -300,6 +324,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
             tables = source.get_tables()
             relationships = source.get_relationships()
             from mcpdb.mcp.resources import _build_mermaid_erd
+
             return {"mermaid": _build_mermaid_erd(tables, relationships)}
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -316,8 +341,10 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         Returns JSON with export_id and url for the viewer endpoint.
         The HTML is stored temporarily and served once via GET.
         """
-        from mcpdb.web.export import generate_html_report
         import uuid
+
+        from mcpdb.web.export import generate_html_report
+
         body = await request.json()
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
@@ -331,22 +358,27 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         if len(_html_exports) > 50:
             oldest = next(iter(_html_exports))
             _html_exports.pop(oldest, None)
-        return {"export_id": export_id, "url": f"/api/export/view/{export_id}"}
+        return {"export_id": export_id, "url": f"api/export/view/{export_id}"}
 
     @app.get("/api/export/view/{export_id}")
     async def view_export(export_id: str):
         """Serve a previously generated HTML export (one-time use)."""
         from fastapi.responses import HTMLResponse as _HTMLResponse
+
         html = _html_exports.pop(export_id, None)
         if not html:
-            raise HTTPException(status_code=404, detail="Export not found or already viewed")
+            raise HTTPException(
+                status_code=404, detail="Export not found or already viewed"
+            )
         return _HTMLResponse(content=html)
 
     @app.post("/api/export/pdf")
     async def export_pdf(request: Request):
         """Export conversation as a PDF."""
         from fastapi.responses import Response
+
         from mcpdb.web.export import generate_pdf
+
         body = await request.json()
         turns = body.get("turns", [])
         db_info = body.get("dbInfo", "")
@@ -369,6 +401,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
     async def export_notebook(request: Request):
         """Export conversation as a Jupyter notebook and optionally start Jupyter."""
         from mcpdb.web.export import generate_notebook, start_jupyter_and_open
+
         body = await request.json()
         turns = body.get("turns", [])
         connection_string = body.get("connectionString", "")
@@ -379,7 +412,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         if not turns and not discovery:
             raise HTTPException(status_code=400, detail="No conversation data")
         try:
-            nb_bytes = generate_notebook(turns, connection_string, db_type, db_info, discovery=discovery)
+            nb_bytes = generate_notebook(
+                turns, connection_string, db_type, db_info, discovery=discovery
+            )
         except ImportError as e:
             raise HTTPException(status_code=501, detail=str(e))
 
@@ -388,10 +423,13 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 url = start_jupyter_and_open(nb_bytes)
                 return {"url": url}
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Jupyter start failed: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Jupyter start failed: {e}"
+                )
 
         # Return notebook as download
         from fastapi.responses import Response
+
         return Response(
             content=nb_bytes,
             media_type="application/x-ipynb+json",
@@ -412,6 +450,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
     async def update_llm_config(req: LLMConfigUpdate):
         global _llm
         from mcpdb.llm.factory import create_provider
+
         try:
             _llm = create_provider(req.provider, req.model, req.api_key)
             _config.llm.reasoning.provider = req.provider
@@ -468,7 +507,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 elif msg_type == "query":
                     _handle_query(msg, ws_id, event_queue)
                 else:
-                    event_queue.put_nowait({"type": "error", "message": f"Unknown: {msg_type}"})
+                    event_queue.put_nowait(
+                        {"type": "error", "message": f"Unknown: {msg_type}"}
+                    )
         except WebSocketDisconnect:
             logger.debug("WebSocket %d disconnected", ws_id)
             task = _active_tasks.pop(ws_id, None)
@@ -498,9 +539,13 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
         task = _active_tasks.get(ws_id)
         if task and not task.done() and token:
             token.request_skip()
-            event_queue.put_nowait({"type": "event", "event_type": "step/skip_requested", "data": {}})
+            event_queue.put_nowait(
+                {"type": "event", "event_type": "step/skip_requested", "data": {}}
+            )
         else:
-            event_queue.put_nowait({"type": "error", "message": "No active query to skip"})
+            event_queue.put_nowait(
+                {"type": "error", "message": "No active query to skip"}
+            )
 
     def _handle_query(msg: dict, ws_id: int, event_queue: asyncio.Queue):
 
@@ -510,11 +555,15 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
             return
 
         if not _registry or len(_registry) == 0:
-            event_queue.put_nowait({"type": "error", "message": "No data sources connected"})
+            event_queue.put_nowait(
+                {"type": "error", "message": "No data sources connected"}
+            )
             return
 
         if not _llm:
-            event_queue.put_nowait({"type": "error", "message": "No LLM provider configured"})
+            event_queue.put_nowait(
+                {"type": "error", "message": "No LLM provider configured"}
+            )
             return
 
         # Cancel any existing query for this connection
@@ -534,12 +583,14 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 
         def on_event(event):
             try:
-                event_queue.put_nowait({
-                    "type": "event",
-                    "event_type": event.type,
-                    "data": _sanitize(event.data),
-                    "timestamp": event.timestamp,
-                })
+                event_queue.put_nowait(
+                    {
+                        "type": "event",
+                        "event_type": event.type,
+                        "data": _sanitize(event.data),
+                        "timestamp": event.timestamp,
+                    }
+                )
             except asyncio.QueueFull:
                 pass  # Drop intermediate events — graceful degradation
 
@@ -561,7 +612,10 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 _experience_service.pause_worker()
             try:
                 state = await run_agent(
-                    question, _registry, _llm, callbacks,
+                    question,
+                    _registry,
+                    _llm,
+                    callbacks,
                     mode_override=mode_override,
                     experience_cache=exp_cache,
                     force_rethink=force_rethink,
@@ -571,7 +625,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                     knowledge_manager=_knowledge_manager,
                 )
                 followups = await _safe_generate_followups(
-                    _registry, _llm, question,
+                    _registry,
+                    _llm,
+                    question,
                     state.get("response", ""),
                 )
 
@@ -595,7 +651,9 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
                 await event_queue.put({"type": "cancelled", "queryId": query_id})
             except Exception as e:
                 logger.exception("Agent error")
-                await event_queue.put({"type": "error", "message": str(e), "queryId": query_id})
+                await event_queue.put(
+                    {"type": "error", "message": str(e), "queryId": query_id}
+                )
             finally:
                 _active_tasks.pop(ws_id, None)
                 _active_tokens.pop(ws_id, None)
@@ -611,6 +669,7 @@ def create_app(config: McpdbConfig | None = None, no_cache: bool = False, knowle
 # ---------------------------------------------------------------------------
 # Follow-up generation with fallback
 # ---------------------------------------------------------------------------
+
 
 async def _safe_generate_followups(
     registry: SourceRegistry,
@@ -635,7 +694,9 @@ async def _safe_generate_followups(
 
 
 def _fallback_followups(
-    question: str, response: str, registry: SourceRegistry,
+    question: str,
+    response: str,
+    registry: SourceRegistry,
 ) -> list[str]:
     """Generate simple follow-up suggestions from response context."""
     followups = []
@@ -669,6 +730,7 @@ def _fallback_followups(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _sanitize(data: dict) -> dict:
     result = {}
     for k, v in data.items():
@@ -686,6 +748,7 @@ def _sanitize_list(items: list) -> list:
 
 def find_available_port(start: int = 8080, end: int = 8180) -> int:
     import socket
+
     for port in range(start, end + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -696,7 +759,14 @@ def find_available_port(start: int = 8080, end: int = 8180) -> int:
     raise RuntimeError(f"No available port in range {start}-{end}")
 
 
-def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: bool = True, no_cache: bool = False, knowledge_manager: Any = None) -> None:
+def run_web(
+    config: McpdbConfig | None = None,
+    port: int = 8080,
+    open_browser: bool = True,
+    no_cache: bool = False,
+    root_path: str = "",
+    knowledge_manager: Any = None,
+) -> None:
     """Start the MCPDB web client."""
     import uvicorn
 
@@ -713,4 +783,4 @@ def run_web(config: McpdbConfig | None = None, port: int = 8080, open_browser: b
         threading.Thread(target=_open, daemon=True).start()
 
     logger.info("Starting MCPDB web on http://localhost:%d", port)
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", root_path=root_path)

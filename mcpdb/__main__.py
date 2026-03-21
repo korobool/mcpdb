@@ -15,7 +15,6 @@ from mcpdb import __version__
 from mcpdb.config import load_config
 from mcpdb.logging import setup_logging
 
-
 USAGE = f"""\
 mcpdb v{__version__} — MCP server for natural language database exploration
 
@@ -50,9 +49,9 @@ Usage:
 """
 
 MANUAL = f"""\
-{'=' * 72}
+{"=" * 72}
   MCPDB v{__version__} — Natural Language Database Explorer
-{'=' * 72}
+{"=" * 72}
 
   Ask questions about your data in plain English. MCPDB translates them
   into SQL, executes safely, and returns formatted answers with charts.
@@ -61,9 +60,9 @@ MANUAL = f"""\
   Excel files. Runs standalone via web UI, REPL, TUI, one-shot CLI,
   or as an MCP server for any MCP-compatible client.
 
-{'─' * 72}
+{"─" * 72}
   QUICK START
-{'─' * 72}
+{"─" * 72}
 
   Web client (recommended):
     mcpdb web
@@ -79,9 +78,9 @@ MANUAL = f"""\
   MCP server (for any MCP-compatible client):
     mcpdb serve
 
-{'─' * 72}
+{"─" * 72}
   COMMANDS
-{'─' * 72}
+{"─" * 72}
 
   mcpdb                               Print version
   mcpdb web [OPTIONS]                  Start web client (browser UI)
@@ -101,9 +100,9 @@ MANUAL = f"""\
     - CSV file(s):   data.csv  or  a.csv,b.csv,c.csv
     - Excel file:    report.xlsx
 
-{'─' * 72}
+{"─" * 72}
   WEB CLIENT — mcpdb web
-{'─' * 72}
+{"─" * 72}
 
   Full-featured browser UI with real-time query execution.
 
@@ -121,9 +120,9 @@ MANUAL = f"""\
     - ER diagram visualization with inferred relationships
     - Deep mode investigation results streamed as they complete
 
-{'─' * 72}
+{"─" * 72}
   ONE-SHOT QUERY — mcpdb query
-{'─' * 72}
+{"─" * 72}
 
   Run a single question and exit. Useful for scripting.
 
@@ -134,9 +133,9 @@ MANUAL = f"""\
     mcpdb query sales.csv "Total revenue by region"
     mcpdb query data.xlsx "Average order value per customer"
 
-{'─' * 72}
+{"─" * 72}
   INTERACTIVE REPL — mcpdb repl
-{'─' * 72}
+{"─" * 72}
 
   Conversational interface with history, follow-ups, and mode control.
 
@@ -154,9 +153,9 @@ MANUAL = f"""\
 
   Tip: Type a number (1, 2, 3) to pick a follow-up suggestion.
 
-{'─' * 72}
+{"─" * 72}
   TEXTUAL TUI — mcpdb tui
-{'─' * 72}
+{"─" * 72}
 
   Windowed terminal UI with source panel, pipeline bar, and result log.
 
@@ -164,9 +163,9 @@ MANUAL = f"""\
 
   Requires the textual package: pip install mcpdb[tui]
 
-{'─' * 72}
+{"─" * 72}
   MCP SERVER — mcpdb serve
-{'─' * 72}
+{"─" * 72}
 
   Runs MCPDB as a Model Context Protocol server for any
   MCP-compatible client.
@@ -179,9 +178,9 @@ MANUAL = f"""\
   ask_question, search_schema, render_erd, profile_table,
   find_relationships, export_conversation, and more.
 
-{'─' * 72}
+{"─" * 72}
   QUERY MODES
-{'─' * 72}
+{"─" * 72}
 
   MCPDB automatically classifies each question into the best mode:
 
@@ -217,9 +216,9 @@ MANUAL = f"""\
   In the REPL, override with: /mode simple  (or /mode auto to reset)
   In the web UI, select mode from the dropdown before submitting.
 
-{'─' * 72}
+{"─" * 72}
   EXPERIENCE CACHE
-{'─' * 72}
+{"─" * 72}
 
   MCPDB learns from successful queries. Identical or semantically
   similar questions return cached results instantly.
@@ -243,9 +242,9 @@ MANUAL = f"""\
 
   Storage: ~/.mcpdb/experience/ (configurable via mcpdb.yaml)
 
-{'─' * 72}
+{"─" * 72}
   EXPORT
-{'─' * 72}
+{"─" * 72}
 
   After running queries in the web client, export your conversation:
 
@@ -261,9 +260,9 @@ MANUAL = f"""\
              - All SQL queries as runnable cells
              Optional: auto-launch Jupyter server
 
-{'─' * 72}
+{"─" * 72}
   CONFIGURATION
-{'─' * 72}
+{"─" * 72}
 
   Config file search order:
     1. MCPDB_CONFIG environment variable
@@ -300,9 +299,9 @@ MANUAL = f"""\
       memory_mb: 2048
       cpu_seconds: 60
 
-{'─' * 72}
+{"─" * 72}
   ENVIRONMENT VARIABLES
-{'─' * 72}
+{"─" * 72}
 
   GEMINI_API_KEY        API key for Google Gemini (default provider)
   OPENAI_API_KEY        API key for OpenAI models
@@ -313,9 +312,9 @@ MANUAL = f"""\
   API keys can also be set in mcpdb.yaml under llm.reasoning.api_key.
   Environment variables take precedence when the config value is empty.
 
-{'─' * 72}
+{"─" * 72}
   SUPPORTED DATABASES
-{'─' * 72}
+{"─" * 72}
 
   PostgreSQL      postgresql://user:pass@host:5432/dbname
   MySQL           mysql+pymysql://user:pass@host:3306/dbname
@@ -330,9 +329,9 @@ MANUAL = f"""\
   CSV and Excel files are loaded into DuckDB for SQL querying.
   Multiple CSV files can be joined across tables.
 
-{'─' * 72}
+{"─" * 72}
   SAFETY & SECURITY
-{'─' * 72}
+{"─" * 72}
 
   - Read-only mode by default (no INSERT/UPDATE/DELETE)
   - Python code executes in a sandboxed environment
@@ -341,21 +340,25 @@ MANUAL = f"""\
   - Query timeout: 10 minutes max
   - HTML output sanitized against XSS
 
-{'─' * 72}
+{"─" * 72}
   MORE INFO
-{'─' * 72}
+{"─" * 72}
 
   Short usage:     mcpdb --help
   Version:         mcpdb --version
   Source & issues:  https://github.com/nickolay/mcpdb
 
-{'=' * 72}
+{"=" * 72}
 """
 
 
 def _apply_sandbox_config(config) -> None:
     """Apply sandbox config to the security module."""
-    from mcpdb.sandbox.security import configure_security, DEFAULT_ALLOWED_MODULES, DEFAULT_BLOCKED_MODULES
+    from mcpdb.sandbox.security import (
+        DEFAULT_ALLOWED_MODULES,
+        DEFAULT_BLOCKED_MODULES,
+        configure_security,
+    )
 
     sandbox = config.sandbox
     allowed = DEFAULT_ALLOWED_MODULES | frozenset(sandbox.allowed_modules)
@@ -369,6 +372,7 @@ def _apply_sandbox_config(config) -> None:
 
 def main() -> None:
     from mcpdb.secrets import load_dotenv_if_available
+
     load_dotenv_if_available()
 
     logger = setup_logging()
@@ -402,11 +406,15 @@ def main() -> None:
 
         if transport == "stdio":
             import asyncio
+
             from mcpdb.mcp.server import run_stdio_server
+
             asyncio.run(run_stdio_server(config))
         elif transport == "sse":
             import asyncio
+
             from mcpdb.mcp.server import run_sse_server
+
             try:
                 asyncio.run(run_sse_server(config, port=port))
             except AttributeError:
@@ -418,6 +426,7 @@ def main() -> None:
 
     elif command == "web":
         port = None
+        root = ""
         no_browser = False
         no_cache = False
         knowledge_dirs: list[str] = []
@@ -427,6 +436,9 @@ def main() -> None:
         while i < len(args):
             if args[i] == "--port" and i + 1 < len(args):
                 port = int(args[i + 1])
+                i += 2
+            elif args[i] == "--root-path" and i + 1 < len(args):
+                root = str(args[i + 1])
                 i += 2
             elif args[i] == "--no-browser":
                 no_browser = True
@@ -444,9 +456,11 @@ def main() -> None:
                 i += 1
 
         try:
-            from mcpdb.web.app import run_web, find_available_port
+            from mcpdb.web.app import find_available_port, run_web
         except ImportError:
-            print("Web client requires FastAPI + Uvicorn. Install with: pip install mcpdb[web]")
+            print(
+                "Web client requires FastAPI + Uvicorn. Install with: pip install mcpdb[web]"
+            )
             sys.exit(1)
 
         if port is None:
@@ -454,12 +468,21 @@ def main() -> None:
 
         # Initialize knowledge manager
         knowledge_mgr = _create_knowledge_manager(
-            config, knowledge_dirs, knowledge_embedding, logger,
+            config,
+            knowledge_dirs,
+            knowledge_embedding,
+            logger,
         )
 
         logger.info("mcpdb v%s web client starting on port %d", __version__, port)
-        run_web(config=config, port=port, open_browser=not no_browser,
-                no_cache=no_cache, knowledge_manager=knowledge_mgr)
+        run_web(
+            config=config,
+            port=port,
+            open_browser=not no_browser,
+            no_cache=no_cache,
+            root_path=root,
+            knowledge_manager=knowledge_mgr,
+        )
 
     elif command in ("ui", "webchat", "playground"):
         print(f"The '{command}' command has been removed. Use 'mcpdb web' instead.")
@@ -475,6 +498,7 @@ def main() -> None:
 
         # Suppress INFO logs in query mode — spinner handles status display
         import logging as _logging
+
         _logging.getLogger("mcpdb").setLevel(_logging.WARNING)
         for h in _logging.getLogger("mcpdb").handlers:
             h.setLevel(_logging.WARNING)
@@ -503,7 +527,10 @@ def main() -> None:
         question = " ".join(remaining[1:])
 
         knowledge_mgr = _create_knowledge_manager(
-            config, query_knowledge_dirs, None, logger,
+            config,
+            query_knowledge_dirs,
+            None,
+            logger,
         )
 
         # Detect file-based sources by extension
@@ -512,12 +539,35 @@ def main() -> None:
         candidate_paths = [p.strip() for p in connection_string.split(",")]
         ext = Path(candidate_paths[0]).suffix.lower()
 
-        if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(Path(p).exists() for p in candidate_paths):
-            _oneshot_csv_query(candidate_paths, question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
+        if all(Path(p).suffix.lower() in _CSV_EXTS for p in candidate_paths) and all(
+            Path(p).exists() for p in candidate_paths
+        ):
+            _oneshot_csv_query(
+                candidate_paths,
+                question,
+                config,
+                logger,
+                no_cache=no_cache,
+                knowledge_manager=knowledge_mgr,
+            )
         elif ext in _EXCEL_EXTS and Path(candidate_paths[0]).exists():
-            _oneshot_excel_query(candidate_paths[0], question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
+            _oneshot_excel_query(
+                candidate_paths[0],
+                question,
+                config,
+                logger,
+                no_cache=no_cache,
+                knowledge_manager=knowledge_mgr,
+            )
         else:
-            _oneshot_query(connection_string, question, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
+            _oneshot_query(
+                connection_string,
+                question,
+                config,
+                logger,
+                no_cache=no_cache,
+                knowledge_manager=knowledge_mgr,
+            )
 
     elif command == "repl":
         if len(args) < 2:
@@ -526,6 +576,7 @@ def main() -> None:
 
         # Suppress INFO logs — Rich UI handles status
         import logging as _logging
+
         _logging.getLogger("mcpdb").setLevel(_logging.WARNING)
         for h in _logging.getLogger("mcpdb").handlers:
             h.setLevel(_logging.WARNING)
@@ -548,8 +599,16 @@ def main() -> None:
             remaining.append(a)
         connection_string = remaining[0]
 
-        knowledge_mgr = _create_knowledge_manager(config, repl_knowledge_dirs, None, logger)
-        _start_repl(connection_string, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
+        knowledge_mgr = _create_knowledge_manager(
+            config, repl_knowledge_dirs, None, logger
+        )
+        _start_repl(
+            connection_string,
+            config,
+            logger,
+            no_cache=no_cache,
+            knowledge_manager=knowledge_mgr,
+        )
 
     elif command == "tui":
         if len(args) < 2:
@@ -558,6 +617,7 @@ def main() -> None:
 
         # Suppress INFO logs — TUI handles status
         import logging as _logging
+
         _logging.getLogger("mcpdb").setLevel(_logging.WARNING)
         for h in _logging.getLogger("mcpdb").handlers:
             h.setLevel(_logging.WARNING)
@@ -580,8 +640,16 @@ def main() -> None:
             remaining.append(a)
         connection_string = remaining[0]
 
-        knowledge_mgr = _create_knowledge_manager(config, tui_knowledge_dirs, None, logger)
-        _start_tui(connection_string, config, logger, no_cache=no_cache, knowledge_manager=knowledge_mgr)
+        knowledge_mgr = _create_knowledge_manager(
+            config, tui_knowledge_dirs, None, logger
+        )
+        _start_tui(
+            connection_string,
+            config,
+            logger,
+            no_cache=no_cache,
+            knowledge_manager=knowledge_mgr,
+        )
 
     elif command == "experience":
         if len(args) < 2:
@@ -621,16 +689,21 @@ def main() -> None:
         sys.exit(1)
 
 
-def _create_knowledge_manager(config, knowledge_dirs: list[str] | None = None,
-                               embedding_mode: str | None = None, logger=None):
+def _create_knowledge_manager(
+    config,
+    knowledge_dirs: list[str] | None = None,
+    embedding_mode: str | None = None,
+    logger=None,
+):
     """Create a KnowledgeManager from CLI flags and config."""
-    from mcpdb.knowledge.manager import KnowledgeManager
-    from mcpdb.knowledge.file_provider import FileKnowledgeProvider
     from mcpdb.knowledge.embeddings import resolve_embedding_provider
+    from mcpdb.knowledge.file_provider import FileKnowledgeProvider
+    from mcpdb.knowledge.manager import KnowledgeManager
 
     dirs = knowledge_dirs or []
     if not dirs and config.knowledge.enabled:
         import os
+
         dirs = [os.path.expanduser(d) for d in config.knowledge.directories]
         # Add per-source directories
         for source_id, path in config.knowledge.sources.items():
@@ -645,12 +718,18 @@ def _create_knowledge_manager(config, knowledge_dirs: list[str] | None = None,
     embed_provider = resolve_embedding_provider(mode)
 
     mgr = KnowledgeManager()
-    mgr.add_file_provider(FileKnowledgeProvider(existing_dirs, embedding_provider=embed_provider))
+    mgr.add_file_provider(
+        FileKnowledgeProvider(existing_dirs, embedding_provider=embed_provider)
+    )
     count = mgr.load()
 
     if logger and count > 0:
-        logger.info("Knowledge: %d chunks loaded from %s (embedding=%s)",
-                     count, ", ".join(existing_dirs), mode)
+        logger.info(
+            "Knowledge: %d chunks loaded from %s (embedding=%s)",
+            count,
+            ", ".join(existing_dirs),
+            mode,
+        )
 
     return mgr if count > 0 else None
 
@@ -693,7 +772,13 @@ def _create_source_and_registry(connection_string: str, logger):
     return registry
 
 
-def _start_tui(connection_string: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
+def _start_tui(
+    connection_string: str,
+    config,
+    logger,
+    no_cache: bool = False,
+    knowledge_manager=None,
+) -> None:
     """Start the Textual TUI."""
     try:
         from mcpdb.cli.tui.app import run_tui
@@ -728,11 +813,17 @@ def _start_tui(connection_string: str, config, logger, no_cache: bool = False, k
         registry.close_all()
 
 
-def _start_repl(connection_string: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
+def _start_repl(
+    connection_string: str,
+    config,
+    logger,
+    no_cache: bool = False,
+    knowledge_manager=None,
+) -> None:
     """Start the interactive REPL."""
+    from mcpdb.cli.repl import Repl
     from mcpdb.experience.service import ExperienceService
     from mcpdb.llm.factory import create_provider
-    from mcpdb.cli.repl import Repl
 
     registry = _create_source_and_registry(connection_string, logger)
 
@@ -759,20 +850,26 @@ def _start_repl(connection_string: str, config, logger, no_cache: bool = False, 
         registry.close_all()
 
 
-def _oneshot_query(connection_string: str, question: str, config, logger,
-                    no_cache: bool = False, knowledge_manager=None) -> None:
+def _oneshot_query(
+    connection_string: str,
+    question: str,
+    config,
+    logger,
+    no_cache: bool = False,
+    knowledge_manager=None,
+) -> None:
     """Run a one-shot query and print the result."""
     import asyncio
 
     async def run():
-        from mcpdb.sources.database.source import DatabaseSource
-        from mcpdb.sources.registry import SourceRegistry
-        from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
-        from mcpdb.experience.service import ExperienceService
-        from mcpdb.llm.factory import create_provider
+        from mcpdb.agent.graph import run_agent
         from mcpdb.cli.progress import RichProgress
         from mcpdb.cli.renderer import ResultRenderer
+        from mcpdb.experience.service import ExperienceService
+        from mcpdb.llm.factory import create_provider
+        from mcpdb.sources.database.source import DatabaseSource
+        from mcpdb.sources.registry import SourceRegistry
 
         progress = RichProgress(question=question, source_name=connection_string)
         callbacks = CallbackManager()
@@ -796,7 +893,10 @@ def _oneshot_query(connection_string: str, question: str, config, logger,
             progress.start()
 
             state = await run_agent(
-                question, registry, llm, callbacks,
+                question,
+                registry,
+                llm,
+                callbacks,
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
@@ -816,19 +916,26 @@ def _oneshot_query(connection_string: str, question: str, config, logger,
     asyncio.run(run())
 
 
-def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
+def _oneshot_csv_query(
+    file_paths: list[str],
+    question: str,
+    config,
+    logger,
+    no_cache: bool = False,
+    knowledge_manager=None,
+) -> None:
     """Run a one-shot query against CSV/TSV file(s)."""
     import asyncio
 
     async def run():
-        from mcpdb.sources.csv.source import CsvSource
-        from mcpdb.sources.registry import SourceRegistry
-        from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
-        from mcpdb.experience.service import ExperienceService
-        from mcpdb.llm.factory import create_provider
+        from mcpdb.agent.graph import run_agent
         from mcpdb.cli.progress import RichProgress
         from mcpdb.cli.renderer import ResultRenderer
+        from mcpdb.experience.service import ExperienceService
+        from mcpdb.llm.factory import create_provider
+        from mcpdb.sources.csv.source import CsvSource
+        from mcpdb.sources.registry import SourceRegistry
 
         names = [Path(p).stem for p in file_paths]
         display = ", ".join(names[:3])
@@ -857,7 +964,10 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
             progress.start()
 
             state = await run_agent(
-                question, registry, llm, callbacks,
+                question,
+                registry,
+                llm,
+                callbacks,
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
@@ -877,19 +987,26 @@ def _oneshot_csv_query(file_paths: list[str], question: str, config, logger, no_
     asyncio.run(run())
 
 
-def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache: bool = False, knowledge_manager=None) -> None:
+def _oneshot_excel_query(
+    file_path: str,
+    question: str,
+    config,
+    logger,
+    no_cache: bool = False,
+    knowledge_manager=None,
+) -> None:
     """Run a one-shot query against an Excel workbook."""
     import asyncio
 
     async def run():
-        from mcpdb.sources.excel.source import ExcelSource
-        from mcpdb.sources.registry import SourceRegistry
-        from mcpdb.agent.graph import run_agent
         from mcpdb.agent.callbacks import CallbackManager
-        from mcpdb.experience.service import ExperienceService
-        from mcpdb.llm.factory import create_provider
+        from mcpdb.agent.graph import run_agent
         from mcpdb.cli.progress import RichProgress
         from mcpdb.cli.renderer import ResultRenderer
+        from mcpdb.experience.service import ExperienceService
+        from mcpdb.llm.factory import create_provider
+        from mcpdb.sources.excel.source import ExcelSource
+        from mcpdb.sources.registry import SourceRegistry
 
         display = Path(file_path).name
         progress = RichProgress(question=question, source_name=display)
@@ -914,7 +1031,10 @@ def _oneshot_excel_query(file_path: str, question: str, config, logger, no_cache
             progress.start()
 
             state = await run_agent(
-                question, registry, llm, callbacks,
+                question,
+                registry,
+                llm,
+                callbacks,
                 experience_cache=service.cache,
                 staging_store=service.staging,
                 no_cache=no_cache,
@@ -986,16 +1106,19 @@ def _experience_eval(config, logger) -> None:
                 print(f"  Promoted (score={result.score}): {record.question[:60]}")
             else:
                 from mcpdb.experience.records import FailureRecord
-                experience_store.store_failure(FailureRecord(
-                    question=record.question,
-                    source_fingerprint=fp,
-                    error_type="quality_rejected",
-                    error_message=(
-                        f"Score {result.score}/10. "
-                        f"Issues: {'; '.join(result.issues) if result.issues else 'none'}"
-                    ),
-                    failed_code=record.response[:500],
-                ))
+
+                experience_store.store_failure(
+                    FailureRecord(
+                        question=record.question,
+                        source_fingerprint=fp,
+                        error_type="quality_rejected",
+                        error_message=(
+                            f"Score {result.score}/10. "
+                            f"Issues: {'; '.join(result.issues) if result.issues else 'none'}"
+                        ),
+                        failed_code=record.response[:500],
+                    )
+                )
                 staging_store.remove(fp, ih)
                 rejected += 1
                 print(f"  Rejected (score={result.score}): {record.question[:60]}")
@@ -1020,23 +1143,40 @@ def _experience_stats(config) -> None:
         print("No experience data found.")
     else:
         print(f"Experience store ({len(fingerprints)} source(s)):")
-        print(f"  {'Fingerprint':<20s} {'Successes':>10s} {'Failures':>10s} {'Oldest':>12s} {'Newest':>12s}")
+        print(
+            f"  {'Fingerprint':<20s} {'Successes':>10s} {'Failures':>10s} {'Oldest':>12s} {'Newest':>12s}"
+        )
         print(f"  {'─' * 20} {'─' * 10} {'─' * 10} {'─' * 12} {'─' * 12}")
         for fp in fingerprints:
             stats = store.get_stats(fp)
             import time as _time
-            oldest = _time.strftime("%Y-%m-%d", _time.localtime(stats["oldest"])) if stats["oldest"] else "n/a"
-            newest = _time.strftime("%Y-%m-%d", _time.localtime(stats["newest"])) if stats["newest"] else "n/a"
-            print(f"  {fp[:20]:<20s} {stats['successes']:>10d} {stats['failures']:>10d} {oldest:>12s} {newest:>12s}")
+
+            oldest = (
+                _time.strftime("%Y-%m-%d", _time.localtime(stats["oldest"]))
+                if stats["oldest"]
+                else "n/a"
+            )
+            newest = (
+                _time.strftime("%Y-%m-%d", _time.localtime(stats["newest"]))
+                if stats["newest"]
+                else "n/a"
+            )
+            print(
+                f"  {fp[:20]:<20s} {stats['successes']:>10d} {stats['failures']:>10d} {oldest:>12s} {newest:>12s}"
+            )
 
     # Staging stats
     pending = staging.get_all_pending()
     staging_fps = staging.list_fingerprints()
-    print(f"\nStaging: {len(pending)} pending record(s) across {len(staging_fps)} source(s)")
+    print(
+        f"\nStaging: {len(pending)} pending record(s) across {len(staging_fps)} source(s)"
+    )
 
     # Cache memory stats
     cache_stats = cache.get_stats()
-    print(f"Memory cache: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries")
+    print(
+        f"Memory cache: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries"
+    )
 
 
 def _experience_clear(config, sub_args: list[str]) -> None:
@@ -1087,6 +1227,7 @@ def _experience_clear(config, sub_args: list[str]) -> None:
 def _experience_export(config, sub_args: list[str]) -> None:
     """Export experience data as JSON to stdout."""
     import json
+
     from mcpdb.experience.service import ExperienceService
 
     service = ExperienceService(config.experience)
@@ -1127,7 +1268,8 @@ def _experience_export(config, sub_args: list[str]) -> None:
 def _experience_antipatterns(config, sub_args: list[str]) -> None:
     """List anti-patterns with counts and avoidance hints."""
     from collections import Counter
-    from mcpdb.experience.antipatterns import _simplify_error, _generate_hint
+
+    from mcpdb.experience.antipatterns import _generate_hint, _simplify_error
     from mcpdb.experience.records import FailureRecord
     from mcpdb.experience.service import ExperienceService
 
@@ -1177,7 +1319,9 @@ def _experience_antipatterns(config, sub_args: list[str]) -> None:
         for key, count in promoted:
             example = pattern_examples[key]
             hint = _generate_hint(example)
-            print(f"\n  [{example.error_type}] {_simplify_error(example.error_message)}")
+            print(
+                f"\n  [{example.error_type}] {_simplify_error(example.error_message)}"
+            )
             print(f"    Occurrences: {count}")
             print(f"    Hint: {hint}")
             if example.failed_code:
@@ -1189,7 +1333,9 @@ def _experience_antipatterns(config, sub_args: list[str]) -> None:
         print(f"\nPending patterns (< {min_occ} occurrences):")
         for key, count in below:
             example = pattern_examples[key]
-            print(f"  [{example.error_type}] {_simplify_error(example.error_message)} ({count}x)")
+            print(
+                f"  [{example.error_type}] {_simplify_error(example.error_message)} ({count}x)"
+            )
 
 
 def _clean_cache(config, sub_args: list[str]) -> None:
@@ -1238,7 +1384,9 @@ def _clean_cache(config, sub_args: list[str]) -> None:
                 staging.remove(fp, record.intent_hash)
                 cleared_staging += 1
         cache.clear_all()
-        print(f"Cache cleared: {cleared_sources} source(s), {cleared_staging} staged record(s) removed.")
+        print(
+            f"Cache cleared: {cleared_sources} source(s), {cleared_staging} staged record(s) removed."
+        )
 
 
 def _print_cache_stats(store, staging, cache) -> None:
@@ -1255,11 +1403,15 @@ def _print_cache_stats(store, staging, cache) -> None:
             stats = store.get_stats(fp)
             total_success += stats["successes"]
             total_failure += stats["failures"]
-        print(f"Cache: {total_success} cached solution(s), {total_failure} failure record(s) across {len(fingerprints)} source(s)")
+        print(
+            f"Cache: {total_success} cached solution(s), {total_failure} failure record(s) across {len(fingerprints)} source(s)"
+        )
 
     pending = staging.get_all_pending()
     print(f"Staging: {len(pending)} pending record(s)")
-    print(f"Memory: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries loaded")
+    print(
+        f"Memory: {cache_stats['memory_entries']}/{cache_stats['memory_max']} entries loaded"
+    )
 
 
 if __name__ == "__main__":

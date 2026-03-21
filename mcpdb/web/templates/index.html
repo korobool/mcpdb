@@ -400,8 +400,7 @@ let elapsedTimer = null;
 
 // ── WebSocket ──────────────────────────────────────────
 function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws/query`);
+  ws = new WebSocket(`ws/query`);
   ws.onopen = () => {
     console.log('WS connected');
     document.title = 'MCPDB';
@@ -1248,7 +1247,7 @@ function fmtTokens(n) {
 // ── Source management ──────────────────────────────────
 async function loadSources() {
   try {
-    const res = await fetch('/api/sources');
+    const res = await fetch('api/sources');
     sources = await res.json();
     renderSources();
     renderWelcome();
@@ -1293,7 +1292,7 @@ async function connectDatabase() {
   if (!connStr) return;
   const name = document.getElementById('conn-name').value.trim();
   try {
-    const res = await fetch('/api/sources/database', {
+    const res = await fetch('api/sources/database', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ connection_string: connStr, display_name: name || undefined }),
@@ -1352,7 +1351,7 @@ function uploadCSV() {
   if (name) form.append('display_name', name);
 
   const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/sources/csv');
+  xhr.open('POST', 'api/sources/csv');
 
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
@@ -1395,7 +1394,7 @@ function uploadCSV() {
 async function removeSource(sourceId) {
   if (!confirm('Remove this data source?')) return;
   try {
-    await fetch(`/api/sources/${sourceId}`, { method: 'DELETE' });
+    await fetch(`api/sources/${sourceId}`, { method: 'DELETE' });
     await loadSources();
   } catch (e) { console.error('Failed to remove source', e); }
 }
@@ -1450,7 +1449,7 @@ function uploadExcel() {
   if (name) form.append('display_name', name);
 
   const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/sources/excel');
+  xhr.open('POST', 'api/sources/excel');
 
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
@@ -1539,7 +1538,7 @@ async function renderWelcome() {
   // Fetch ERD
   let erdMermaid = '';
   try {
-    const res = await fetch(`/api/sources/${s.source_id}/erd`);
+    const res = await fetch(`api/sources/${s.source_id}/erd`);
     if (res.ok) {
       const data = await res.json();
       erdMermaid = data.mermaid || '';
@@ -1726,7 +1725,7 @@ function _getDiscovery() {
 async function exportHTML() {
   if (conversationTurns.length === 0 && sources.length === 0) return;
   try {
-    const resp = await fetch('/api/export/html', {
+    const resp = await fetch('api/export/html', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo(), discovery: _getDiscovery() }),
@@ -1740,7 +1739,7 @@ async function exportHTML() {
 async function exportPDF() {
   if (conversationTurns.length === 0 && sources.length === 0) return;
   try {
-    const resp = await fetch('/api/export/pdf', {
+    const resp = await fetch('api/export/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turns: conversationTurns, dbInfo: _getDbInfo(), discovery: _getDiscovery() }),
@@ -1770,7 +1769,7 @@ async function exportNotebook(openJupyter = false) {
                    connStr.includes('mysql') ? 'mysql' :
                    connStr.includes('postgresql') ? 'postgresql' :
                    connStr.includes('sqlite') ? 'sqlite' : 'mysql';
-    const resp = await fetch('/api/export/notebook', {
+    const resp = await fetch('api/export/notebook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

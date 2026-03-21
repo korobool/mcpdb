@@ -83,6 +83,11 @@ all = [
 [project.scripts]
 mcpdb = "mcpdb.__main__:main"
 
+
+[project.entry-points.jupyter_serverproxy_servers]
+"mcpdb" = "mcpdb:jupyterserverproxy"
+
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
